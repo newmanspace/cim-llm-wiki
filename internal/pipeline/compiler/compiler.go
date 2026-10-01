@@ -30,7 +30,7 @@ import (
 "text/template"
 "time"
 
-"github.com/cim-llm/cim-wiki/internal/types"
+"cim-llm-wiki/internal/types"
 )
 
 // Compiler writes KnowledgeNodes to the wiki output directory.

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cim-llm/cim-wiki/internal/config"
-	"github.com/cim-llm/cim-wiki/internal/pipeline/evaluator"
-	"github.com/cim-llm/cim-wiki/internal/types"
+	"cim-llm-wiki/internal/config"
+	"cim-llm-wiki/internal/pipeline/evaluator"
+	"cim-llm-wiki/internal/types"
 )
 
 func TestEvaluatorScoring(t *testing.T) {

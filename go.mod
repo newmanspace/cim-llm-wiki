@@ -1,4 +1,4 @@
-module github.com/cim-llm/cim-wiki
+module cim-llm-wiki
 
 go 1.26.0
 

@@ -5,10 +5,10 @@ import (
 
 "github.com/gin-gonic/gin"
 
-"github.com/cim-llm/cim-wiki/internal/config"
-"github.com/cim-llm/cim-wiki/internal/hitl"
-"github.com/cim-llm/cim-wiki/internal/pipeline/compiler"
-"github.com/cim-llm/cim-wiki/internal/types"
+"cim-llm-wiki/internal/config"
+"cim-llm-wiki/internal/hitl"
+"cim-llm-wiki/internal/pipeline/compiler"
+"cim-llm-wiki/internal/types"
 )
 
 // ReviewHandler handles the HITL review workflow.

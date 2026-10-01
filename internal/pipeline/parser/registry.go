@@ -5,8 +5,8 @@ import (
 "fmt"
 "strings"
 
-"github.com/cim-llm/cim-wiki/internal/config"
-"github.com/cim-llm/cim-wiki/internal/types"
+"cim-llm-wiki/internal/config"
+"cim-llm-wiki/internal/types"
 )
 
 // EngineInfo is the metadata shown in GET /api/v1/parsers.

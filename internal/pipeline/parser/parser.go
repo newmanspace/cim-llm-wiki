@@ -13,7 +13,7 @@ package parser
 import (
 "context"
 
-"github.com/cim-llm/cim-wiki/internal/types"
+"cim-llm-wiki/internal/types"
 )
 
 // DocParser is the interface every parsing engine must implement.

@@ -16,11 +16,11 @@ import (
 
 "github.com/gin-gonic/gin"
 
-"github.com/cim-llm/cim-wiki/internal/config"
-"github.com/cim-llm/cim-wiki/internal/handler"
-"github.com/cim-llm/cim-wiki/internal/hitl"
-"github.com/cim-llm/cim-wiki/internal/pipeline"
-"github.com/cim-llm/cim-wiki/internal/pipeline/compiler"
+"cim-llm-wiki/internal/config"
+"cim-llm-wiki/internal/handler"
+"cim-llm-wiki/internal/hitl"
+"cim-llm-wiki/internal/pipeline"
+"cim-llm-wiki/internal/pipeline/compiler"
 )
 
 func main() {

@@ -10,8 +10,8 @@ import (
 
 "github.com/gin-gonic/gin"
 
-"github.com/cim-llm/cim-wiki/internal/config"
-"github.com/cim-llm/cim-wiki/internal/pipeline"
+"cim-llm-wiki/internal/config"
+"cim-llm-wiki/internal/pipeline"
 )
 
 // IngestHandler handles POST /api/v1/ingest

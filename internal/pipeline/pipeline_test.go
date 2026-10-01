@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cim-llm/cim-wiki/internal/config"
-	"github.com/cim-llm/cim-wiki/internal/hitl"
-	"github.com/cim-llm/cim-wiki/internal/pipeline"
-	"github.com/cim-llm/cim-wiki/internal/types"
+	"cim-llm-wiki/internal/config"
+	"cim-llm-wiki/internal/hitl"
+	"cim-llm-wiki/internal/pipeline"
+	"cim-llm-wiki/internal/types"
 )
 
 func TestPipelineE2E(t *testing.T) {

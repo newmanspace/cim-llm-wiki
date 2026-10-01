@@ -16,13 +16,13 @@ import (
 "log/slog"
 "time"
 
-"github.com/cim-llm/cim-wiki/internal/config"
-"github.com/cim-llm/cim-wiki/internal/hitl"
-"github.com/cim-llm/cim-wiki/internal/pipeline/compiler"
-"github.com/cim-llm/cim-wiki/internal/pipeline/evaluator"
-"github.com/cim-llm/cim-wiki/internal/pipeline/extractor"
-"github.com/cim-llm/cim-wiki/internal/pipeline/parser"
-"github.com/cim-llm/cim-wiki/internal/types"
+"cim-llm-wiki/internal/config"
+"cim-llm-wiki/internal/hitl"
+"cim-llm-wiki/internal/pipeline/compiler"
+"cim-llm-wiki/internal/pipeline/evaluator"
+"cim-llm-wiki/internal/pipeline/extractor"
+"cim-llm-wiki/internal/pipeline/parser"
+"cim-llm-wiki/internal/types"
 )
 
 // Pipeline is the stateful orchestrator for one cim-wiki instance.

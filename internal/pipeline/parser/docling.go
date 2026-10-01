@@ -12,8 +12,8 @@ import (
 "path/filepath"
 "strings"
 
-"github.com/cim-llm/cim-wiki/internal/config"
-"github.com/cim-llm/cim-wiki/internal/types"
+"cim-llm-wiki/internal/config"
+"cim-llm-wiki/internal/types"
 )
 
 func init() {

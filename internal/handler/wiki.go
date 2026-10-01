@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cim-llm/cim-wiki/internal/config"
-	"github.com/cim-llm/cim-wiki/internal/pipeline/compiler"
-	"github.com/cim-llm/cim-wiki/internal/pipeline/parser"
+	"cim-llm-wiki/internal/config"
+	"cim-llm-wiki/internal/pipeline/compiler"
+	"cim-llm-wiki/internal/pipeline/parser"
 )
 
 // WikiHandler serves wiki content queries.

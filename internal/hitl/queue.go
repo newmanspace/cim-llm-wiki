@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cim-llm/cim-wiki/internal/types"
+	"cim-llm-wiki/internal/types"
 )
 
 // Queue manages ChangeBundle lifecycle with thread-safe JSON file persistence.
