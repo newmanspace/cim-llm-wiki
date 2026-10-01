@@ -84,9 +84,10 @@ Agent 自动执行：解析 → 抽取 → 评分 → 呈现聚合审核卡片�
 ### 4. 浏览知识库
 
 ```bash
-npm run gen          # 仅扫描 data/wiki 刷新侧边栏与首页（sidebar-data.mjs）
+cd web
+npm run gen          # 仅扫描 data/wiki 刷新侧边栏与首页（.vitepress/sidebar-data.mjs）
 npm run docs:dev     # 开发预览 http://localhost:5173（自动先执行 gen）
-npm run docs:build   # 静态构建到 .vitepress/dist/（自动先执行 gen）
+npm run docs:build   # 静态构建到 web/.vitepress/dist/（自动先执行 gen）
 npm run docs:preview # 预览静态构建产物
 ```
 
@@ -195,10 +196,10 @@ cim-llm-wiki/
 │       ├── parse.mjs             ← Stage 1 解析客户端（MinerU/Docling/MarkItDown，本地不做任何文档解析）
 │       ├── compile.mjs           ← Stage 5 编译 nodes.json → wiki 页面
 │       └── validate.mjs          ← Stage 6 Lint 校验
-├── .vitepress/config.mjs         ← ★ VitePress 站点配置（站点根=仓库根，srcDir=data/wiki）
-├── scripts/gen-sidebar.mjs       ← 扫描 data/wiki 生成侧边栏与首页
-├── sidebar-data.mjs              ← 侧边栏数据（gen-sidebar.mjs 生成，.gitignore）
-├── package.json                  ← npm run gen / docs:dev / docs:build / docs:preview
+├── web/                          ← ★ 独立 Web 知识库展示工程
+│   ├── .vitepress/config.mjs     ← VitePress 站点配置（srcDir=../data/wiki）
+│   ├── scripts/gen-sidebar.mjs   ← 扫描 data/wiki 自动生成侧边栏与首页
+│   └── package.json              ← npm run gen / docs:dev / docs:build / docs:preview
 ├── .env.example                  ← 解析服务端点等环境变量样例
 ├── docs/                         ← 本项目自身的工程文档
 │   ├── HANDOFF.md                ← 项目交接与工程交付文档（v1→v2 架构转型）

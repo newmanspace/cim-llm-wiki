@@ -1,14 +1,30 @@
 import { defineConfig } from 'vitepress'
-import { sidebar, nav } from '../sidebar-data.mjs'
+import { createRequire } from 'node:module'
+import { sidebar, nav } from './sidebar-data.mjs'
+
+const require = createRequire(import.meta.url)
 
 export default defineConfig({
   lang: 'zh-CN',
   title: 'CIM 知识库',
   description: '泛半导体 CIM/MES 全生命周期原子化 Wiki',
-  srcDir: 'data/wiki',
+  srcDir: '../data/wiki',
   cleanUrls: true,
   ignoreDeadLinks: true,
   lastUpdated: true,
+  vite: {
+    resolve: {
+      alias: [
+        { find: /^vue$/, replacement: require.resolve('vue') },
+        { find: /^vue\/server-renderer$/, replacement: require.resolve('vue/server-renderer') }
+      ]
+    },
+    server: {
+      fs: {
+        allow: ['..']
+      }
+    }
+  },
   search: {
     provider: 'local',
     options: {

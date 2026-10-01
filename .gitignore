@@ -28,12 +28,15 @@ coverage.txt
 coverage.out
 vendor/
 
-# Web / VitePress 构建与生成物
-node_modules/
-.vitepress/dist/
-.vitepress/cache/
-sidebar-data.mjs
-.cache/
+# Web / VitePress 构建与生成物 (web/ 独立前端工程)
+web/node_modules/
+web/.vitepress/dist/
+web/.vitepress/cache/
+web/.vitepress/sidebar-data.mjs
+web/sidebar-data.mjs
+web/.cache/
+/node_modules/
+/sidebar-data.mjs
 
 # Python / 引擎辅助服务
 .venv/

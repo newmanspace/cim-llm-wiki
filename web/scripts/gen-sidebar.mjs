@@ -4,9 +4,10 @@ import { join, relative, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const ROOT = join(__dirname, '..')
-const WIKI_ROOT = join(ROOT, 'data', 'wiki')
-const OUT = join(ROOT, '.vitepress', '..', 'sidebar-data.mjs')
+const WEB_ROOT = join(__dirname, '..')
+const PROJECT_ROOT = join(__dirname, '..', '..')
+const WIKI_ROOT = join(PROJECT_ROOT, 'data', 'wiki')
+const OUT = join(WEB_ROOT, '.vitepress', 'sidebar-data.mjs')
 
 const DIR_META = [
   ['products', '产品线'],

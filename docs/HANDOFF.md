@@ -13,8 +13,8 @@
 ### 已完成
 
 - **README.md 全量重写**（`/docker/cim-llm-wiki/README.md`）：参照 `/docker/mycim-knora/weknora-core/README_CN.md` 的版式重构为 项目介绍 → 快速开始 → 架构设计 → 功能概览 → 已落地内容 → 设计原则 → 项目结构 → 开发指南 → 扩展点 → 文档。内容全部取自项目实际状态，未虚构（因无 LICENSE/CHANGELOG/git remote，徽章仅保留 Node/VitePress/架构/引擎等事实项）。
-- **站点编译**：`npm run docs:build` 成功 —— `gen-sidebar: 10 pages, 3 groups`，产物在 `.vitepress/dist/`。
-- **站点预览**：`npm run docs:dev` 已后台运行，5173 被占用自动改用 **http://localhost:5174/**（terminal_id=1，如需停掉用 `GetTerminalOutput` 确认后终止）。
+- **站点编译**：在 `web/` 下执行 `npm run docs:build` 成功，产物在 `web/.vitepress/dist/`。
+- **站点预览**：在 `web/` 下执行 `npm run docs:dev`，访问 **http://localhost:5173/**。
 - **解析引擎容器在线**：`cim-wiki-mineru`(:8888)、`cim-wiki-docling`(:5001)、`cim-wiki-markitdown`(:5002) 均 Up。`curl :8888/:5001/:5002` 根路径返回 404 属正常（仅暴露具体 API 端点）。
 - **知识库现状**：`data/wiki/` 已有 10 个原子节点（需求 1 `req-ke-001` + 架构设计 7 `des-ke-001..007` + 模块驾驶舱 2 `mod-ke-001..002`），来源于已批准的 `CR-20261001-0001`（对方案自身 MD 的摄取，作为 POC 示范）。
 
@@ -67,7 +67,7 @@ v1 是完整 Go 服务（HTTP API + 内置 LLM 调用）；v2 转型为 **Skill 
 | HITL 审核 | HTTP 队列 | `data/review/` 变更卡片（pending/approved/rejected/archived）+ 对话内用户裁决 |
 | Wiki 编译 | compiler.go | `scripts/compile.mjs`（nodes.json → data/wiki/，规范见 references/frontmatter.md） |
 | Lint 校验 | 未实现 | `scripts/validate.mjs`（断链/孤儿/元数据/重复嫌疑/过期） |
-| 展示 | 无 | **VitePress**（仓库根即站点根，srcDir=data/wiki，`npm run docs:dev`） |
+| 展示 | 无 | **VitePress**（独立 web/ 子工程，srcDir=../data/wiki，`cd web && npm run docs:dev`） |
 | Go 代码 | 主体 | **遗留只读**：mineru.go/docling.go 为 HTTP 契约权威参考，不再演进 |
 
 技术选型对比与 Phase 3 检索层建议见 **docs/TECH-STACK.md**。
