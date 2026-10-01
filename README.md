@@ -59,19 +59,21 @@ docker pull swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/docling-project/doc
 docker tag  swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/docling-project/docling-serve:latest \
             quay.io/docling-project/docling-serve:latest
 
-cd deploy && docker compose up -d mineru docling markitdown && cd ..
-export MINERU_ENDPOINT=http://localhost:8888
-export DOCLING_ENDPOINT=http://localhost:5001
-export MARKITDOWN_ENDPOINT=http://localhost:5002
+```bash
+cd deploy && docker compose up -d
 ```
 
-| 服务 | 地址 | 角色 |
-|------|------|------|
-| MinerU | `http://localhost:8888` | 复杂 PDF（双栏/跨页表格/公式），SDD/IDD 主力 |
-| Docling | `http://localhost:5001` | DOCX/PPTX/XLSX/HTML 主力（IBM 开源） |
-| MarkItDown | `http://localhost:5002` | 备选服务端引擎（`--engine markitdown` 显式指定） |
-| Qdrant | `http://localhost:6333` | 向量检索（Phase 3 预留） |
-| Meilisearch | `http://localhost:7700` | BM25 全文检索（Phase 3 预留） |
+一键拉起 5 大服务组件：
+
+| 服务容器 | 内部/外部端口 | 角色与说明 |
+|---------|-------------|-----------|
+| `cim-wiki-web` | `:5174` | VitePress 知识库 Web 交互站点（对外访问） |
+| `cim-wiki-server` | `:8080` | 5 阶段知识处理流水线 Go API 服务 |
+| `cim-wiki-mineru` | `:8888` | 复杂 PDF 解析引擎（双栏/跨页表格/公式，SDD/IDD 主力） |
+| `cim-wiki-docling` | `:5001` | DOCX/PPTX/XLSX/HTML 解析引擎（IBM 开源） |
+| `cim-wiki-markitdown` | `:5002` | 备选服务端通用文档解析引擎（微软开源） |
+| `cim-wiki-qdrant` | `:6333` | 向量检索（Phase 3 预留，通过 `--profile retrieval` 启用） |
+| `cim-wiki-meili` | `:7700` | BM25 全文检索（Phase 3 预留，通过 `--profile retrieval` 启用） |
 
 ### 3. 摄取文档（Agent 会话）
 

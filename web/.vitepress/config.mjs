@@ -1,17 +1,22 @@
 import { defineConfig } from 'vitepress'
 import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { sidebar, nav } from './sidebar-data.mjs'
 
 const require = createRequire(import.meta.url)
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const srcDir = process.env.WIKI_ROOT || (existsSync(join(__dirname, '../../data/wiki')) ? '../data/wiki' : existsSync('/data/wiki') ? '/data/wiki' : 'data/wiki')
 
 export default defineConfig({
   lang: 'zh-CN',
   title: 'CIM 知识库',
   description: '泛半导体 CIM/MES 全生命周期原子化 Wiki',
-  srcDir: '../data/wiki',
+  srcDir,
   cleanUrls: true,
   ignoreDeadLinks: true,
-  lastUpdated: true,
+  lastUpdated: false,
   vite: {
     resolve: {
       alias: [
@@ -21,7 +26,7 @@ export default defineConfig({
     },
     server: {
       fs: {
-        allow: ['..']
+        allow: ['..', '/app']
       }
     }
   },

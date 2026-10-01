@@ -12,11 +12,18 @@
 
 ### 已完成
 
-- **README.md 全量重写**（`/docker/cim-llm-wiki/README.md`）：参照 `/docker/mycim-knora/weknora-core/README_CN.md` 的版式重构为 项目介绍 → 快速开始 → 架构设计 → 功能概览 → 已落地内容 → 设计原则 → 项目结构 → 开发指南 → 扩展点 → 文档。内容全部取自项目实际状态，未虚构（因无 LICENSE/CHANGELOG/git remote，徽章仅保留 Node/VitePress/架构/引擎等事实项）。
-- **站点编译**：在 `web/` 下执行 `npm run docs:build` 成功，产物在 `web/.vitepress/dist/`。
-- **站点预览**：在 `web/` 下执行 `npm run docs:dev`，访问 **http://localhost:5174/**（或局域网 **http://10.243.251.204:5174/**）。
-- **解析引擎容器在线**：`cim-wiki-mineru`(:8888)、`cim-wiki-docling`(:5001)、`cim-wiki-markitdown`(:5002) 均 Up。`curl :8888/:5001/:5002` 根路径返回 404 属正常（仅暴露具体 API 端点）。
-- **知识库现状**：`data/wiki/` 已有 10 个原子节点（需求 1 `req-ke-001` + 架构设计 7 `des-ke-001..007` + 模块驾驶舱 2 `mod-ke-001..002`），来源于已批准的 `CR-20261001-0001`（对方案自身 MD 的摄取，作为 POC 示范）。
+- **统一 Docker Compose 一键部署**（`deploy/docker-compose.yml`）：
+  - 将原宿主机分散执行的 Go 后端服务与 VitePress Web 前端统一容器化交付，形成包含 5 大服务的统一编排架构：
+    1. `cim-wiki-server`（Alpine 静态二进制 42.6MB，`:8080`，内部直连解析引擎 DNS）
+    2. `cim-wiki-web`（Node 22-alpine，`:5174`，挂载 `/data/wiki` 自动刷新侧边栏）
+    3. `cim-wiki-mineru`（复杂 PDF 解析引擎，`:8888`）
+    4. `cim-wiki-docling`（Office/Word 解析引擎，`:5001`）
+    5. `cim-wiki-markitdown`（通用文档解析引擎，`:5002`）
+  - 检索层 `qdrant` 与 `meilisearch` 采用 `profiles: ["retrieval"]` 隔离，避免常规拉起时因外部网络拉取大镜像卡顿。
+  - 彻底解决容器内 Vitepress `spawn git ENOENT` 问题（`lastUpdated: false`）并自适应 Docker 卷挂载路径。
+- **README.md 全量重写**（`/docker/cim-llm-wiki/README.md`）：参照最佳实践重构为 项目介绍 → 快速开始 → 架构设计 → 功能概览 → 已落地内容 → 设计原则 → 项目结构 → 开发指南 → 扩展点 → 文档。
+- **解析引擎与后端在线就绪**：`curl :8080/healthz` 响应 `status: ok`，`/api/v1/parsers` 显示 `docling` 与 `mineru` 均 `available: true`。
+- **前端知识库站点在线**：对外访问 **http://10.243.251.204:5174/**（或本地 **http://localhost:5174/**），50 篇原子文档及人读视图（手册）导航完全渲染。
 
 ### 阻塞项（未解决）
 

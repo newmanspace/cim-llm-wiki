@@ -5,8 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const WEB_ROOT = join(__dirname, '..')
-const PROJECT_ROOT = join(__dirname, '..', '..')
-const WIKI_ROOT = join(PROJECT_ROOT, 'data', 'wiki')
+const WIKI_ROOT = process.env.WIKI_ROOT || (existsSync(join(WEB_ROOT, '../data/wiki')) ? join(WEB_ROOT, '../data/wiki') : existsSync('/data/wiki') ? '/data/wiki' : join(WEB_ROOT, 'data/wiki'))
 const OUT = join(WEB_ROOT, '.vitepress', 'sidebar-data.mjs')
 
 const DIR_META = [
