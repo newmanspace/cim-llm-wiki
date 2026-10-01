@@ -86,7 +86,7 @@ Agent 自动执行：解析 → 抽取 → 评分 → 呈现聚合审核卡片�
 ```bash
 cd web
 npm run gen          # 仅扫描 data/wiki 刷新侧边栏与首页（.vitepress/sidebar-data.mjs）
-npm run docs:dev     # 开发预览 http://localhost:5173（自动先执行 gen）
+npm run docs:dev     # 开发预览 http://localhost:5174（自动先执行 gen）
 npm run docs:build   # 静态构建到 web/.vitepress/dist/（自动先执行 gen）
 npm run docs:preview # 预览静态构建产物
 ```

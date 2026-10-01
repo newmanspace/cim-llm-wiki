@@ -14,7 +14,7 @@
 
 - **README.md 全量重写**（`/docker/cim-llm-wiki/README.md`）：参照 `/docker/mycim-knora/weknora-core/README_CN.md` 的版式重构为 项目介绍 → 快速开始 → 架构设计 → 功能概览 → 已落地内容 → 设计原则 → 项目结构 → 开发指南 → 扩展点 → 文档。内容全部取自项目实际状态，未虚构（因无 LICENSE/CHANGELOG/git remote，徽章仅保留 Node/VitePress/架构/引擎等事实项）。
 - **站点编译**：在 `web/` 下执行 `npm run docs:build` 成功，产物在 `web/.vitepress/dist/`。
-- **站点预览**：在 `web/` 下执行 `npm run docs:dev`，访问 **http://localhost:5173/**。
+- **站点预览**：在 `web/` 下执行 `npm run docs:dev`，访问 **http://localhost:5174/**（或局域网 **http://10.243.251.204:5174/**）。
 - **解析引擎容器在线**：`cim-wiki-mineru`(:8888)、`cim-wiki-docling`(:5001)、`cim-wiki-markitdown`(:5002) 均 Up。`curl :8888/:5001/:5002` 根路径返回 404 属正常（仅暴露具体 API 端点）。
 - **知识库现状**：`data/wiki/` 已有 10 个原子节点（需求 1 `req-ke-001` + 架构设计 7 `des-ke-001..007` + 模块驾驶舱 2 `mod-ke-001..002`），来源于已批准的 `CR-20261001-0001`（对方案自身 MD 的摄取，作为 POC 示范）。
 
@@ -48,7 +48,7 @@
 |----|----|
 | 项目根 | `/docker/cim-llm-wiki` |
 | Node.js | ≥ 20（当前 v22.23.1） |
-| 站点端口 | dev 5174（5173 占用自动 +1） |
+| 站点端口 | dev 5174（固定绑定，与主机防火墙对齐） |
 | MinerU / Docling / MarkItDown | :8888 / :5001 / :5002 |
 | 流水线 skill | `.qoder/skills/cim-wiki/SKILL.md`（Stage 定义） |
 | 启动引擎容器 | `cd deploy && docker compose up -d mineru docling markitdown` |
