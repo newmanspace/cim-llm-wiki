@@ -1,0 +1,70 @@
+# ==============================================================================
+# 泛半导体 CIM 知识工程服务 - Git 忽略规则 (.gitignore)
+# 规范：过程文件、原始文件、编译构建物及本地临时配置一律不纳入版本管理
+# ==============================================================================
+
+# ── 1. 原始文件 (Raw Documents) ───────────────────────────────────────────────
+# 所有上传/解析的业务原文档（PDF, DOCX, PPTX, 扫描图等），属于业务数据非代码
+data/raw/
+/data/raw/
+
+# ── 2. 过程文件与运行时产物 (Process & Runtime Artifacts) ────────────────────
+# 流水线抽取中间态（nodes.json）、审核队列卡片（CR-*）、编译生成的知识库及状态表
+data/work/
+data/review/
+data/documents/
+data/wiki/
+data/
+/data/
+
+# ── 3. 构建与编译生成物 (Build & Compile Artifacts) ───────────────────────────
+# Go 编译产物
+bin/
+/bin/
+*.exe
+*.test
+*.out
+coverage.txt
+coverage.out
+vendor/
+
+# Web / VitePress 构建与生成物
+node_modules/
+.vitepress/dist/
+.vitepress/cache/
+sidebar-data.mjs
+.cache/
+
+# Python / 引擎辅助服务
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# ── 4. 临时与日志文件 (Temporary & Log Files) ─────────────────────────────────
+*.log
+logs/
+*.pid
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── 5. 环境配置与密钥 (Environment & Secrets) ─────────────────────────────────
+.env
+.env.*.local
+*.local
+!/.env.example
+
+# ── 6. 编辑器与 IDE (IDEs & Editors) ──────────────────────────────────────────
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
