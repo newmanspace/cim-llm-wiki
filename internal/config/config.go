@@ -16,6 +16,7 @@ Parser    ParserConfig
 LLM       LLMConfig
 Evaluator EvaluatorConfig
 Storage   StorageConfig
+Admin     AdminConfig
 Qdrant    QdrantConfig
 Meili     MeiliConfig
 Git       GitConfig
@@ -88,6 +89,19 @@ type StorageConfig struct {
 DSN string
 }
 
+// AdminConfig configures the Admin system (PostgreSQL + Project Registry API).
+type AdminConfig struct {
+// Enabled activates the Admin API endpoints (default: false, requires PostgreSQL)
+Enabled bool
+// PostgresDSN is the PostgreSQL connection string
+// e.g. postgres://user:pass@localhost:5432/cim_wiki_admin?sslmode=disable
+PostgresDSN string
+// MigrationDir is the directory containing SQL migration files
+MigrationDir string
+// TokenDefaultExpiryHours is the default token expiry (0 = never expires)
+TokenDefaultExpiryHours int
+}
+
 // QdrantConfig configures the Qdrant vector store for semantic search.
 type QdrantConfig struct {
 Host       string
@@ -154,6 +168,12 @@ ThreshL2Arch:   getEnvFloat("THRESH_L2", 0.55),
 },
 Storage: StorageConfig{
 DSN: getEnv("DB_DSN", "./data/cim-wiki.db"),
+},
+Admin: AdminConfig{
+Enabled:               getEnv("ADMIN_ENABLED", "false") == "true",
+PostgresDSN:           getEnv("ADMIN_DATABASE_URL", ""),
+MigrationDir:          getEnv("ADMIN_MIGRATION_DIR", "./deploy/postgres"),
+TokenDefaultExpiryHours: getEnvInt("ADMIN_TOKEN_EXPIRY_HOURS", 0),
 },
 Qdrant: QdrantConfig{
 Host:       getEnv("QDRANT_HOST", "localhost"),

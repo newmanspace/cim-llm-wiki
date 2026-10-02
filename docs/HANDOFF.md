@@ -1,8 +1,8 @@
 # cim-llm-wiki 项目交接与工程交付文档 (Handoff)
 
-> **版本**: v2.0.0（Skill 驱动架构）  
-> **更新时间**: 2026-10-01  
-> **项目定位**: 泛半导体 CIM 软件产品全生命周期知识工程，负责将原始设计与规格文档（Raw Documents）经过本地解析、Agent 智能抽取、7 维可解释打分与 HITL 聚合审核，最终生成原子化、具备双向追溯关系的 `data/wiki/` 知识库，并以 VitePress 本地站点展示。
+> **版本**: v2.1.0（Project Registry 架构）  
+> **更新时间**: 2026-10-02  
+> **项目定位**: 泛半导体 CIM 软件产品全生命周期知识工程，负责将原始设计与规格文档（Raw Documents）经过本地解析、Agent 智能抽取、7 维可解释打分与 HITL 聚合审核，最终生成原子化、具备双向追溯关系的 `data/wiki/` 知识库，并以 VitePress 本地站点展示。v2.1 新增 Project Registry 层，建立 Project ↔ Documents ↔ Code Repos 关联，支持 git submodule 增量同步与 Admin 系统集中管控。
 
 ---
 
@@ -28,6 +28,24 @@
   - `doc` 侧：原 `business` 改为 `scenarios` (业务场景)，原 `operations` 改为 `runbooks` (运维预案)。
   - `code` 侧：新增 `interactions` (交互时序流)，替代冗长的 `operation-flows` 及易产生数据库歧义的 `sequences`。
   - 同步更新了 `compiler.go`, `types.go`, `extractor.go`, `gen-sidebar.mjs` 映射及 `README.md`。
+- **Project Registry 架构落地**（v2.1 新增）：
+  - 新增 `ProjectConfig` / `DocSource` / `RepoBinding` / `ProjectToken` / `SyncState` 等 Go 类型定义（`internal/types/types.go`）。
+  - 创建 `data/documents/project-registry.json` 注册表（与 `manifest.json`、`api-registry.json` 并列的第三类全局注册表）。
+  - 建立 `data/sources/<project-id>/docs|code/` git submodule 目录结构，支持源文档与代码仓库的本地挂载。
+  - 新增 `scripts/sync-repo.mjs` 增量同步脚本：git fetch → diff lastSyncSHA..HEAD → module_mapping 路径匹配 → 输出受影响模块 + 变更文件清单。
+  - `compiler.go` 中 `ObjProject` 路由从 `requirements/` 修正为 `projects/`；`compile.mjs` 同步更新 JS 侧映射。
+  - `compile.mjs` 新增编译后自动回写 `project-registry.json` 的 `wiki_nodes` 索引。
+  - SKILL.md 新增 **步骤 0**（Project 配置获取 + submodule 检查 + 增量同步）与 **步骤 8**（状态回写 Admin），流水线从 7 阶段扩展为 9 阶段（0→8）。
+  - 规划 Admin API 端点（`/api/v1/projects/:id/config`、`/sync-status`、`/token`），当前以本地 JSON 为配置源，Admin 上线后无缝切换。
+- **Admin 系统落地（PostgreSQL）**（v2.1 新增）：
+  - PostgreSQL 16-alpine 加入 docker-compose（`deploy/docker-compose.yml`），端口 5432，自动执行 `deploy/postgres/001_init.sql` migration。
+  - Schema 设计：9 张表（projects / project_docs / doc_bundles / project_repos / repo_module_mappings / project_modules / project_tokens / sync_logs / project_wiki_nodes），含外键级联、唯一约束、自动 updated_at 触发器。
+  - Go 存储层 `internal/store/postgres.go`：基于 pgx/v5 连接池，实现 Project CRUD、Token 签发/验证/吊销、Sync 记录、Wiki 索引 upsert。
+  - Admin API handler `internal/handler/admin.go`：12 个 REST 端点（`/api/v1/admin/*`），含 Bearer token 认证中间件。
+  - `cmd/server/main.go` 新增 Admin 模块：`ADMIN_ENABLED=true` 时连接 PostgreSQL、自动 migration、注册路由；未启用时零影响。
+  - `internal/config/config.go` 新增 `AdminConfig`（Enabled / PostgresDSN / MigrationDir / TokenDefaultExpiryHours）。
+  - 真实项目数据录入：`xinshun-mes`（新顺 MES）已写入 `project-registry.json`，含 54 个模块映射、6 份关联文档、GitLab 仓库绑定。
+  - `sync-repo.mjs` 增量检测验证通过：离线回退本地 HEAD、diff 3 文件变更正确映射到 `webapp` 模块。
 
 ### 阻塞项（未解决）
 
@@ -41,7 +59,7 @@
 
 ### 接续任务（下一步）
 
-目标不变：**用 cim-wiki skill 对一份 MES 用户手册跑完整流水线**（Stage 1 解析 → Stage 2 抽取 → Stage 3 评分 → Stage 4 HITL 审核 → Stage 5 编译 → Stage 6 Lint → 刷新展示）。测试文档来源三选一（按优先级）：
+**优先级 1 — 端到端流水线验证**：用 cim-wiki skill 对一份 MES 用户手册跑完整流水线（Stage 0 配置 → Stage 1 解析 → Stage 2 抽取 → Stage 3 评分 → Stage 4 HITL 审核 → Stage 5 编译 → Stage 6 Lint → Stage 7 展示 → Stage 8 回写）。测试文档来源三选一（按优先级）：
 
 1. **本地现成样本**（推荐，零依赖）：`data/samples/idd_wip_sample.docx`（MES 的 WIP IDD 样本，走 Docling :5001）。命令：
    ```bash
@@ -53,6 +71,29 @@
 
 > 抽取与评分环节由 Agent 按 `.qoder/skills/cim-wiki/references/extraction.md`、`evaluation.md` 直接完成，无需外部 LLM API Key；HITL 审核须生成聚合变更卡片等待用户裁决。
 
+**优先级 2 — Project Registry 实战验证**：
+- 为 `mes-wip` 项目创建首个 `project-registry.json` 条目（含 docs、repos、module_mapping）。
+- 配置 git submodule 指向实际文档/代码仓库（或 mock 仓库）。
+- 运行 `sync-repo.mjs mes-wip --dry-run` 验证增量检测逻辑。
+- 跑一次完整 Stage 0→8 流水线，验证 project-registry 回写。
+
+**优先级 3 — Admin 前端 + Docker 统一编排 + wiki↔admin 打通**（全部完成）：
+- ✅ **Admin 前端 SPA 已实现**（`admin/`，Vue 3.5 + TypeScript + Vite 7 + **Element Plus** + Pinia + vue-i18n）：概览 Dashboard、项目列表 CRUD、项目详情（文档/仓库/模块/令牌/同步日志/Wiki 节点 6 个 Tab）。对标 `weknora-custom/frontend` 约定（axios `/api/v1` 客户端 + Bearer 拦截器、`createWebHistory('/admin/')` 路由、Pinia setup-store、`el-table`/`el-dialog`/`el-form` CRUD 配方、`ElMessage`/`ElMessageBox` 交互）。**2026-10 由 TDesign 迁移到 Element Plus（团队更熟悉），并补齐响应式**：`el-container`+`el-menu` 桌面侧栏可折叠、`<768px` 自动转 `el-drawer` 抽屉 + 顶栏汉堡、`el-row/el-col :xs/:sm/:md` 栅格、`el-descriptions` 窄屏单列、顶栏语言切换 + 深浅色（`html.dark`）；不引入独立 Vant，单库自适应移动端。已通过 `vue-tsc` 类型检查 + `vite build` 产物验证。
+  - ✅ **UI/交互打磨（2026-10 续）**：抽出共享基座 `admin/src/components/PageHeader.vue`（统一页头/操作区，移动端换行占满）与 `admin/src/composables/useBreakpoint.ts`（单一 `<768px` 断点，替换各视图散落的 resize 监听）；`theme.css` 引入间距刻度 `--cim-space-{xs..xl}`、暗色主色对比度抬升（`html.dark` 下链接/按钮达 WCAG AA）、移动端对话框近似全屏。Dashboard：统计卡加语义色图标 + `el-skeleton` 骨架、最近项目 `el-empty` 空态并限显。ProjectManagement：表格分页 + `el-empty`（含新建引导）+ 行操作「编辑内联 + ⋯ 下拉（详情/删除，danger 色）」+ 移动端隐藏次要列 + 表单 `scroll-to-error`/实时 ID 清洗/`close-on-click-modal=false`。ProjectDetail：**令牌「仅显示一次」独立弹窗**（只读域 + 复制 + warning，关闭即销毁明文，禁 ESC/遮罩误关）、各表格 `el-empty`、Wiki plane 用语义 `el-tag`、异步错误统一 `ElNotification`（优先展示后端 message）。同步修正 `deploy/{admin/Dockerfile,docker-compose.yml}` 内残留的 TDesign 注释。
+- ✅ **Docker 统一编排**：`deploy/admin/{Dockerfile,nginx.conf}`（node 构建 → nginx 静态托管 + `/api` 反代 server:8080）；admin 服务纳入默认 `docker compose up -d`（不再用 profile 隔离）；server 默认 `ADMIN_ENABLED=true`，`depends_on postgres: service_healthy`（必选）。`deploy/server/Dockerfile` 仅 `COPY bin/cim-wiki-server`（**需先本地 `go build`**，见下）。访问 `http://<宿主机IP>:8095/admin/`。
+- ✅ **wiki↔admin 自动回写链路已接通**（此前仅 API/数据模型层通，脚本未接线）：
+  - 新增 `scripts/admin-client.mjs`：统一 Admin HTTP 客户端，env 驱动（`ADMIN_URL` 未设=离线全 no-op；`ADMIN_PROJECT_TOKEN` 用于 config/sync-status 保护端点；`ADMIN_PROJECT_ID` 显式指定目标项目，否则按模块归属解析）。
+  - `scripts/admin-pull.mjs`（**Stage 0**）：`GET /config` 拉取覆盖本地 `project-registry.json`。
+  - `compile.mjs`（**Stage 5**）：编译后 `POST /wiki-nodes` 回写索引；失败仅告警不阻断。
+  - `sync-repo.mjs`（**Stage 0 增量**）：检出变更后 `POST /sync-status` 记录 sync_logs。
+  - SKILL.md 步骤 0/8 已改写为"脚本自动回写 + env 开关"模型。
+- ✅ **端到端验证**（全 docker 栈）：Stage 0 pull 落地 6 文档/1 仓库/38 模块；sync-status 回写使 `sync_logs` 增长并含 to_sha/changed_files/duration；compile 回写使 `project_wiki_nodes` doc/code 各 +1；测试数据与令牌均已清理回基线。
+- ✅ **展示级深链闭环 + 按项目分树**：wiki 物理树改为 `data/wiki/<project>/{doc,code}/...`（VitePress `base=/wiki/`），完整访问 URL 形如 `/wiki/xinshun-mes/doc/business/br-wip-001`。流水线三处同步改造：`compile.mjs`（写入 `<wikiRoot>/<project>/...`，回写路径带 project 段，project 由 `ADMIN_PROJECT_ID` > 单项目 registry > bundle.project 解析）、`gen-sidebar.mjs`（按项目子目录扫描并生成 `/<project>/...` 链接）、`gen-manuals.mjs`（人读视图同分树）。`GetProject` 从 `project_wiki_nodes` 表回填 `wiki_nodes`；Admin「Wiki 节点」Tab 每条 path 渲染为可点击外链，路径按 `data/wiki/<project>/<rel>.md → /wiki/<project>/<rel>`（cleanUrls 无扩展名）转换，经统一网关直达（新标签打开）。网关根 `/` 相对 302 → `/wiki/`（`absolute_redirect off` 保留 `:8099` 端口）。
+- ⏳ **待人工清理（需 sudo，root 属主）**：迁移后 `data/wiki/` 顶层残留两个平面化前的废弃目录 `business/`、`operations/`（早期容器以 root 写入、已被 `xinshun-mes/` 分树取代、不被侧边栏引用、不影响 `/wiki/` 深链）。请在宿主机执行：`sudo rm -rf data/wiki/business data/wiki/operations`。
+- ⏳ **后续（生产加固）**：HTTPS、RBAC、admin 控制台自身的交互式登录鉴权（当前管理端点仅靠 `ADMIN_ENABLED` + 网络策略保护）；token 明文仅签发时返回一次，控制台与 DB 均不存明文（存 SHA256）。
+
+
+
 ### 环境速查
 
 | 项 | 值 |
@@ -60,9 +101,19 @@
 | 项目根 | `/docker/cim-llm-wiki` |
 | Node.js | ≥ 20（当前 v22.23.1） |
 | 站点端口 | dev 5174（固定绑定，与主机防火墙对齐） |
+| 统一入口 Gateway | `:8099` → `/wiki/` 知识库、`/admin/` 控制台、`/api/` 后端；`/` 302→`/wiki/`（`deploy/gateway/`，对外只需开此端口） |
 | MinerU / Docling / MarkItDown | :8888 / :5001 / :5002 |
-| 流水线 skill | `.qoder/skills/cim-wiki/SKILL.md`（Stage 定义） |
+| 流水线 skill | `.qoder/skills/cim-wiki/SKILL.md`（Stage 0→8 定义） |
+| Project 注册表 | `data/documents/project-registry.json` |
+| 增量同步脚本 | `.qoder/skills/cim-wiki/scripts/sync-repo.mjs` |
+| Submodule 数据源 | `data/sources/<project-id>/docs|code/` |
+| Admin API | `ADMIN_ENABLED=true` + PostgreSQL :5432（compose 中宿主映射 :5433） |
+| Admin 端点前缀 | `/api/v1/admin/` |
+| Admin 前端 SPA | `admin/`（Vue3+**Element Plus**，响应式，base `/admin/`，dev :5175，容器 :8095） |
+| Admin 前端联调 | `cd admin && npm install && npm run dev`（代理 `/api`→:8090）；构建 `npm run build` |
+| Admin 脚本回写 | env: `ADMIN_URL`（未设=离线）+ `ADMIN_PROJECT_TOKEN` + `ADMIN_PROJECT_ID`（可选） |
 | 启动引擎容器 | `cd deploy && docker compose up -d mineru docling markitdown` |
+| 统一启动全栈 | `CGO_ENABLED=0 go build -o bin/cim-wiki-server ./cmd/server` → `cd deploy && docker compose up -d --build server admin`（Admin 默认启用，访问 :8095/admin/） |
 
 ---
 
@@ -85,7 +136,152 @@ v1 是完整 Go 服务（HTTP API + 内置 LLM 调用）；v2 转型为 **Skill 
 
 **目录语义**：`docs/` = 本项目工程文档；`data/wiki/` = LLM 流水线产出的知识库（运行时生成，.gitignore）。
 
-工作流入口：Agent 会话中调用 `cim-wiki` skill（`.qoder/skills/cim-wiki/SKILL.md`），7 阶段流程与规则全部在 skill 内定义。
+工作流入口：Agent 会话中调用 `cim-wiki` skill（`.qoder/skills/cim-wiki/SKILL.md`），9 阶段流程（Stage 0→8）与规则全部在 skill 内定义。
+
+---
+
+## 0.1 Project Registry 架构（v2.1 新增）
+
+### 设计目标
+
+建立 **Project ↔ Documents ↔ Code Repos** 的完整关联，支持：
+1. Admin 系统集中管控项目配置，skill 通过 project-token 获取
+2. git submodule 挂载源文档与代码仓库到本地
+3. 增量同步：检测 submodule 变更 → module_mapping 定位受影响模块 → 触发重新摄取
+4. 编译后自动回写 wiki_nodes 索引，状态闭环
+
+### 架构分层
+
+```
+┌─────────────────┐  project-token   ┌──────────────────┐
+│   Admin 系统     │ ───────────────→ │   cim-wiki skill │
+│  (集中管理)      │ ←── 状态回写 ─── │   (本地执行)      │
+│                  │                  │                  │
+│ • Project CRUD   │                  │ • Stage 0: 配置  │
+│ • Token 签发     │                  │ • Stage 1-6: 流水线│
+│ • 同步状态监控   │                  │ • Stage 8: 回写   │
+└────────┬─────────┘                  └────────┬─────────┘
+         │                                     │
+         │ 管理元数据                           │ git submodule
+         ▼                                     ▼
+┌─────────────────┐                  ┌──────────────────┐
+│  Admin API      │                  │  data/sources/   │
+│  + Web UI       │                  │  ├─ <proj>/docs/ │
+│  (规划中)       │                  │  └─ <proj>/code/ │
+└─────────────────┘                  └──────────────────┘
+```
+
+### 数据模型
+
+**project-registry.json**（`data/documents/project-registry.json`）：
+
+```json
+{
+  "projects": {
+    "<project-id>": {
+      "id": "<project-id>",
+      "name": "人读名称",
+      "product": "Semiconductor-MES",
+      "version": "V2.22.4",
+      "docs": [{ "doc_id": "...", "path": "data/sources/.../docs/...", "type": "IDD", "sha256": "...", "submodule": "data/sources/.../docs" }],
+      "repos": [{ "name": "...", "url": "git@...", "branch": "main", "submodule": "data/sources/.../code", "module_mapping": { "src/.../wip/": "wip-management" }, "last_sync_sha": "..." }],
+      "modules": ["wip-management"],
+      "wiki_nodes": { "doc": ["data/wiki/xinshun-mes/doc/..."], "code": ["data/wiki/xinshun-mes/code/..."] },
+      "sync_state": { "last_doc_sync": "...", "last_code_sync": "...", "pending_changes": 0 }
+    }
+  }
+}
+```
+
+Go 类型定义见 `internal/types/types.go`：`ProjectConfig`、`DocSource`、`RepoBinding`、`ProjectToken`、`SyncState`、`ProjectRegistry`。
+
+### Git Submodule 策略
+
+```
+data/sources/<project-id>/
+├── docs/    ← submodule: 源文档仓库（IDD/SDD/PRD/手册）
+└── code/    ← submodule: 代码仓库（仅 module_mapping 索引，不复制源码）
+```
+
+- skill 步骤 0 自动检查 submodule 状态，未初始化时提示 `git submodule update --init`
+- `sync-repo.mjs` 执行 `git fetch` + `git diff lastSyncSHA..HEAD --name-only`
+- 变更文件通过 `module_mapping`（路径前缀 → 模块 ID）映射到受影响业务模块
+- 代码仓库仅用于建立索引，**严禁将源码全文写入 wiki**
+
+### 增量同步工作流
+
+```
+sync-repo.mjs <project-id>
+  │
+  ├─ git fetch + diff → 变更文件清单
+  ├─ module_mapping → 受影响模块列表
+  ├─ sha256 比对 → 文档变更检测
+  │
+  ▼
+data/sync/<project-id>-diff-snapshot.json
+  │
+  ▼ (人工或自动触发)
+对受影响模块的源文档重新执行 Stage 1→6
+  │
+  ▼
+Stage 8: 更新 lastSyncSHA + 回写 Admin
+```
+
+### Admin API（已实现）
+
+所有端点前缀 `/api/v1/admin/`，需 `ADMIN_ENABLED=true` + PostgreSQL（`deploy/docker-compose.yml` 中 `postgres` 服务）。
+
+| 端点 | 方法 | 认证 | 说明 |
+|------|------|------|------|
+| `/projects` | GET | 无 | 列出所有项目 |
+| `/projects` | POST | 无 | 创建/更新项目（含 docs、repos、modules） |
+| `/projects/:id` | GET | 无 | 获取项目完整详情 |
+| `/projects/:id` | DELETE | 无 | 删除项目（级联删除关联数据） |
+| `/projects/:id/config` | GET | Bearer token | skill 拉取项目配置 |
+| `/projects/:id/token` | POST | 无 | 签发 project token（返回明文，仅一次） |
+| `/projects/:id/token` | DELETE | 无 | 吊销 token |
+| `/projects/:id/sync-status` | POST | Bearer token | 回写同步状态（记录 sync_logs） |
+| `/projects/:id/sync-logs` | GET | 无 | 查看同步历史（?limit=20） |
+| `/projects/:id/wiki-nodes` | GET | 无 | 查看已编译 wiki 索引 |
+| `/projects/:id/wiki-nodes` | POST | 无 | 更新 wiki 索引 |
+
+**启用方式**：
+```bash
+# docker-compose 中设置 ADMIN_ENABLED=true
+cd deploy && ADMIN_ENABLED=true docker compose up -d server postgres
+
+# 或本地开发
+ADMIN_ENABLED=true \
+ADMIN_DATABASE_URL=postgres://cimwiki:cimwiki_dev_2026@localhost:5432/cim_wiki_admin?sslmode=disable \
+go run ./cmd/server
+```
+
+**PostgreSQL schema**：`deploy/postgres/001_init.sql`（9 张表），容器首次启动自动执行。
+
+**离线模式**：未启用 Admin 时，skill 以本地 `data/documents/project-registry.json` 为唯一配置源，步骤 8 仅更新本地 JSON，零外部依赖。
+
+### 新增文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `data/documents/project-registry.json` | Project 注册表（第三类全局注册表） |
+| `data/sources/README.md` | Submodule 目录说明 |
+| `.qoder/skills/cim-wiki/scripts/sync-repo.mjs` | 增量同步脚本 |
+| `internal/types/types.go` (新增类型) | ProjectConfig / DocSource / RepoBinding / ProjectToken / SyncState / ProjectRegistry |
+| `deploy/postgres/001_init.sql` | PostgreSQL schema（9 张表 + 索引 + 触发器） |
+| `internal/store/postgres.go` | pgx 连接池 + Admin CRUD 存储层 |
+| `internal/handler/admin.go` | Admin API handler（12 个 REST 端点 + token 认证中间件） |
+| `internal/config/config.go` (新增) | AdminConfig 配置段 |
+| `cmd/server/main.go` (更新) | Admin 模块初始化 + 路由注册 + migration 加载 |
+| `deploy/docker-compose.yml` (更新) | PostgreSQL 16 服务 + server Admin 环境变量 + admin 控制台服务 |
+| `admin/` (前端工程) | Vue3+TS+Vite7+**Element Plus**+Pinia+vue-i18n 响应式管理控制台 SPA |
+| `admin/src/api/{client,types,projects}.ts` | axios 客户端 + Bearer 拦截器 + 后端 JSON 形状类型 + 端点封装 |
+| `admin/src/views/admin/*.vue` | AdminLayout / Dashboard / ProjectManagement / ProjectDetail |
+| `admin/src/components/PageHeader.vue` | 统一页头组件（标题+副标题+操作区插槽） |
+| `admin/src/composables/useBreakpoint.ts` | 响应式断点单一来源（`<768px`） |
+| `admin/src/{router,stores,i18n}` | 路由（base `/admin/`）+ Pinia auth store + 中英 i18n |
+| `deploy/admin/Dockerfile` | 多阶段构建：node 打包 → nginx 静态托管 + `/api` 反代 |
+| `deploy/admin/nginx.conf` | SPA history fallback + `/api` 反向代理 + gzip |
 
 ---
 

@@ -1,0 +1,47 @@
+:root {
+  --el-color-primary: #0052d9;
+  --el-border-radius-base: 6px;
+
+  /* 统一间距刻度，视图内不再散落魔法数字 */
+  --cim-space-xs: 4px;
+  --cim-space-sm: 8px;
+  --cim-space-md: 12px;
+  --cim-space-lg: 16px;
+  --cim-space-xl: 24px;
+}
+
+/* 暗色模式：抬升主色明度，保证链接/按钮在深底上的对比度（WCAG AA） */
+html.dark {
+  --el-color-primary: #5b8def;
+  --el-color-primary-light-3: #4a76c9;
+  --el-color-primary-light-5: #3c5fa3;
+  --el-color-primary-light-7: #2e487d;
+  --el-color-primary-light-8: #263c69;
+  --el-color-primary-light-9: #1e3055;
+  --el-color-primary-dark-2: #7ba6f5;
+}
+
+body {
+  background: var(--el-bg-color-page);
+}
+
+.el-card {
+  border-radius: 8px;
+}
+
+/* 移动端对话框近似全屏，避免小屏上窄弹窗溢出 */
+@media (max-width: 767px) {
+  .el-dialog {
+    width: 100% !important;
+    margin: 0 !important;
+    --el-dialog-margin-top: 0;
+  }
+  .el-dialog__body {
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+  }
+  .el-message-box {
+    width: 90% !important;
+    max-width: 420px;
+  }
+}

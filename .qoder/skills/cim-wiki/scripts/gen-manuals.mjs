@@ -16,7 +16,20 @@ function resolve_root() {
 
 const RAW = join(ROOT, 'data', 'raw')
 const WORK = join(ROOT, 'data', 'work')
-const OUT = join(ROOT, 'data', 'wiki', 'doc', 'manuals')
+
+// wiki 按 project 分树：data/wiki/<project>/doc/manuals/...
+function resolveProjectDir() {
+  if (process.env.ADMIN_PROJECT_ID) return process.env.ADMIN_PROJECT_ID
+  const regPath = join(ROOT, 'data', 'documents', 'project-registry.json')
+  if (existsSync(regPath)) {
+    const ps = JSON.parse(readFileSync(regPath, 'utf-8')).projects || {}
+    const ids = Object.keys(ps)
+    if (ids.length === 1) return ids[0]
+  }
+  return 'default'
+}
+const PROJECT_DIR = resolveProjectDir()
+const OUT = join(ROOT, 'data', 'wiki', PROJECT_DIR, 'doc', 'manuals')
 
 // 1. 收集已批准/已发布 bundle 引用的解析稿
 const sources = new Map() // rawRelPath -> {bundleIds, moduleNode}
@@ -81,7 +94,7 @@ for (const [rawRel, info] of sources) {
   const dir = join(OUT, relDir)
   mkdirSync(dir, { recursive: true })
   const modLink = info.moduleNode
-    ? `> 对应原子知识节点（面向 AI）：模块驾驶舱页 [${info.moduleNode.id}](/doc/modules/${info.moduleNode.id.toLowerCase()})`
+    ? `> 对应原子知识节点（面向 AI）：模块驾驶舱页 [${info.moduleNode.id}](/${PROJECT_DIR}/doc/modules/${info.moduleNode.id.toLowerCase()})`
     : `> 对应原子知识节点（面向 AI）：见侧边栏「领域知识库 / 流程与宏观规则」分组`
   const page = `---
 title: "${title}"

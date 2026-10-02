@@ -14,6 +14,9 @@ export default defineConfig({
   title: 'CIM 知识库',
   description: '泛半导体 CIM/MES 全生命周期原子化 Wiki',
   srcDir,
+  // 站点挂在 /wiki/ 前缀下，页面按项目分树：/<project>/<plane>/...
+  // 完整 URL 形如 /wiki/xinshun-mes/doc/business/br-wip-001
+  base: '/wiki/',
   cleanUrls: true,
   ignoreDeadLinks: true,
   lastUpdated: false,

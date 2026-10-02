@@ -38,6 +38,12 @@ web/.cache/
 /node_modules/
 /sidebar-data.mjs
 
+# Admin 管理控制台构建与生成物 (admin/ 独立前端工程)
+admin/node_modules/
+admin/dist/
+admin/*.tsbuildinfo
+admin/node_modules/.tmp/
+
 # Python / 引擎辅助服务
 .venv/
 venv/

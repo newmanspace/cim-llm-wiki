@@ -1,7 +1,10 @@
 // 扫描 data/wiki 生成 VitePress 侧边栏/导航数据与首页 index.md
+// 目录按 project 分树：data/wiki/<project>/{doc,code}/...
+// 页面链接以 /<project>/ 为前缀（VitePress base=/wiki/ 会自动补全 → /wiki/<project>/...）
 import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
-import { join, relative, dirname } from 'node:path'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { dirname } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const WEB_ROOT = join(__dirname, '..')
@@ -36,6 +39,9 @@ const PLANES = [
   ]],
 ]
 
+// 文档视图层：data/wiki/<project>/doc/manuals/<系统>/<版本>/<大类>/<子类>/<文档>.md
+const MANUAL_KIND = { 'user-manual': '用户手册', 'admin-manual': '系统管理手册', solution: '方案设计视图' }
+
 function parseFrontmatter(text) {
   if (!text.startsWith('---')) return {}
   const parts = text.split('---')
@@ -62,70 +68,90 @@ function collectMd(dir) {
     .sort()
 }
 
-const sidebar = []
-const nav = [{ text: '首页', link: '/' }]
-let total = 0
-
-// 文档视图层：data/wiki/doc/manuals/<系统>/<版本>/<大类>/<子类>/<文档>.md（gen-manuals.mjs 生成，不计入原子知识节点数）
-// 按文档大类分组展示：user-manual=用户手册，admin-manual=系统管理手册
-const MANUAL_KIND = { 'user-manual': '用户手册', 'admin-manual': '系统管理手册', solution: '方案设计视图' }
 function collectManuals(dir, prefix = '') {
   if (!existsSync(dir)) return []
   const out = []
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     if (e.isDirectory()) {
-      if (e.name.endsWith('_assets')) continue // 图片资源目录，无 md 页面
+      if (e.name.endsWith('_assets')) continue
       out.push(...collectManuals(join(dir, e.name), `${prefix}${e.name}/`))
     } else if (e.isFile() && e.name.endsWith('.md')) out.push({ rel: prefix + e.name })
   }
   return out.sort((a, b) => a.rel.localeCompare(b.rel))
 }
-{
-  const files = collectManuals(join(WIKI_ROOT, 'doc', 'manuals'))
-  if (files.length) {
+
+// 发现项目子目录：直接含 doc/ 或 code/ 的目录即为一个 project
+function discoverProjects() {
+  if (!existsSync(WIKI_ROOT)) return []
+  return readdirSync(WIKI_ROOT, { withFileTypes: true })
+    .filter(e => e.isDirectory())
+    .map(e => e.name)
+    .filter(name => existsSync(join(WIKI_ROOT, name, 'doc')) || existsSync(join(WIKI_ROOT, name, 'code')))
+    .sort()
+}
+
+const projects = discoverProjects()
+const sidebar = []
+const nav = [{ text: '首页', link: '/' }]
+let total = 0
+
+// 为单个项目构建其 sidebar 分组（linkPrefix 含项目段）
+function buildProjectGroups(proj) {
+  const groups = []
+  const linkBase = `/${proj}`
+  // 手册视图层
+  const mdir = join(WIKI_ROOT, proj, 'doc', 'manuals')
+  const mfiles = collectManuals(mdir)
+  if (mfiles.length) {
     const byKind = new Map()
-    for (const { rel } of files) {
-      const text = readFileSync(join(WIKI_ROOT, 'doc', 'manuals', rel), 'utf-8')
+    for (const { rel } of mfiles) {
+      const text = readFileSync(join(mdir, rel), 'utf-8')
       const fm = parseFrontmatter(text)
       const title = fm.title || firstHeading(text) || rel
       const cat = fm.category || rel.split('/')[2] || 'misc'
       const label = MANUAL_KIND[cat] || cat
       if (!byKind.has(label)) byKind.set(label, [])
-      byKind.get(label).push({ text: title, link: `/doc/manuals/${rel.replace(/\.md$/, '')}` })
+      byKind.get(label).push({ text: title, link: `${linkBase}/doc/manuals/${rel.replace(/\.md$/, '')}` })
     }
-    for (const [label, items] of byKind) {
-      sidebar.push({ text: `${label} (${items.length})`, items, collapsed: false })
-      nav.unshift({ text: label, link: items[0].link })
-    }
+    for (const [label, items] of byKind) groups.push({ text: `${label} (${items.length})`, items, collapsed: false })
   }
+  // 原子节点双平面
+  for (const [plane, planeLabel, dirs] of PLANES) {
+    const pgs = []
+    for (const [dir, label] of dirs) {
+      const files = collectMd(join(WIKI_ROOT, proj, plane, dir))
+      if (!files.length) continue
+      const items = files.map(f => {
+        const text = readFileSync(join(WIKI_ROOT, proj, plane, dir, f), 'utf-8')
+        const fm = parseFrontmatter(text)
+        const title = fm.title || firstHeading(text) || f.replace(/\.md$/, '')
+        const suffix = fm.review_level === 'L0_auto' ? '' : fm.status === 'archived' ? ' (归档)' : ''
+        return { text: `${title}${suffix}`, link: `${linkBase}/${plane}/${dir}/${f.replace(/\.md$/, '')}` }
+      })
+      pgs.push({ text: `${label} (${items.length})`, items, collapsed: false })
+      total += items.length
+    }
+    if (pgs.length) groups.push({ text: `${planeLabel} (${pgs.reduce((s, g) => s + g.items.length, 0)})`, items: pgs, collapsed: false })
+  }
+  return groups
 }
 
-for (const [plane, planeLabel, dirs] of PLANES) {
-  const groups = []
-  for (const [dir, label] of dirs) {
-    const files = collectMd(join(WIKI_ROOT, plane, dir))
-    if (!files.length) continue
-    const items = files.map(f => {
-      const text = readFileSync(join(WIKI_ROOT, plane, dir, f), 'utf-8')
-      const fm = parseFrontmatter(text)
-      const title = fm.title || firstHeading(text) || f.replace(/\.md$/, '')
-      const suffix = fm.review_level === 'L0_auto' ? '' : fm.status === 'archived' ? ' (归档)' : ''
-      return { text: `${title}${suffix}`, link: `/${plane}/${dir}/${f.replace(/\.md$/, '')}` }
-    })
-    groups.push({ text: `${label} (${items.length})`, items, collapsed: false })
-    total += items.length
+for (const proj of projects) {
+  const groups = buildProjectGroups(proj)
+  if (!groups.length) continue
+  if (projects.length > 1) {
+    sidebar.push({ text: `📁 ${proj}`, items: groups, collapsed: false })
+  } else {
+    sidebar.push(...groups)
   }
-  if (groups.length) {
-    sidebar.push({ text: `${planeLabel} (${groups.reduce((s, g) => s + g.items.length, 0)})`, items: groups, collapsed: false })
-    nav.push({ text: planeLabel, link: groups[0].items[0].link })
-  }
+  nav.push({ text: proj, link: `/${proj}/` })
 }
 
-// 首页 index.md（生成物，随 wiki 内容刷新）
+// 首页 index.md
 mkdirSync(WIKI_ROOT, { recursive: true })
 const now = new Date().toISOString().slice(0, 16).replace('T', ' ')
 const homeLinks = sidebar
-  .map(g => `- **${g.text}**\n${g.items.slice(0, 50).map(i => `  - [${i.text.trim()}](${i.link})`).join('\n')}`)
+  .map(g => `- **${g.text}**\n${(g.items || []).slice(0, 50).map(i => `  - [${(i.text || '').trim()}](${i.link || '#'})`).join('\n')}`)
   .join('\n')
 writeFileSync(
   join(WIKI_ROOT, 'index.md'),
@@ -135,7 +161,7 @@ title: CIM 知识库
 
 # 泛半导体 CIM 知识库
 
-> 共 ${total} 个原子知识节点 · 由 cim-wiki skill 流水线生成 · 侧边栏数据更新于 ${now}
+> 共 ${total} 个原子知识节点 · 项目：${projects.join(', ') || '（空）'} · 由 cim-wiki skill 流水线生成 · 侧边栏数据更新于 ${now}
 
 ${total ? homeLinks : '_知识库为空。使用 cim-wiki skill 摄取第一份文档。_'}
 `,
@@ -151,4 +177,4 @@ export const nav = ${JSON.stringify(nav.slice(0, 8), null, 2)}
   'utf-8'
 )
 
-console.log(`gen-sidebar: ${total} pages, ${sidebar.length} groups -> ${relative(process.cwd(), OUT)}`)
+console.log(`gen-sidebar: ${projects.length} project(s) [${projects.join(', ')}], ${total} pages, ${sidebar.length} groups -> ${relative(process.cwd(), OUT)}`)

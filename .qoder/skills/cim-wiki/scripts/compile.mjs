@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadManifest, activateIfFrozen } from './docstore.mjs'
+import { adminEnabled, pushWikiNodes, resolveProjectIds } from './admin-client.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..', '..', '..', '..')
@@ -17,7 +18,7 @@ const TYPE_TO_SUBDIR = {
   business_rule: 'rules_or_business', business_object: 'domain', workflow: 'business',
   api: 'apis', design: 'designs', module: 'modules', data_dictionary: 'dictionaries',
   data_schema: 'schemas', code_index: 'code-index',
-  requirement: 'requirements', project: 'requirements', test_case: 'tests',
+  requirement: 'requirements', project: 'projects', test_case: 'tests',
   release: 'releases', deployment: 'deployments',
   incident: 'incidents', defect: 'incidents',
   faq: 'knowledge', knowledge_article: 'knowledge', product: 'products'
@@ -36,7 +37,7 @@ function nodeLoc(node) {
     const micro = node.granularity === 'micro' || (Array.isArray(node.applies_to) && node.applies_to.length > 0)
     return micro ? ['code', 'rules'] : ['doc', 'business']
   }
-  const dir = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'requirements', test_case: 'tests', release: 'releases', deployment: 'deployments', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business' }[t] || 'knowledge'
+  const dir = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business' }[t] || 'knowledge'
   return ['doc', dir]
 }
 // 旧格式 wikilink 规范化为平面前缀路径（存量 bundle nodes.json 无需手改）
@@ -112,7 +113,7 @@ function renderPage(node, now, loc) {
   return fm.join('\n') + '\n' + body.join('\n')
 }
 
-function main() {
+async function main() {
   const args = process.argv.slice(2)
   if (!args.length) { console.error('用法: node compile.mjs <nodes.json 路径或 bundle_id> [--wiki-root DIR]'); process.exit(1) }
   const rootIdx = args.indexOf('--wiki-root')
@@ -127,8 +128,19 @@ function main() {
   const bundleId = data.bundle_id || dirname(src).split('/').pop()
   const now = data.compiled_at || new Date().toISOString().replace(/\.\d+Z$/, 'Z')
 
-  for (const d of DOC_DIRS) mkdirSync(join(wikiRoot, 'doc', d), { recursive: true })
-  for (const d of CODE_DIRS) mkdirSync(join(wikiRoot, 'code', d), { recursive: true })
+  // 解析目标项目目录（wiki 按 project 分树：data/wiki/<project>/{doc,code}/...）
+  // 优先级：ADMIN_PROJECT_ID > registry 单项目 > bundle.project > 'default'
+  const projRegPath = join(PROJECT_ROOT, 'data', 'documents', 'project-registry.json')
+  let projReg = { projects: {} }
+  if (existsSync(projRegPath)) projReg = JSON.parse(readFileSync(projRegPath, 'utf-8'))
+  const registryProjects = projReg.projects || {}
+  const projectDir = process.env.ADMIN_PROJECT_ID
+    || (Object.keys(registryProjects).length === 1 ? Object.keys(registryProjects)[0] : '')
+    || data.project || 'default'
+
+  const planeRoot = join(wikiRoot, projectDir)
+  for (const d of DOC_DIRS) mkdirSync(join(planeRoot, 'doc', d), { recursive: true })
+  for (const d of CODE_DIRS) mkdirSync(join(planeRoot, 'code', d), { recursive: true })
 
   // 状态门禁：manifest 中登记为 draft 的源文档禁止编译入库
   const docPaths = [...new Set([data.source_doc, ...(data.nodes || []).map(n => n.source)].filter(s => s && String(s).startsWith('data/')))]
@@ -146,7 +158,7 @@ function main() {
   for (const node of nodes) {
     if (node.type !== 'api' || !node.transaction_code || node.review_level === 'archive') continue
     const code = String(node.transaction_code).toUpperCase()
-    const page = relative(PROJECT_ROOT, join(wikiRoot, 'code', 'apis', `${slugify(node.id)}.md`)).split('\\').join('/')
+    const page = relative(PROJECT_ROOT, join(planeRoot, 'code', 'apis', `${slugify(node.id)}.md`)).split('\\').join('/')
     if (registry[code] && registry[code].page !== page) {
       console.error(`编译被拒绝：transaction_code ${code} 已登记到 ${registry[code].page}（节点 ${registry[code].id}），与本批次节点 ${node.id} 冲突。同一事务码只允许一张 api card。`)
       process.exit(1)
@@ -156,7 +168,7 @@ function main() {
   }
   if (regDirty) { mkdirSync(dirname(regPath), { recursive: true }); writeFileSync(regPath, JSON.stringify(registry, null, 2) + '\n', 'utf-8') }
 
-  const written = [], archived = []
+  const written = [], archived = [], wikiEntries = []
   for (const node of nodes) {
     node.source ||= data.source_doc || ''
     node.module ||= data.module || ''
@@ -173,14 +185,52 @@ function main() {
     node.plane = loc[0]
     if (node.type === 'business_rule') node.granularity ||= (loc[1] === 'rules' ? 'micro' : 'macro')
     const rel = join(loc[0], loc[1], `${slugify(node.id)}.md`)
-    writeFileSync(join(wikiRoot, rel), renderPage(node, now, loc), 'utf-8')
-    written.push(rel)
+    writeFileSync(join(planeRoot, rel), renderPage(node, now, loc), 'utf-8')
+    written.push(join(projectDir, rel))
+    wikiEntries.push({ plane: loc[0], path: rel, node_id: node.id, module: node.module })
   }
 
   // frozen 源文档编译入库后自动激活为 active（draft 预演通道不激活）
   let activated = []
   if (!args.includes('--allow-draft')) {
     activated = activateIfFrozen(PROJECT_ROOT, docPaths, `compile.mjs (${bundleId})`, bundleId)
+  }
+
+  // ── Project Registry 回写：更新 wiki_nodes 索引（路径含 project 段）────────
+  {
+    for (const projId of Object.keys(registryProjects)) {
+      const proj = registryProjects[projId]
+      if (!proj.wiki_nodes) proj.wiki_nodes = { doc: [], code: [] }
+      for (const e of wikiEntries) {
+        if (e.plane !== 'doc' && e.plane !== 'code') continue
+        const fullRel = `data/wiki/${projectDir}/${e.path}`
+        if (!proj.wiki_nodes[e.plane].includes(fullRel)) {
+          proj.wiki_nodes[e.plane].push(fullRel)
+        }
+      }
+      proj.updated_at = now
+    }
+    projReg.projects = registryProjects
+    writeFileSync(projRegPath, JSON.stringify(projReg, null, 2) + '\n', 'utf-8')
+  }
+
+  // ── Admin 回写：将 wiki_nodes 索引推送到 Admin（配置 ADMIN_URL 时生效）──────
+  if (adminEnabled() && wikiEntries.length) {
+    const targetIds = resolveProjectIds(registryProjects, wikiEntries.map(e => e.module))
+    const payload = wikiEntries.map(e => ({
+      plane: e.plane,
+      path: `data/wiki/${projectDir}/${e.path}`,
+      node_id: e.node_id,
+      bundle_id: bundleId,
+    }))
+    for (const pid of targetIds) {
+      try {
+        await pushWikiNodes(pid, payload)
+        console.log(`admin: 已回写 ${payload.length} 个 wiki_nodes → ${pid}`)
+      } catch (err) {
+        console.warn(`admin: wiki_nodes 回写失败 (${pid}): ${err.message}（不影响本地编译结果）`)
+      }
+    }
   }
 
   console.log(`bundle: ${bundleId}`)
@@ -190,4 +240,4 @@ function main() {
   for (const a of activated) console.log(`activated: ${a.doc_id} (${a.version ?? '-'}) frozen → active`)
 }
 
-main()
+main().catch(e => { console.error(e); process.exit(1) })

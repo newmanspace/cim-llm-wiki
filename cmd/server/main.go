@@ -11,6 +11,7 @@ import (
 "net/http"
 "os"
 "os/signal"
+"path/filepath"
 "syscall"
 "time"
 
@@ -21,6 +22,7 @@ import (
 "cim-llm-wiki/internal/hitl"
 "cim-llm-wiki/internal/pipeline"
 "cim-llm-wiki/internal/pipeline/compiler"
+"cim-llm-wiki/internal/store"
 )
 
 func main() {
@@ -59,6 +61,33 @@ slog.Error("compiler.New failed", "err", err)
 os.Exit(1)
 }
 
+// ── Admin store (PostgreSQL, optional) ─────────────────────────────────────
+var adminStore *store.Store
+if cfg.Admin.Enabled {
+if cfg.Admin.PostgresDSN == "" {
+slog.Error("ADMIN_ENABLED=true but ADMIN_DATABASE_URL is empty")
+os.Exit(1)
+}
+slog.Info("connecting to Admin PostgreSQL", "dsn", cfg.Admin.PostgresDSN)
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+adminStore, err = store.New(ctx, cfg.Admin.PostgresDSN)
+if err != nil {
+slog.Error("admin store connect failed", "err", err)
+os.Exit(1)
+}
+defer adminStore.Close()
+// Run migrations
+if migSQL, err := loadMigrations(cfg.Admin.MigrationDir); err == nil && migSQL != "" {
+if err := adminStore.Migrate(context.Background(), migSQL); err != nil {
+slog.Warn("migration failed (may already be applied)", "err", err)
+} else {
+slog.Info("migrations applied")
+}
+}
+slog.Info("Admin API enabled")
+}
+
 // ── HTTP router ───────────────────────────────────────────────────────────
 gin.SetMode(gin.ReleaseMode)
 r := gin.New()
@@ -89,6 +118,29 @@ v1.GET("/wiki/virtual/:module", wiki.GetVirtualDoc)
 
 // Parser engine info
 v1.GET("/parsers", handler.ListParsersHandler(cfg))
+
+// Admin API (Project Registry management, requires PostgreSQL)
+if adminStore != nil {
+admin := handler.NewAdminHandler(adminStore)
+adminGroup := v1.Group("/admin")
+{
+// Public endpoints (no token required)
+adminGroup.GET("/projects", admin.ListProjects)
+adminGroup.POST("/projects", admin.UpsertProject)
+adminGroup.GET("/projects/:id", admin.GetProject)
+adminGroup.DELETE("/projects/:id", admin.DeleteProject)
+adminGroup.POST("/projects/:id/token", admin.IssueToken)
+adminGroup.DELETE("/projects/:id/token", admin.RevokeToken)
+adminGroup.GET("/projects/:id/sync-logs", admin.GetSyncLogs)
+adminGroup.GET("/projects/:id/wiki-nodes", admin.GetWikiNodes)
+adminGroup.POST("/projects/:id/wiki-nodes", admin.UpsertWikiNodes)
+
+// Token-protected endpoints (skill uses project-token)
+adminGroup.GET("/projects/:id/config", admin.TokenAuth(), admin.GetProjectConfig)
+adminGroup.POST("/projects/:id/sync-status", admin.TokenAuth(), admin.RecordSyncStatus)
+}
+slog.Info("Admin API routes registered", "prefix", "/api/v1/admin")
+}
 }
 
 // ── HTTP server with graceful shutdown ────────────────────────────────────
@@ -125,4 +177,27 @@ slog.Info("http",
 "latency_ms", time.Since(start).Milliseconds(),
 )
 }
+}
+
+// loadMigrations reads all .sql files from dir in sorted order and concatenates them.
+func loadMigrations(dir string) (string, error) {
+entries, err := os.ReadDir(dir)
+if err != nil {
+if os.IsNotExist(err) {
+return "", nil
+}
+return "", err
+}
+var sql string
+for _, e := range entries {
+if e.IsDir() || filepath.Ext(e.Name()) != ".sql" {
+continue
+}
+data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+if err != nil {
+return "", fmt.Errorf("read migration %s: %w", e.Name(), err)
+}
+sql += string(data) + "\n"
+}
+return sql, nil
 }

@@ -198,8 +198,10 @@ case types.ObjDesign:
 return "designs"
 case types.ObjModule:
 return "modules"
-case types.ObjRequirement, types.ObjProject:
+case types.ObjRequirement:
 return "requirements"
+case types.ObjProject:
+return "projects"
 case types.ObjTestCase:
 return "tests"
 case types.ObjRelease:

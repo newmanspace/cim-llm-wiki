@@ -12,18 +12,114 @@ description: 将泛半导体 CIM/MES 原始文档（SDD/IDD/PRD/运维手册，P
 ## 流水线总览
 
 ```
-原始文档 → [1]本地解析 → [2]知识抽取(LLM) → [3]7维评分(LLM) → [4]聚合审核(HITL)
-        → [5]编译入 wiki → [6]Lint 校验 → [7]VitePress 展示
+[0]Project 配置 → [1]本地解析 → [2]知识抽取(LLM) → [3]7维评分(LLM) → [4]聚合审核(HITL)
+→ [5]编译入 wiki → [6]Lint 校验 → [7]VitePress 展示 → [8]状态回写 Admin
 ```
 
 ## 用户意图路由
 
 | 用户请求 | 执行步骤 |
 |---------|---------|
-| 摄取/解析某文档 | 步骤 1→6 全流程 |
+| 摄取/解析某文档 | 步骤 0→6→8 全流程 |
+| 增量同步项目 | 步骤 0（sync-repo.mjs）→ 定位变更 → 1→6→8 |
 | 查看/审核待审变更包 | 步骤 4（读 `data/review/pending/`） |
 | 校验 wiki 质量 | 仅步骤 6 |
 | 展示/启动 wiki 站点 | 仅步骤 7 |
+| 管理项目配置 | 步骤 0（读写 project-registry.json） |
+
+---
+
+## 步骤 0：Project 配置与 Submodule 检查
+
+**目的**：确定当前操作的项目上下文，确保源数据可用。
+
+### 0.1 获取项目配置
+
+项目配置存储在 `data/documents/project-registry.json`，可通过两种方式获取：
+
+**方式 A — Admin API 下发（生产模式，自动）**：
+
+设定环境变量后，Stage 0 用 `admin-pull.mjs` 从 Admin 拉配置覆盖本地 registry；编译/同步脚本会自动检测 `ADMIN_URL` 决定是否回写 Admin。
+
+```bash
+# 环境变量（贯穿 Stage 0→8）
+export ADMIN_URL=http://localhost:8080           # 未设置 = 离线模式，全程用本地 JSON
+export ADMIN_PROJECT_TOKEN=cimwt_xxx...           # config/sync-status 端点需要
+export ADMIN_PROJECT_ID=xinshun-mes               # 可选；不设则按模块归属自动解析目标项目
+
+# 1. 签发 project-token（Admin 管理员操作，一次性；控制台「令牌」Tab 或 curl）
+curl -X POST $ADMIN_URL/api/v1/admin/projects/<project-id>/token \
+  -H "Content-Type: application/json" \
+  -d '{"scopes": ["read_config","write_status"], "expires_in_hours": 720, "created_by": "admin"}'
+# 响应: {"token": "cimwt_xxx...", "warning": "store this token securely"}
+
+# 2. skill 拉取最新配置并落地本地 registry
+node .qoder/skills/cim-wiki/scripts/admin-pull.mjs <project-id>      # 或 --all
+```
+
+**方式 B — 离线模式**：不设置 `ADMIN_URL`，`admin-pull.mjs` 会跳过，`compile.mjs` / `sync-repo.mjs` 仅读写本地 `project-registry.json`，零外部依赖。
+
+Admin API 端点一览（`/api/v1/admin/`）：
+
+| 端点 | 方法 | 认证 | 说明 |
+|------|------|------|------|
+| `/projects` | GET | 无 | 列出所有项目 |
+| `/projects` | POST | 无 | 创建/更新项目 |
+| `/projects/:id` | GET | 无 | 获取项目详情 |
+| `/projects/:id` | DELETE | 无 | 删除项目 |
+| `/projects/:id/config` | GET | Bearer token | skill 拉取配置 |
+| `/projects/:id/token` | POST | 无 | 签发 token |
+| `/projects/:id/token` | DELETE | 无 | 吊销 token |
+| `/projects/:id/sync-status` | POST | Bearer token | 回写同步状态 |
+| `/projects/:id/sync-logs` | GET | 无 | 查看同步历史 |
+| `/projects/:id/wiki-nodes` | GET/POST | 无 | 查看/更新 wiki 索引 |
+
+> Admin API 需要 `ADMIN_ENABLED=true` + PostgreSQL。未启用时 skill 自动回退到本地 JSON 模式。
+
+**配置 schema**：`data/documents/project-registry.json` 结构见 `internal/types/types.go` 中的 `ProjectConfig`（离线模式可直接手动编辑该 JSON）。
+
+### 0.2 Git Submodule 检查与初始化
+
+项目的源文档和代码仓库通过 git submodule 挂载到 `data/sources/<project-id>/` 下：
+
+```
+data/sources/<project-id>/
+├── docs/    ← 源文档仓库（IDD/SDD/PRD/手册等）
+└── code/    ← 代码仓库（仅用于 module_mapping 索引，不复制源码）
+```
+
+```bash
+# 首次使用：初始化所有 submodule
+git submodule update --init --recursive
+
+# 检查特定项目的 submodule 状态
+git submodule status data/sources/<project-id>/docs
+git submodule status data/sources/<project-id>/code
+```
+
+**自动检查**：skill 在步骤 1 解析前自动验证目标文档路径是否存在。若 submodule 未初始化，提示用户执行 `git submodule update --init`。
+
+### 0.3 增量同步（可选）
+
+当需要检测外部仓库变更并触发增量摄取时：
+
+```bash
+# 同步指定项目：检测 submodule 变更，定位受影响模块
+node .qoder/skills/cim-wiki/scripts/sync-repo.mjs <project-id>
+
+# 仅检测变更，不更新状态
+node .qoder/skills/cim-wiki/scripts/sync-repo.mjs <project-id> --dry-run
+
+# 同步所有项目
+node .qoder/skills/cim-wiki/scripts/sync-repo.mjs --all
+```
+
+同步脚本输出：
+- 变更文件清单（按 module_mapping 映射到业务模块）
+- 受影响模块列表
+- `data/sync/<project-id>-diff-snapshot.json` 快照文件
+
+**增量工作流**：sync-repo.mjs 检测变更 → 定位受影响模块 → 对变更文档重新执行步骤 1→6 → 步骤 8 回写状态。
 
 ---
 
@@ -156,6 +252,55 @@ npm run docs:build   # 静态构建
 - 站点根为仓库根，`srcDir` 直接指向 `data/wiki`，无需复制。侧边栏为三棵树：**用户手册 / 系统管理手册**（doc/manuals 人读视图，按文档大类分组）、**领域知识库 (Domain Wiki)**（doc/）、**代码契约库 (Code Wiki)**（code/）。
 - 每次编译入库后侧边栏自动刷新（docs:dev/build 已通过 `gen` 前置脚本执行 `scripts/gen-sidebar.mjs`）。
 - 注意区分：`docs/` 是本项目自身的工程文档（如 HANDOFF.md）；`data/wiki/` 才是 LLM 流水线产出的知识库。
+
+## 步骤 8：状态回写（Status Writeback）
+
+编译/同步完成后自动回写，形成闭环。**回写由脚本自动触发，无需手动 curl**——只要设定了环境变量：
+
+- `compile.mjs`（Stage 5）编译入库后 → 自动 `POST /projects/:id/wiki-nodes`（按模块归属解析目标项目，`ADMIN_PROJECT_ID` 可显式覆盖）。
+- `sync-repo.mjs`（Stage 0 增量）检测到仓库变更后 → 自动 `POST /projects/:id/sync-status`（需 `ADMIN_PROJECT_TOKEN`）。
+- **未设置 `ADMIN_URL` 时两者都跳过 Admin 回写，仅更新本地 `project-registry.json`**（离线模式）。Admin 不可达仅打印 `admin: ... 回写失败` 告警，不阻断流水线。
+
+### 8.1 本地 project-registry.json（始终更新）
+
+`compile.mjs` 编译时更新 `wiki_nodes` 索引；`sync-repo.mjs` 更新 `last_sync_sha` / `synced_at`。手动标记文档摄取完成时编辑对应 doc 的 `ingested_at` / `bundles`。
+
+### 8.2 手动回写 Admin（可选，脚本失败或补录时）
+
+```bash
+# 回写同步状态（token 保护）
+curl -X POST -H "Authorization: Bearer cimwt_xxx..." -H "Content-Type: application/json" \
+  $ADMIN_URL/api/v1/admin/projects/<project-id>/sync-status \
+  -d '{ "repo_name":"mycim-mes","from_sha":"6792989f4c","to_sha":"e09417e18f",
+        "changed_files":3,"affected_modules":["webapp"],"status":"success",
+        "duration_ms":1200,"wiki_nodes_count":{"doc":12,"code":8},"bundles":["CR-20261002-0001"] }'
+
+# 回写 wiki 节点索引（开放端点）
+curl -X POST -H "Content-Type: application/json" \
+  $ADMIN_URL/api/v1/admin/projects/<project-id>/wiki-nodes \
+  -d '{"nodes":[{"plane":"doc","path":"data/wiki/doc/business/br-wip-001.md","node_id":"BR-WIP-001","bundle_id":"CR-20261002-0001"}]}'
+```
+
+### 8.3 Admin API 端点（已实现）
+
+所有端点前缀 `/api/v1/admin/`，需 `ADMIN_ENABLED=true` + PostgreSQL：
+
+| 端点 | 方法 | 认证 | 说明 |
+|------|------|------|------|
+| `/projects` | GET | 无 | 列出所有项目 |
+| `/projects` | POST | 无 | 创建/更新项目（含 docs、repos、modules） |
+| `/projects/:id` | GET | 无 | 获取项目完整详情 |
+| `/projects/:id` | DELETE | 无 | 删除项目（级联删除关联数据） |
+| `/projects/:id/config` | GET | Bearer token | skill 拉取项目配置 |
+| `/projects/:id/token` | POST | 无 | 签发 project token（返回明文，仅一次） |
+| `/projects/:id/token` | DELETE | 无 | 吊销 token |
+| `/projects/:id/sync-status` | POST | Bearer token | 回写同步状态（记录 sync_logs） |
+| `/projects/:id/sync-logs` | GET | 无 | 查看同步历史（?limit=20） |
+| `/projects/:id/wiki-nodes` | GET | 无 | 查看已编译 wiki 索引 |
+| `/projects/:id/wiki-nodes` | POST | 无 | 更新 wiki 索引 |
+
+> **离线模式**：未启用 Admin 时，skill 以本地 `data/documents/project-registry.json` 为唯一配置源，步骤 8 仅更新本地 JSON。
+> **PostgreSQL schema**：`deploy/postgres/001_init.sql`，容器首次启动自动执行 migration。
 
 ## 注意事项
 

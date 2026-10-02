@@ -221,6 +221,76 @@ Suggestion  string       `json:"suggestion"`
 AutoFixed   bool         `json:"auto_fixed"`
 }
 
+// ─── Project Registry：Project ↔ Documents ↔ Code Repos 关联（Admin 下发）────
+
+// ProjectToken 是 Admin 系统为每个 Project 签发的访问凭证。
+// skill 使用此 token 调用 Admin API 获取项目配置、回写同步状态。
+type ProjectToken struct {
+	ProjectID string `json:"project_id"` // 如 mes-wip
+	Token     string `json:"token"`      // JWT 或 opaque token
+	AdminURL  string `json:"admin_url"`  // Admin API base URL，如 https://admin.internal/api/v1
+	ExpiresAt string `json:"expires_at"` // ISO8601 过期时间
+	Scopes    []string `json:"scopes"`   // 权限范围：read_config / write_status / trigger_sync
+}
+
+// ProjectConfig 是 Admin 下发的项目配置（skill 本地缓存于 data/documents/project-registry.json）。
+type ProjectConfig struct {
+	ID      string `json:"id"`      // 全局唯一，如 mes-wip
+	Name    string `json:"name"`    // 人读名称
+	Product string `json:"product"` // 如 Semiconductor-MES
+	Version string `json:"version"` // 如 V2.22.4
+
+	Docs   []DocSource   `json:"docs"`   // 关联的源文档
+	Repos  []RepoBinding `json:"repos"`  // 关联的代码仓库
+	Modules []string     `json:"modules"` // 业务模块列表
+
+	WikiNodes  ProjectWikiIndex `json:"wiki_nodes"`  // 已生成的知识节点索引
+	SyncState  SyncState        `json:"sync_state"`  // 增量同步状态
+
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// DocSource 描述项目关联的一份源文档。
+type DocSource struct {
+	DocID      string `json:"doc_id"`      // 文档唯一标识，如 IDD-WIP-V2.22.4
+	Path       string `json:"path"`        // 本地路径（相对于项目根），如 data/sources/mes-wip/docs/idd_wip.md
+	Type       string `json:"type"`        // 文档类型：IDD / SDD / PRD / user-manual / admin-manual / ops-manual / release
+	Submodule  string `json:"submodule"`   // 所属 git submodule 路径（如 data/sources/mes-wip/docs）
+	SHA256     string `json:"sha256"`      // 文档内容哈希，用于变更检测
+	IngestedAt string `json:"ingested_at"` // 上次摄取时间
+	Bundles    []string `json:"bundles"`   // 关联的 ChangeBundle ID 列表
+}
+
+// RepoBinding 描述项目关联的代码仓库及其模块映射。
+type RepoBinding struct {
+	Name          string            `json:"name"`           // 仓库名称
+	URL           string            `json:"url"`            // git clone URL
+	Branch        string            `json:"branch"`         // 跟踪分支，默认 main
+	Submodule     string            `json:"submodule"`      // 本地 submodule 路径（如 data/sources/mes-wip/code）
+	ModuleMapping map[string]string `json:"module_mapping"` // 代码路径前缀 → 业务模块 ID
+	LastSyncSHA   string            `json:"last_sync_sha"`  // 上次同步的 git commit SHA
+	SyncedAt      string            `json:"synced_at"`      // 上次同步时间
+}
+
+// ProjectWikiIndex 索引项目已生成的 wiki 页面路径。
+type ProjectWikiIndex struct {
+	Doc  []string `json:"doc"`  // doc/ 平面下的 wiki 页面路径
+	Code []string `json:"code"` // code/ 平面下的 wiki 页面路径
+}
+
+// SyncState 记录增量同步状态。
+type SyncState struct {
+	LastDocSync    string `json:"last_doc_sync"`    // 上次文档同步时间
+	LastCodeSync   string `json:"last_code_sync"`   // 上次代码同步时间
+	PendingChanges int    `json:"pending_changes"`  // 待处理变更数
+	LastError      string `json:"last_error"`       // 上次同步错误（空=成功）
+}
+
+// ProjectRegistry 是 project-registry.json 的顶层结构。
+// key 为 project ID，value 为 ProjectConfig。
+type ProjectRegistry map[string]*ProjectConfig
+
 // ─── SearchQuery / SearchResult：混合检索（见方案 §7.1）─────────────────────
 
 type SearchQuery struct {

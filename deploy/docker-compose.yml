@@ -1,9 +1,14 @@
 # ==============================================================================
 # cim-llm-wiki 统一容器编排服务 (docker-compose.yml)
-# 运行说明: cd deploy && docker compose up -d
-# 访问地址:
-#   - 知识库 Web 交互界面: http://<宿主机IP>:5174
+# 运行说明: cd deploy && docker compose up -d --build
+# 统一入口 (gateway :8099，推荐对外只开这一个端口):
+#   - 知识库 Wiki 站点:   http://<宿主机IP>:8099/
+#   - Admin 管理控制台:   http://<宿主机IP>:8099/admin/
+#   - 后端流水线/Admin API: http://<宿主机IP>:8099/api/v1/...
+# 直连调试端口 (各自独立，可选):
 #   - 后端流水线 API 服务: http://<宿主机IP>:8080
+#   - 知识库 Web 交互界面: http://<宿主机IP>:5174
+#   - Admin 控制台独立:   http://<宿主机IP>:8095/admin/
 # ==============================================================================
 
 services:
@@ -26,11 +31,19 @@ services:
       - MINERU_ENDPOINT=http://mineru:8888
       - DOCLING_ENDPOINT=http://docling:5001
       - MARKITDOWN_ENDPOINT=http://markitdown:5002
+      - ADMIN_ENABLED=${ADMIN_ENABLED:-true}
+      - ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-cimwiki}:${POSTGRES_PASSWORD:-cimwiki_dev_2026}@postgres:5432/${POSTGRES_DB:-cim_wiki_admin}?sslmode=disable
+      - ADMIN_MIGRATION_DIR=/app/deploy/postgres
     restart: unless-stopped
     depends_on:
-      - mineru
-      - docling
-      - markitdown
+      mineru:
+        condition: service_started
+      docling:
+        condition: service_started
+      markitdown:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
   # ── 2. 前端展示服务: VitePress 知识库 Web 交互站点 ──────────────────────────
   web:
@@ -46,6 +59,20 @@ services:
     environment:
       - PORT=5174
       - WIKI_ROOT=/data/wiki
+    restart: unless-stopped
+    depends_on:
+      - server
+
+  # ── 2b. Admin 管理控制台: Vue3 + Element Plus SPA (nginx 静态托管 + /api 反代) ────
+  #     docker compose up -d 即随全栈启动，访问 http://<宿主机IP>:8095/admin/
+  admin:
+    build:
+      context: ..
+      dockerfile: deploy/admin/Dockerfile
+    image: cim-wiki-admin:latest
+    container_name: cim-wiki-admin
+    ports:
+      - "8095:80"
     restart: unless-stopped
     depends_on:
       - server
@@ -105,7 +132,46 @@ services:
       - meili_data:/meili_data
     restart: unless-stopped
 
+  # ── 8. PostgreSQL: Admin 系统持久化存储（Project Registry）─────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: cim-wiki-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cim_wiki_admin}
+      POSTGRES_USER: ${POSTGRES_USER:-cimwiki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cimwiki_dev_2026}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cimwiki} -d ${POSTGRES_DB:-cim_wiki_admin}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── 9. Gateway: 统一入口反向代理 (wiki + admin + api 同一端口对外) ───────────
+  #     访问 http://<宿主机IP>:8099/        → 知识库站点 (VitePress)
+  #           http://<宿主机IP>:8099/admin/ → Admin 管理控制台
+  #           http://<宿主机IP>:8099/api/   → 后端 API (含 /api/v1/admin/*)
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/gateway/Dockerfile
+    image: cim-wiki-gateway:latest
+    container_name: cim-wiki-gateway
+    ports:
+      - "8099:80"
+    restart: unless-stopped
+    depends_on:
+      - server
+      - web
+      - admin
+
 volumes:
   mineru_data:
   qdrant_data:
   meili_data:
+  pg_data:
