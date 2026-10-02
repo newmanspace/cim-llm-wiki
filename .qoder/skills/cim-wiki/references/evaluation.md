@@ -64,4 +64,4 @@ hits ≥4 → 0.9；≥2 → 0.6；=1 → 0.3；0 → 0.1。
 | ≥ 0.55 | L2_arch | 进入聚合审核卡片并标注需架构师裁决（涉及核心状态机/QTime/外部集成关键接口时强制 L2） |
 | < 0.55 | archive | 归档到 data/review/archived/，不入主库 |
 
-**强制升级规则**：即使得分达到 L0，若节点修改/冲突了既有 business_rule，或涉及 Hold/Release 状态机、QTime 约束、PLM/ERP 关键集成接口，一律升级为 L2_arch。
+**强制升级规则**：即使得分达到 L0，若节点修改/冲突了既有 business_rule，或涉及 Hold/Release 状态机、QTime 约束、PLM/ERP 关键集成接口，或 rule card 声明 `severity: Critical`，一律升级为 L2_arch。

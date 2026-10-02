@@ -139,7 +139,9 @@ raw 原始文档（PDF/DOCX/MD）
 
 | 节点类型 | 子目录 | 文件名示例 |
 |----------|--------|-----------|
-| business_rule / business_object / workflow | `business/` | `br-wip-001.md` `bo-*.md` `wf-*.md` |
+| business_rule / business_object | `business/` | `br-wip-001.md` `bo-*.md` |
+| scenario | `doc/scenarios/` | `sc-wip-001.md` |
+| interaction | `code/interactions/` | `it-wip-001.md` |
 | api（ui_api & external_integration） | `apis/` | `api-wip-ui-001.md` |
 | design | `designs/` | `des-wip-001.md` |
 | module | `modules/` | `mod-wip-001.md` |
@@ -150,7 +152,7 @@ raw 原始文档（PDF/DOCX/MD）
 | incident / defect | `incidents/` | `inc-wip-001.md` |
 | faq / knowledge_article / 其他 | `knowledge/` | `kn-wip-001.md` |
 
-> 另有 `products/`（产品线）、`projects/`（项目）、`sources/`（源文档索引）、`operations/`（运维手册）、`virtual/`（模块级 SDD/IDD 合成长视图）等目录，侧边栏标签见 `scripts/gen-sidebar.mjs` 的 `DIR_META`。
+> 另有 `products/`（产品线）、`projects/`（项目）、`sources/`（源文档索引）、`runbooks/`（运维手册）、`virtual/`（模块级 SDD/IDD 合成长视图）等目录，侧边栏标签见 `scripts/gen-sidebar.mjs` 的 `DIR_META`。
 
 ### 支持的解析引擎
 

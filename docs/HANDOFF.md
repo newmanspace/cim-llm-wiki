@@ -23,7 +23,11 @@
   - 彻底解决容器内 Vitepress `spawn git ENOENT` 问题（`lastUpdated: false`）并自适应 Docker 卷挂载路径。
 - **README.md 全量重写**（`/docker/cim-llm-wiki/README.md`）：参照最佳实践重构为 项目介绍 → 快速开始 → 架构设计 → 功能概览 → 已落地内容 → 设计原则 → 项目结构 → 开发指南 → 扩展点 → 文档。
 - **解析引擎与后端在线就绪**：`curl :8080/healthz` 响应 `status: ok`，`/api/v1/parsers` 显示 `docling` 与 `mineru` 均 `available: true`。
-- **前端知识库站点在线**：对外访问 **http://10.243.251.204:5174/**（或本地 **http://localhost:5174/**），50 篇原子文档及人读视图（手册）导航完全渲染。
+- **前端知识库站点在线**：对外访问 **http://10.243.251.204:5174/**（或本地 **http://localhost:5174/**），50 篇原子文档及文档视图（手册）导航完全渲染。
+- **Wiki 双轨架构目录命名优化**：彻底消除了 `doc` 平面与 `code` 平面之间的语义冲突：
+  - `doc` 侧：原 `business` 改为 `scenarios` (业务场景)，原 `operations` 改为 `runbooks` (运维预案)。
+  - `code` 侧：新增 `interactions` (交互时序流)，替代冗长的 `operation-flows` 及易产生数据库歧义的 `sequences`。
+  - 同步更新了 `compiler.go`, `types.go`, `extractor.go`, `gen-sidebar.mjs` 映射及 `README.md`。
 
 ### 阻塞项（未解决）
 

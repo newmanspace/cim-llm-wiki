@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 人读视图层：把 Stage 1 解析稿（data/raw）按原章节结构渲染为 data/wiki/manuals/ 下的可读用户手册
+// 文档视图层：把 Stage 1 解析稿（data/raw）按原章节结构渲染为 data/wiki/manuals/ 下的可读用户手册
 // 原则：存储原子化（面向 AI）不变，此脚本只生成"面向人"的聚合视图，不新增知识节点
 // 用法: node gen-manuals.mjs   （来源 = 已批准 bundle nodes.json 中引用的 source 去重）
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync, rmSync, cpSync } from 'node:fs'
@@ -16,7 +16,7 @@ function resolve_root() {
 
 const RAW = join(ROOT, 'data', 'raw')
 const WORK = join(ROOT, 'data', 'work')
-const OUT = join(ROOT, 'data', 'wiki', 'manuals')
+const OUT = join(ROOT, 'data', 'wiki', 'doc', 'manuals')
 
 // 1. 收集已批准/已发布 bundle 引用的解析稿
 const sources = new Map() // rawRelPath -> {bundleIds, moduleNode}
@@ -24,7 +24,7 @@ for (const b of existsSync(WORK) ? readdirSync(WORK) : []) {
   const p = join(WORK, b, 'nodes.json')
   if (!existsSync(p)) continue
   const d = JSON.parse(readFileSync(p, 'utf-8'))
-  if (!d.compiled_at) continue // 未放行的包不出人读视图
+  if (!d.compiled_at) continue // 未放行的包不出文档视图
   for (const n of d.nodes || []) {
     const s = n.source || (String(d.source_doc || '').endsWith('.md') ? d.source_doc : '') // 节点缺 source 时回退 bundle 级 md 源
     if (!s) continue
@@ -81,8 +81,8 @@ for (const [rawRel, info] of sources) {
   const dir = join(OUT, relDir)
   mkdirSync(dir, { recursive: true })
   const modLink = info.moduleNode
-    ? `> 对应原子知识节点（面向 AI）：模块驾驶舱页 [${info.moduleNode.id}](/modules/${info.moduleNode.id.toLowerCase()})`
-    : `> 对应原子知识节点（面向 AI）：见侧边栏「业务模型」分组`
+    ? `> 对应原子知识节点（面向 AI）：模块驾驶舱页 [${info.moduleNode.id}](/doc/modules/${info.moduleNode.id.toLowerCase()})`
+    : `> 对应原子知识节点（面向 AI）：见侧边栏「领域知识库 / 流程与宏观规则」分组`
   const page = `---
 title: "${title}"
 type: manual_view
@@ -109,4 +109,4 @@ ${body}
   if (existsSync(assetSrc)) cpSync(assetSrc, join(dir, `${docStem}_assets`), { recursive: true })
   count++
 }
-console.log(`gen-manuals: ${count} 本人读视图 -> data/wiki/manuals/`)
+console.log(`gen-manuals: ${count} 本人读视图 -> data/wiki/doc/manuals/`)

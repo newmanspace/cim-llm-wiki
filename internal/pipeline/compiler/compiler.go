@@ -4,8 +4,9 @@
 // Each KnowledgeNode maps to exactly one file:
 //
 //   business_rule    → wiki/business/br-{id}.md
-//   business_object  → wiki/business/bo-{id}.md
-//   workflow         → wiki/business/wf-{id}.md
+//   business_object  → wiki/schemas/bo-{id}.md
+//   scenario         → wiki/doc/scenarios/sc-{id}.md
+//   interaction      → wiki/code/interactions/it-{id}.md
 //   api              → wiki/apis/{id}.md
 //   design           → wiki/designs/{id}.md
 //   module           → wiki/modules/{id}.md
@@ -53,9 +54,9 @@ return &Compiler{wikiRoot: wikiRoot}, nil
 // wikiSubdirs are the standard subdirectories under wiki/.
 var wikiSubdirs = []string{
 "products", "projects", "requirements", "designs",
-"modules", "business", "apis", "tests",
-"releases", "deployments", "operations",
-"incidents", "knowledge", "sources",
+"modules", "scenarios", "apis", "tests",
+"releases", "deployments", "runbooks",
+"incidents", "knowledge", "sources", "interactions",
 }
 
 // Compile writes nodes to wiki/ and returns the list of written file paths.
@@ -185,8 +186,12 @@ func renderNode(n types.KnowledgeNode) (string, error) {
 // typeToSubdir maps ObjectType to the wiki/ subdirectory.
 func typeToSubdir(t types.ObjectType) string {
 switch t {
-case types.ObjBusinessRule, types.ObjBusinessObject, types.ObjWorkflow:
+case types.ObjBusinessRule, types.ObjBusinessObject:
 return "business"
+case types.ObjScenario:
+return "scenarios"
+case types.ObjInteraction:
+return "interactions"
 case types.ObjAPI:
 return "apis"
 case types.ObjDesign:

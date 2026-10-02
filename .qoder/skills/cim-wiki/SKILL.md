@@ -49,7 +49,7 @@ node .qoder/skills/cim-wiki/scripts/parse.mjs <输入文档> \
   [--engine mineru|docling|markitdown]
 ```
 
-- **路径规约（推荐）**：输出 `data/raw/<系统>/<版本号>/<文档大类>/<文档子类（如有）>/<文档名>.md`；**文档名不允许包含版本号**（版本由路径段承载，脚本自动剥离 `V2.22.4` 类后缀，剥离失败则硬报错，用 `--name` 显式指定）。文档大类枚举：`user-manual` / `design`（SDD/IDD，子类如 `idd`/`sdd`）/ `prd` / `ops-manual` / `release` / `solution`。
+- **路径规约（推荐）**：输出 `data/raw/<系统>/<版本号>/<文档大类>/<文档子类（如有）>/<文档名>.md`；**文档名不允许包含版本号**（版本由路径段承载，脚本自动剥离 `V2.22.4` 类后缀，剥离失败则硬报错，用 `--name` 显式指定）。文档大类枚举：`user-manual`（用户手册）/ `admin-manual`（系统管理手册）/ `design`（SDD/IDD，子类如 `idd`/`sdd`）/ `prd` / `ops-manual` / `release` / `solution`。
 - **图片还原**：Docling/MarkItDown 契约响应含 `images` 数组（按文档流顺序），脚本落盘 `<文档名>_assets/img-NNN.<ext>` 并将 `<!-- image -->` 占位原位重写为 `![图N](<文档名>_assets/…)`。
 - 解析完成后自动在 `data/documents/manifest.json` 登记该文档为 **draft** 状态（唯一状态源）。
 - 兼容旧用法：不提供 `--system/--version/--category` 时回退 `data/raw/<module>/<name>.md` 布局。
@@ -130,9 +130,13 @@ node .qoder/skills/cim-wiki/scripts/doc-state.mjs verify                        
 node .qoder/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 ```
 
-- 脚本读取 `data/work/<bundle_id>/nodes.json`，按目录映射（type → `data/wiki/<subdir>/`）与文件名规则（ID 小写 slug + `.md`）生成页面，自动附加 YAML Frontmatter 与来源页脚；`archive` 节点分流到 `data/review/archived/`。
-- 关联节点用 wikilink 风格 `[[business/br-wip-001.md]]`。
-- **虚拟长文档**：若用户要求某模块的完整 SDD/IDD 视图，将该模块所有原子节点按「模块概述 → 业务规则 → 业务对象 → 流程 → UI 接口 → CIM 集成接口 → 设计」顺序合成，写入 `data/wiki/virtual/<module>-<sdd|idd>.md`（Frontmatter 加 `virtual: true`）。
+- 脚本读取 `data/work/<bundle_id>/nodes.json`，按**双平面物理分库**路由与文件名规则（ID 小写 slug + `.md`）生成页面，自动附加 YAML Frontmatter（含 `plane: doc|code`）与来源页脚；`archive` 节点分流到 `data/review/archived/`。
+- **双平面路由**（判据见 references/extraction.md「双平面物理分库」）：
+  - `data/wiki/code/`（**代码契约库**，面向工程实现与自动化编译）：`apis/`（api card）、`rules/`（微观规则，`granularity: micro` 或带 `applies_to`）、`domain/`（Domain Card / business_object——契约层实体基座）、`schemas/`（data_schema 物理表结构）、`code-index/`（代码索引）。
+  - `data/wiki/doc/`（**领域知识库**，面向人与高层业务导航）：`business/`（scenario wf-*（含 What-Next 分支表）与宏观规则）、`designs/`、`modules/`、`requirements/`、`dictionaries/`（data_dictionary 数据字典/ER mapping）、`tests/`、`operations/`（运维 SOP）、`manuals/`（人读视图：用户手册 user-manual / 系统管理手册 admin-manual，由 gen-manuals.mjs 生成）、其余 products/projects/releases/deployments/incidents/knowledge/sources/virtual。
+- 关联节点 wikilink **必须带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/wf-wip-001.md]]`（compile 会把旧无前缀链接自动规范化，存量 bundle 无需手改）。
+- **事务码注册表**：api card 的 `transaction_code` 全局唯一，compile 时登记 `data/documents/api-registry.json`，一码一卡，冲突拒绝整批入库。
+- **虚拟长文档**：SDD 视图写入 `data/wiki/doc/virtual/<module>-sdd.md`，IDD 视图写入 `data/wiki/code/virtual/<module>-idd.md`（Frontmatter 加 `virtual: true`；合成顺序：模块概述 → 业务规则 → 业务对象 → 流程 → UI 接口 → CIM 集成接口 → 设计）。
 
 ## 步骤 6：Lint 校验
 
@@ -140,7 +144,7 @@ node .qoder/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 node .qoder/skills/cim-wiki/scripts/validate.mjs data/wiki
 ```
 
-校验 Frontmatter 必填字段、文件名与 ID 一致性、wikilink 断链、孤立页面、语义重复嫌疑（同模块同类型标题相似），以及文档状态管控：非 draft 文档 sha256 漂移（`doc_drift`）、登记文件缺失（`doc_missing`）、draft 文档已发布页面（`doc_state`）。将问题清单报告给用户；断链与元数据错误可直接修复，冲突与重复需用户裁决。
+校验 Frontmatter 必填字段、文件名与 ID 一致性、wikilink 断链、孤立页面、语义重复嫌疑（同模块同类型标题相似），文档状态管控：非 draft 文档 sha256 漂移（`doc_drift`）、登记文件缺失（`doc_missing`）、draft 文档已发布页面（`doc_state`）；rule/domain/api/scenario card 槽位与词表（`vocabulary_violation`、`*_card_incomplete`）；**双平面路由**（`plane_mismatch`：页面落点与类型路由不符为 error，如 api 落进 doc、宏观规则落进 code）；图闭合（`transaction_code` 全库唯一、`applies_to` 指向非 api）。将问题清单报告给用户；断链与元数据错误可直接修复，冲突与重复需用户裁决。
 
 ## 步骤 7：VitePress 展示
 
@@ -149,7 +153,7 @@ npm run docs:dev     # 开发预览（仓库根目录执行，默认 http://loca
 npm run docs:build   # 静态构建
 ```
 
-- 站点根为仓库根，`srcDir` 直接指向 `data/wiki`，无需复制。
+- 站点根为仓库根，`srcDir` 直接指向 `data/wiki`，无需复制。侧边栏为三棵树：**用户手册 / 系统管理手册**（doc/manuals 人读视图，按文档大类分组）、**领域知识库 (Domain Wiki)**（doc/）、**代码契约库 (Code Wiki)**（code/）。
 - 每次编译入库后侧边栏自动刷新（docs:dev/build 已通过 `gen` 前置脚本执行 `scripts/gen-sidebar.mjs`）。
 - 注意区分：`docs/` 是本项目自身的工程文档（如 HANDOFF.md）；`data/wiki/` 才是 LLM 流水线产出的知识库。
 

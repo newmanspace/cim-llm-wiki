@@ -117,8 +117,8 @@ func fallbackExtract(doc *types.ParsedDocument, module, content string) []types.
 				prefix = "API"
 			case types.ObjRequirement:
 				prefix = "REQ"
-			case types.ObjWorkflow:
-				prefix = "WF"
+			case types.ObjScenario:
+				prefix = "SC"
 			}
 			nodeID = fmt.Sprintf("%s-%s-%03d", prefix, strings.ToUpper(module), len(nodes)+1)
 		}
@@ -150,8 +150,8 @@ func fallbackExtract(doc *types.ParsedDocument, module, content string) []types.
 				nodeType = types.ObjBusinessRule
 			} else if strings.Contains(lower, "api") || strings.Contains(lower, "接口") {
 				nodeType = types.ObjAPI
-			} else if strings.Contains(lower, "workflow") || strings.Contains(lower, "流程") {
-				nodeType = types.ObjWorkflow
+			} else if strings.Contains(lower, "scenario") || strings.Contains(lower, "流程") || strings.Contains(lower, "场景") {
+				nodeType = types.ObjScenario
 			} else if strings.Contains(lower, "requirement") || strings.Contains(lower, "需求") {
 				nodeType = types.ObjRequirement
 			}
