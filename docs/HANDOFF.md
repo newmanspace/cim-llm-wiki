@@ -89,8 +89,9 @@
   - SKILL.md 步骤 0/8 已改写为"脚本自动回写 + env 开关"模型。
 - ✅ **端到端验证**（全 docker 栈）：Stage 0 pull 落地 6 文档/1 仓库/38 模块；sync-status 回写使 `sync_logs` 增长并含 to_sha/changed_files/duration；compile 回写使 `project_wiki_nodes` doc/code 各 +1；测试数据与令牌均已清理回基线。
 - ✅ **展示级深链闭环 + 按项目分树**：wiki 物理树改为 `data/wiki/<project>/{doc,code}/...`（VitePress `base=/wiki/`），完整访问 URL 形如 `/wiki/xinshun-mes/doc/business/br-wip-001`。流水线三处同步改造：`compile.mjs`（写入 `<wikiRoot>/<project>/...`，回写路径带 project 段，project 由 `ADMIN_PROJECT_ID` > 单项目 registry > bundle.project 解析）、`gen-sidebar.mjs`（按项目子目录扫描并生成 `/<project>/...` 链接）、`gen-manuals.mjs`（人读视图同分树）。`GetProject` 从 `project_wiki_nodes` 表回填 `wiki_nodes`；Admin「Wiki 节点」Tab 每条 path 渲染为可点击外链，路径按 `data/wiki/<project>/<rel>.md → /wiki/<project>/<rel>`（cleanUrls 无扩展名）转换，经统一网关直达（新标签打开）。网关根 `/` 相对 302 → `/wiki/`（`absolute_redirect off` 保留 `:8099` 端口）。
+- ✅ **网关统一会话登录鉴权（wiki + admin，2026-10）**：`/wiki/` 与 `/admin/` 不再裸奔，由 gateway 统一门控（选型理由：admin 后续须与 weknora 整合，两处浏览面共享同一会话）。机制——后端 `internal/handler/auth.go` 签发 **无状态 HMAC-SHA256 会话 cookie**（`<base64url(user|exp)>.<hexHMAC>`，HttpOnly + SameSite=Lax，`AUTH_COOKIE_SECURE` 上 HTTPS 后置 true）；gateway nginx 对 `/wiki/`、`/admin/` 加 `auth_request /_auth`（internal 子请求打后端 `GET /api/v1/auth/verify`，转发 `$http_cookie`），401 经 `error_page … = @need_login` 跳 `GET /login`（登录页 `deploy/gateway/login.html`，内联 CSS/JS、自包含）并带 `?next=` 回填原目标；登录 JS 仅接受站内相对 `next`，拒 `//host` 开放重定向。`/api/` **不门控**（流水线 project-token 走 Bearer；login/verify 本身须公开可达）。`AUTH_ENABLED=false` 时 `verify` 恒返回 200（透明门控、绝不误锁，便于灰度/回退）。**凭证来源=机制先行**：暂由 env 提供单一口令（`AUTH_USERNAME`/`AUTH_PASSWORD`，或更安全用 `AUTH_PASSWORD_SHA256`=sha256(pw) 小写十六进制；`authenticate()` 为待替换的 seam，后续接 Postgres users/LDAP/SSO 只改此处）。`authenticate` 走 `subtle.ConstantTimeCompare`。**默认口令为占位值，上线前务必覆盖 `AUTH_SESSION_SECRET` 与口令**。`deploy/docker-compose.yml` server 段已注入 `AUTH_*`（默认开启）。全链路 curl 验证：未登录 `/wiki/`→302 `/login?next=/wiki/`；`/login`→200；错误口令→401；正确口令→200 且 `Set-Cookie`；带 cookie `/wiki/`+`/admin/`→200、`verify`→200 authenticated；`logout`→200 清 cookie 后 `/wiki/` 复回 302；`AUTH_ENABLED=false` 起服务 verify 恒 200。`nginx -t` 通过，server+gateway 镜像重建、`:8099` 端到端复验。
 - ⏳ **待人工清理（需 sudo，root 属主）**：迁移后 `data/wiki/` 顶层残留两个平面化前的废弃目录 `business/`、`operations/`（早期容器以 root 写入、已被 `xinshun-mes/` 分树取代、不被侧边栏引用、不影响 `/wiki/` 深链）。请在宿主机执行：`sudo rm -rf data/wiki/business data/wiki/operations`。
-- ⏳ **后续（生产加固）**：HTTPS、RBAC、admin 控制台自身的交互式登录鉴权（当前管理端点仅靠 `ADMIN_ENABLED` + 网络策略保护）；token 明文仅签发时返回一次，控制台与 DB 均不存明文（存 SHA256）。
+- ⏳ **后续（生产加固）**：HTTPS、RBAC；凭证来源从 env 单口令升级为 Postgres users 表 / LDAP / SSO（改 `AuthHandler.authenticate` 即可，会话机制无需变动）；`/api/v1/admin/*` 管理端点可选纳入同一会话校验（当前仍靠 `ADMIN_ENABLED` + 网络策略 + project-token）；登录失败暂无限流/锁定。token 明文仅签发时返回一次，控制台与 DB 均不存明文（存 SHA256）。
 
 
 
@@ -101,7 +102,8 @@
 | 项目根 | `/docker/cim-llm-wiki` |
 | Node.js | ≥ 20（当前 v22.23.1） |
 | 站点端口 | dev 5174（固定绑定，与主机防火墙对齐） |
-| 统一入口 Gateway | `:8099` → `/wiki/` 知识库、`/admin/` 控制台、`/api/` 后端；`/` 302→`/wiki/`（`deploy/gateway/`，对外只需开此端口） |
+| 统一入口 Gateway | `:8099` → `/wiki/` 知识库、`/admin/` 控制台、`/api/` 后端、`/login` 登录页；`/` 302→`/wiki/`（`deploy/gateway/`，对外只需开此端口）。`/wiki/`+`/admin/` 经 `auth_request` 会话门控 |
+| 访问鉴权（会话登录） | env：`AUTH_ENABLED`(默认 true) + `AUTH_SESSION_SECRET` + `AUTH_USERNAME`/`AUTH_PASSWORD`(或 `AUTH_PASSWORD_SHA256`) + `AUTH_COOKIE_NAME`/`AUTH_SESSION_TTL_HOURS`/`AUTH_COOKIE_SECURE`；凭证 seam=`AuthHandler.authenticate`（待接用户库） |
 | MinerU / Docling / MarkItDown | :8888 / :5001 / :5002 |
 | 流水线 skill | `.qoder/skills/cim-wiki/SKILL.md`（Stage 0→8 定义） |
 | Project 注册表 | `data/documents/project-registry.json` |

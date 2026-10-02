@@ -2,6 +2,7 @@
 FROM nginx:1.27-alpine
 
 COPY deploy/gateway/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/gateway/login.html /usr/share/nginx/html/login.html
 
 EXPOSE 80
 

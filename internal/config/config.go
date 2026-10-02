@@ -17,6 +17,7 @@ LLM       LLMConfig
 Evaluator EvaluatorConfig
 Storage   StorageConfig
 Admin     AdminConfig
+Auth      AuthConfig
 Qdrant    QdrantConfig
 Meili     MeiliConfig
 Git       GitConfig
@@ -102,6 +103,28 @@ MigrationDir string
 TokenDefaultExpiryHours int
 }
 
+// AuthConfig configures the gateway session login (wiki + admin access control).
+// Mechanism only: credentials come from environment until a user store is wired.
+type AuthConfig struct {
+// Enabled is the master switch. When false, /api/v1/auth/verify always
+// returns 200 so the nginx auth_request gate stays transparent (no lockout).
+Enabled bool
+// SessionSecret signs the HMAC session cookie. MUST be overridden in prod.
+SessionSecret string
+// CookieName is the session cookie name (default: cim_session).
+CookieName string
+// SessionTTLHours is cookie lifetime in hours (default: 12).
+SessionTTLHours int
+// Secure marks the cookie Secure (enable behind HTTPS).
+Secure bool
+// Username / Password are the static single-credential defaults. Password
+// should be checked against PasswordSHA256 (lowercase hex of sha256(pw))
+// when provided; the plaintext Password is only a dev fallback.
+Username        string
+Password        string
+PasswordSHA256  string
+}
+
 // QdrantConfig configures the Qdrant vector store for semantic search.
 type QdrantConfig struct {
 Host       string
@@ -174,6 +197,16 @@ Enabled:               getEnv("ADMIN_ENABLED", "false") == "true",
 PostgresDSN:           getEnv("ADMIN_DATABASE_URL", ""),
 MigrationDir:          getEnv("ADMIN_MIGRATION_DIR", "./deploy/postgres"),
 TokenDefaultExpiryHours: getEnvInt("ADMIN_TOKEN_EXPIRY_HOURS", 0),
+},
+Auth: AuthConfig{
+Enabled:           getEnv("AUTH_ENABLED", "true") == "true",
+SessionSecret:     getEnv("AUTH_SESSION_SECRET", "dev-insecure-change-me-session-secret"),
+CookieName:        getEnv("AUTH_COOKIE_NAME", "cim_session"),
+SessionTTLHours:   getEnvInt("AUTH_SESSION_TTL_HOURS", 12),
+Secure:            getEnv("AUTH_COOKIE_SECURE", "false") == "true",
+Username:          getEnv("AUTH_USERNAME", "admin"),
+Password:          getEnv("AUTH_PASSWORD", ""),
+PasswordSHA256:    getEnv("AUTH_PASSWORD_SHA256", ""),
 },
 Qdrant: QdrantConfig{
 Host:       getEnv("QDRANT_HOST", "localhost"),

@@ -119,6 +119,19 @@ v1.GET("/wiki/virtual/:module", wiki.GetVirtualDoc)
 // Parser engine info
 v1.GET("/parsers", handler.ListParsersHandler(cfg))
 
+// Auth: gateway session login protecting wiki + admin surfaces.
+// Registered unconditionally so nginx auth_request always has a target;
+// when AUTH_ENABLED=false Verify returns 200 (transparent gate, no lockout).
+auth := handler.NewAuthHandler(cfg.Auth)
+v1.POST("/auth/login", auth.Login)
+v1.POST("/auth/logout", auth.Logout)
+v1.GET("/auth/verify", auth.Verify)
+if cfg.Auth.Enabled {
+slog.Info("Auth session login enabled", "cookie", cfg.Auth.CookieName, "ttl_hours", cfg.Auth.SessionTTLHours)
+} else {
+slog.Warn("Auth disabled: /wiki/ and /admin/ gate is transparent (open)")
+}
+
 // Admin API (Project Registry management, requires PostgreSQL)
 if adminStore != nil {
 admin := handler.NewAdminHandler(adminStore)
