@@ -18,7 +18,7 @@
 
       <t-tabs v-if="project" v-model="activeTab" class="detail-tabs">
         <!-- Overview -->
-        <t-tab-pane :value="'overview'" :label="t('detail.overview')">
+        <t-tab-panel :value="'overview'" :label="t('detail.overview')">
           <t-descriptions :column="descColumn" layout="horizontal" bordered>
             <t-descriptions-item :label="t('project.product')">
               {{ project.product || '-' }}
@@ -56,10 +56,10 @@
               </span>
             </t-descriptions-item>
           </t-descriptions>
-        </t-tab-pane>
+        </t-tab-panel>
 
         <!-- Docs -->
-        <t-tab-pane :value="'docs'" :label="`${t('detail.docs')} (${project.docs?.length || 0})`">
+        <t-tab-panel :value="'docs'" :label="`${t('detail.docs')} (${project.docs?.length || 0})`">
           <t-table :data="project.docs || []" :columns="docColumns" row-key="doc_id" bordered>
             <template #bundles="{ row }">
               <template v-if="row.bundles?.length">
@@ -71,10 +71,10 @@
               <t-empty :description="t('detail.docsEmpty')" />
             </template>
           </t-table>
-        </t-tab-pane>
+        </t-tab-panel>
 
         <!-- Repos -->
-        <t-tab-pane :value="'repos'" :label="`${t('detail.repos')} (${project.repos?.length || 0})`">
+        <t-tab-panel :value="'repos'" :label="`${t('detail.repos')} (${project.repos?.length || 0})`">
           <t-table :data="project.repos || []" :columns="repoColumns" row-key="name" bordered>
             <template #mappings="{ row }">
               <t-link theme="primary" @click="openMappings(row)">
@@ -85,20 +85,20 @@
               <t-empty :description="t('detail.reposEmpty')" />
             </template>
           </t-table>
-        </t-tab-pane>
+        </t-tab-panel>
 
         <!-- Modules -->
-        <t-tab-pane :value="'modules'" :label="`${t('detail.modules')} (${project.modules?.length || 0})`">
+        <t-tab-panel :value="'modules'" :label="`${t('detail.modules')} (${project.modules?.length || 0})`">
           <div class="module-cloud">
             <t-tag v-for="m in project.modules || []" :key="m" theme="primary" variant="light" class="tag-gap">
               {{ m }}
             </t-tag>
             <span v-if="!project.modules?.length">{{ t('common.empty') }}</span>
           </div>
-        </t-tab-pane>
+        </t-tab-panel>
 
         <!-- Tokens -->
-        <t-tab-pane :value="'tokens'" :label="t('detail.tokens')">
+        <t-tab-panel :value="'tokens'" :label="t('detail.tokens')">
           <div class="token-actions">
             <t-button theme="primary" @click="tokenDialogVisible = true">
               <template #icon><AddIcon /></template>
@@ -109,10 +109,10 @@
             </t-button>
           </div>
           <p class="hint">{{ t('detail.tokenRevokeHint') }}</p>
-        </t-tab-pane>
+        </t-tab-panel>
 
         <!-- Sync logs -->
-        <t-tab-pane :value="'sync'" :label="t('detail.syncLogs')">
+        <t-tab-panel :value="'sync'" :label="t('detail.syncLogs')">
           <t-table :data="syncLogs" :columns="syncColumns" :loading="logsLoading" row-key="synced_at" bordered>
             <template #affected="{ row }">
               <template v-if="row.affected_modules?.length">
@@ -129,10 +129,10 @@
               <t-empty :description="t('detail.syncEmpty')" />
             </template>
           </t-table>
-        </t-tab-pane>
+        </t-tab-panel>
 
         <!-- Wiki nodes -->
-        <t-tab-pane :value="'wiki'" :label="t('detail.wikiNodes')">
+        <t-tab-panel :value="'wiki'" :label="t('detail.wikiNodes')">
           <p class="hint">
             {{ t('detail.wikiDocCount', { count: wikiDocCount }) }} ·
             {{ t('detail.wikiCodeCount', { count: wikiCodeCount }) }}
@@ -153,7 +153,7 @@
               <t-empty :description="t('detail.wikiEmpty')" />
             </template>
           </t-table>
-        </t-tab-pane>
+        </t-tab-panel>
       </t-tabs>
 
       <!-- Issue token dialog -->
