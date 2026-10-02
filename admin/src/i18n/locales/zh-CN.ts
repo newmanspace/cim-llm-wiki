@@ -25,6 +25,8 @@ export default {
     projects: '项目管理',
     collapseSidebar: '收起侧边栏',
     expandSidebar: '展开侧边栏',
+    lightMode: '切换浅色模式',
+    darkMode: '切换深色模式',
   },
   dashboard: {
     title: '概览',

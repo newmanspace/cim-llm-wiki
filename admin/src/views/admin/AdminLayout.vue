@@ -1,73 +1,82 @@
 <template>
-  <el-container class="admin-layout">
-    <!-- 桌面侧栏 -->
-    <el-aside v-if="!isMobile" :width="collapsed ? '64px' : '220px'" class="admin-aside">
+  <div class="admin-layout">
+    <!-- 桌面侧栏（对齐 weknora 自定义侧栏写法） -->
+    <div v-if="!isMobile" class="admin-sidebar" :class="{ 'admin-sidebar--collapsed': collapsed }">
       <div class="logo_row">
-        <span v-if="!collapsed" class="logo-text" @click="router.push('/dashboard')">{{ t('common.appName') }}</span>
-        <el-icon class="collapse-btn" @click="collapsed = !collapsed">
-          <ExpandIcon v-if="collapsed" />
-          <FoldIcon v-else />
-        </el-icon>
+        <span v-if="!collapsed" class="logo-text" @click="router.push('/dashboard')">
+          {{ t('common.appName') }}
+        </span>
+        <t-tooltip :content="collapsed ? t('menu.expandSidebar') : t('menu.collapseSidebar')" placement="right">
+          <div class="sidebar-toggle" @click="collapsed = !collapsed">
+            <ChevronRightIcon v-if="collapsed" class="icon" />
+            <ChevronLeftIcon v-else class="icon" />
+          </div>
+        </t-tooltip>
       </div>
-      <el-menu
-        :default-active="activeMenu"
-        :collapse="collapsed"
-        :collapse-transition="false"
-        router
-        class="side-menu"
-      >
-        <el-menu-item index="/dashboard">
-          <el-icon><Odometer /></el-icon>
-          <template #title>{{ t('menu.dashboard') }}</template>
-        </el-menu-item>
-        <el-menu-item index="/projects">
-          <el-icon><Folder /></el-icon>
-          <template #title>{{ t('menu.projects') }}</template>
-        </el-menu-item>
-      </el-menu>
-    </el-aside>
 
-    <el-container>
-      <!-- 顶栏 -->
-      <el-header class="admin-header">
-        <div class="header-left">
-          <el-icon v-if="isMobile" class="hamburger" @click="drawerVisible = true"><MenuIcon /></el-icon>
-          <el-breadcrumb separator="/">
-            <el-breadcrumb-item :to="{ path: '/dashboard' }">{{ t('common.appName') }}</el-breadcrumb-item>
-            <el-breadcrumb-item v-if="currentTitle">{{ currentTitle }}</el-breadcrumb-item>
-          </el-breadcrumb>
+      <div class="menu_top">
+        <div class="menu_box" v-for="item in menuItems" :key="item.path">
+          <t-tooltip :content="item.label" placement="right" :disabled="!collapsed">
+            <router-link :to="item.path" class="menu_item" :class="{ menu_item_active: isActive(item.path) }">
+              <div class="menu_item-box">
+                <div class="menu_icon"><component :is="item.icon" class="icon" /></div>
+                <span v-if="!collapsed" class="menu_title" :title="item.label">{{ item.label }}</span>
+              </div>
+            </router-link>
+          </t-tooltip>
         </div>
-        <div class="header-right">
-          <el-button circle text @click="toggleTheme">
-            <el-icon><MoonIcon v-if="!isDark" /><SunnyIcon v-else /></el-icon>
-          </el-button>
-          <el-select v-model="localeValue" size="small" class="lang-select" @change="onLocaleChange">
-            <el-option value="zh-CN" label="简体中文" />
-            <el-option value="en-US" label="English" />
-          </el-select>
-        </div>
-      </el-header>
+      </div>
+    </div>
 
-      <el-main class="admin-main">
+    <div class="admin-body">
+      <!-- 顶栏：面包屑 + 语言 + 主题 -->
+      <div class="admin-topbar">
+        <div class="topbar-left">
+          <div v-if="isMobile" class="hamburger" @click="drawerOpen = true"><MenuIcon class="icon" /></div>
+          <t-breadcrumb max-item-width="160">
+            <t-breadcrumb-item :to="{ path: '/dashboard' }">{{ t('common.appName') }}</t-breadcrumb-item>
+            <t-breadcrumb-item v-if="currentTitle">{{ currentTitle }}</t-breadcrumb-item>
+          </t-breadcrumb>
+        </div>
+        <div class="topbar-right">
+          <t-tooltip :content="isDark ? t('menu.lightMode') : t('menu.darkMode')" placement="bottom">
+            <div class="icon-btn" @click="toggleTheme">
+              <SunnyIcon v-if="isDark" class="icon" />
+              <MoonIcon v-else class="icon" />
+            </div>
+          </t-tooltip>
+          <t-select v-model="localeValue" size="small" class="lang-select" @change="onLocaleChange">
+            <t-option value="zh-CN" label="简体中文" />
+            <t-option value="en-US" label="English" />
+          </t-select>
+        </div>
+      </div>
+
+      <div class="admin-content">
         <router-view />
-      </el-main>
-    </el-container>
+      </div>
+    </div>
 
     <!-- 移动端抽屉导航 -->
-    <el-drawer v-model="drawerVisible" direction="ltr" size="240px" :with-header="false">
-      <div class="logo_row"><span class="logo-text">{{ t('common.appName') }}</span></div>
-      <el-menu :default-active="activeMenu" router @select="drawerVisible = false">
-        <el-menu-item index="/dashboard">
-          <el-icon><Odometer /></el-icon>
-          <template #title>{{ t('menu.dashboard') }}</template>
-        </el-menu-item>
-        <el-menu-item index="/projects">
-          <el-icon><Folder /></el-icon>
-          <template #title>{{ t('menu.projects') }}</template>
-        </el-menu-item>
-      </el-menu>
-    </el-drawer>
-  </el-container>
+    <div v-if="isMobile && drawerOpen" class="drawer-mask" @click="drawerOpen = false">
+      <div class="admin-sidebar admin-drawer" @click.stop>
+        <div class="logo_row">
+          <span class="logo-text">{{ t('common.appName') }}</span>
+          <div class="sidebar-toggle" @click="drawerOpen = false"><CloseIcon class="icon" /></div>
+        </div>
+        <div class="menu_top">
+          <div class="menu_box" v-for="item in menuItems" :key="item.path">
+            <router-link :to="item.path" class="menu_item" :class="{ menu_item_active: isActive(item.path) }" @click="drawerOpen = false">
+              <div class="menu_item-box">
+                <div class="menu_icon"><component :is="item.icon" class="icon" /></div>
+                <span class="menu_title">{{ item.label }}</span>
+              </div>
+            </router-link>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -75,14 +84,15 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  Odometer,
-  Folder,
-  Expand as ExpandIcon,
-  Fold as FoldIcon,
-  Menu as MenuIcon,
-  Moon as MoonIcon,
-  Sunny as SunnyIcon,
-} from '@element-plus/icons-vue'
+  DashboardIcon,
+  FolderIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  MenuIcon,
+  CloseIcon,
+  MoonIcon,
+  SunnyIcon,
+} from 'tdesign-icons-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 
@@ -90,20 +100,22 @@ const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
 const authStore = useAuthStore()
-
-const collapsed = ref(false)
-const drawerVisible = ref(false)
-
 const { isMobile } = useBreakpoint()
 
-const activeMenu = computed(() => {
-  if (route.path.startsWith('/projects')) return '/projects'
-  return route.path
-})
+const collapsed = ref(false)
+const drawerOpen = ref(false)
+
+const menuItems = computed(() => [
+  { path: '/dashboard', label: t('menu.dashboard'), icon: DashboardIcon },
+  { path: '/projects', label: t('menu.projects'), icon: FolderIcon },
+])
+
+function isActive(path: string) {
+  return route.path === path || route.path.startsWith(path + '/')
+}
 
 const currentTitle = computed(() => {
-  if (route.path.startsWith('/projects/')) return t('menu.projects')
-  if (route.path === '/projects') return t('menu.projects')
+  if (route.path.startsWith('/projects')) return t('menu.projects')
   if (route.path === '/dashboard') return t('menu.dashboard')
   return ''
 })
@@ -119,11 +131,11 @@ function onLocaleChange(value: string) {
   authStore.setLocale(value)
 }
 
-// 深色模式（Element Plus 用 html.dark 类）
+// 深色模式：weknora 约定用 :root[theme-mode="dark"] 切换
 const isDark = ref(false)
 function applyTheme(dark: boolean) {
-  document.documentElement.classList.toggle('dark', dark)
   isDark.value = dark
+  document.documentElement.setAttribute('theme-mode', dark ? 'dark' : 'light')
 }
 function toggleTheme() {
   applyTheme(!isDark.value)
@@ -133,85 +145,171 @@ onMounted(() => applyTheme(window.matchMedia('(prefers-color-scheme: dark)').mat
 
 <style scoped>
 .admin-layout {
+  display: flex;
   height: 100vh;
+  background: var(--td-bg-color-page);
 }
 
-.admin-aside {
-  background: var(--el-bg-color);
-  border-right: 1px solid var(--el-border-color-light);
-  transition: width 0.2s ease;
-  overflow: hidden;
+/* ── 侧栏 ── */
+.admin-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  padding: 8px 6px;
+  background: var(--td-bg-color-sidebar);
+  border-right: 1px solid var(--td-component-stroke);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  transition: width 0.25s ease;
+}
+
+.admin-sidebar--collapsed {
+  width: 60px;
 }
 
 .logo_row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  height: 48px;
+  padding: 0 8px;
+  flex-shrink: 0;
 }
 
 .logo-text {
   font-size: 15px;
   font-weight: 700;
-  color: var(--el-text-color-primary);
+  color: var(--td-text-color-primary);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
+}
+
+.sidebar-toggle,
+.icon-btn,
+.hamburger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--td-radius-default);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover,
+.icon-btn:hover,
+.hamburger:hover {
+  background: var(--td-bg-color-container-hover);
+  color: var(--td-text-color-primary);
+}
+
+.menu_top {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu_item {
+  display: block;
+  text-decoration: none;
+  color: var(--td-text-color-secondary);
+  border-radius: var(--td-radius-default);
+}
+
+.menu_item-box {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 12px;
+  gap: 10px;
+}
+
+.admin-sidebar--collapsed .menu_item-box {
+  justify-content: center;
+  padding: 0;
+}
+
+.menu_item:hover {
+  background: var(--td-bg-color-container-hover);
+  color: var(--td-text-color-primary);
+}
+
+.menu_item_active {
+  color: var(--td-brand-color);
+}
+
+.menu_item_active .menu_item-box {
+  background: var(--td-brand-color-light);
+}
+
+.menu_icon .icon {
+  font-size: 18px;
+}
+
+.menu_title {
+  font-size: 14px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.collapse-btn {
-  cursor: pointer;
-  font-size: 18px;
-  color: var(--el-text-color-secondary);
+/* ── 主区 ── */
+.admin-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.side-menu {
-  border-right: none;
-}
-
-.admin-header {
+.admin-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--el-bg-color);
-  border-bottom: 1px solid var(--el-border-color-light);
   height: 56px;
+  padding: 0 20px;
+  background: var(--td-bg-color-container);
+  border-bottom: 1px solid var(--td-component-stroke);
+  flex-shrink: 0;
 }
 
-.header-left {
+.topbar-left,
+.topbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.hamburger {
-  font-size: 20px;
-  cursor: pointer;
-  color: var(--el-text-color-primary);
 }
 
 .lang-select {
   width: 120px;
 }
 
-.admin-main {
-  background: var(--el-bg-color-page);
-  padding: var(--cim-space-xl);
+.admin-content {
+  flex: 1;
   overflow: auto;
+  padding: 24px;
 }
 
 @media (max-width: 767px) {
-  .admin-main {
-    padding: var(--cim-space-md);
+  .admin-content {
+    padding: 12px;
   }
+}
+
+/* ── 移动端抽屉 ── */
+.drawer-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 2500;
+  display: flex;
+}
+
+.admin-drawer {
+  width: 240px;
+  box-shadow: var(--td-shadow-2);
 }
 </style>

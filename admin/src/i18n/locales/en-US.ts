@@ -25,6 +25,8 @@ export default {
     projects: 'Projects',
     collapseSidebar: 'Collapse sidebar',
     expandSidebar: 'Expand sidebar',
+    lightMode: 'Switch to light mode',
+    darkMode: 'Switch to dark mode',
   },
   dashboard: {
     title: 'Dashboard',

@@ -25,8 +25,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('element-plus')) return 'vendor-element-plus'
-          if (id.includes('node_modules')) return 'vendor'
+          if (!id.includes('node_modules')) return
+          if (id.includes('tdesign')) return 'vendor-tdesign'
         },
       },
     },

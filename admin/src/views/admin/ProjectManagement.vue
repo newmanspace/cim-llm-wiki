@@ -2,132 +2,118 @@
   <div class="project-management">
     <PageHeader :title="t('project.title')">
       <template #actions>
-        <el-button :icon="RefreshIcon" @click="load">{{ t('common.refresh') }}</el-button>
-        <el-button type="primary" :icon="AddIcon" @click="openCreate">{{ t('project.create') }}</el-button>
+        <t-button variant="outline" @click="load">
+          <template #icon><RefreshIcon /></template>{{ t('common.refresh') }}
+        </t-button>
+        <t-button theme="primary" @click="openCreate">
+          <template #icon><AddIcon /></template>{{ t('project.create') }}
+        </t-button>
       </template>
     </PageHeader>
 
-    <el-card shadow="never">
+    <t-card :bordered="false">
       <div class="toolbar">
-        <el-input
+        <t-input
           v-model="searchQuery"
           :placeholder="t('project.search')"
           clearable
           class="search-input"
-          :prefix-icon="SearchIcon"
-        />
+          @clear="page = 1"
+        >
+          <template #prefix-icon><SearchIcon /></template>
+        </t-input>
       </div>
 
-      <el-skeleton v-if="loading && !projects.length" :rows="6" animated />
-      <template v-else>
-        <el-table :data="paged" v-loading="loading" style="width: 100%">
-          <el-table-column prop="id" :label="t('project.id')" min-width="160" show-overflow-tooltip />
-          <el-table-column :label="t('project.name')" min-width="160">
-            <template #default="{ row }">
-              <el-link type="primary" :underline="false" @click="router.push(`/projects/${row.id}`)">
-                {{ row.name || row.id }}
-              </el-link>
-            </template>
-          </el-table-column>
-          <el-table-column v-if="!isMobile" prop="product" :label="t('project.product')" min-width="140" show-overflow-tooltip />
-          <el-table-column v-if="!isMobile" prop="version" :label="t('project.version')" width="120" />
-          <el-table-column v-if="!isMobile" :label="t('project.createdAt')" min-width="180">
-            <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('common.actions')" :width="isMobile ? 90 : 150" fixed="right">
-            <template #default="{ row }">
-              <el-button type="primary" link @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-              <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
-                <el-button link type="info" class="row-more">
-                  <el-icon><MoreFilled /></el-icon>
-                </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="view" :icon="ViewIcon">
-                      {{ t('project.detail') }}
-                    </el-dropdown-item>
-                    <el-dropdown-item command="delete" :icon="DeleteIcon" divided style="color: var(--el-color-danger)">
-                      {{ t('common.delete') }}
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </template>
-          </el-table-column>
-          <template #empty>
-            <el-empty :description="t('project.emptyTitle')" :image-size="80">
-              <el-button type="primary" :icon="AddIcon" @click="openCreate">{{ t('project.create') }}</el-button>
-            </el-empty>
-          </template>
-        </el-table>
-
-        <el-pagination
-          v-if="filtered.length > pageSize"
-          v-model:current-page="page"
-          v-model:page-size="pageSize"
-          :page-sizes="[10, 20, 50]"
-          :total="filtered.length"
-          :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
-          class="pagination"
-        />
-      </template>
-    </el-card>
-
-    <el-dialog
-      v-model="dialogVisible"
-      :title="isEdit ? t('project.edit') : t('project.create')"
-      width="480px"
-      :close-on-click-modal="false"
-      top="8vh"
-    >
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-width="90px"
-        label-position="top"
-        scroll-to-error
+      <t-table
+        :data="paged"
+        :columns="columns"
+        :loading="loading"
+        row-key="id"
+        stripe
+        hover
+        size="medium"
       >
-        <el-form-item :label="t('project.id')" prop="id">
-          <el-input
-            v-model="form.id"
-            :disabled="isEdit"
-            :placeholder="t('project.idPlaceholder')"
-            @input="onIdInput"
-          />
-        </el-form-item>
-        <el-form-item :label="t('project.name')" prop="name">
-          <el-input v-model="form.name" :placeholder="t('project.namePlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('project.product')" prop="product">
-          <el-input v-model="form.product" placeholder="Semiconductor-MES" />
-        </el-form-item>
-        <el-form-item :label="t('project.version')" prop="version">
-          <el-input v-model="form.version" placeholder="V2.26.3" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">{{ t('common.save') }}</el-button>
-      </template>
-    </el-dialog>
+        <template #name="{ row }">
+          <t-link theme="primary" hover="color" @click="router.push(`/projects/${row.id}`)">
+            {{ row.name || row.id }}
+          </t-link>
+        </template>
+        <template #created_at="{ row }">{{ formatDate(row.created_at) }}</template>
+        <template #operation="{ row }">
+          <t-space break-line size="small">
+            <t-link theme="primary" hover="color" @click="openEdit(row)">{{ t('common.edit') }}</t-link>
+            <t-dropdown trigger="click">
+              <t-link theme="default" hover="color">
+                {{ t('common.actions') }}<ChevronDownIcon class="dd-caret" />
+              </t-link>
+              <template #dropdown>
+                <t-dropdown-menu>
+                  <t-dropdown-item @click="router.push(`/projects/${row.id}`)">{{ t('project.detail') }}</t-dropdown-item>
+                  <t-dropdown-item divider @click="confirmDelete(row)">
+                    <span class="danger-text">{{ t('common.delete') }}</span>
+                  </t-dropdown-item>
+                </t-dropdown-menu>
+              </template>
+            </t-dropdown>
+          </t-space>
+        </template>
+        <template #empty>
+          <t-empty :description="t('project.emptyTitle')">
+            <t-button theme="primary" variant="base" @click="openCreate">{{ t('project.create') }}</t-button>
+          </t-empty>
+        </template>
+      </t-table>
+
+      <div v-if="filtered.length > pageSize" class="pagination">
+        <t-pagination
+          v-model="page"
+          :total="filtered.length"
+          :page-size="pageSize"
+          :page-size-options="[10, 20, 50]"
+          :show-page-size="!isMobile"
+          @page-size-change="(v: number) => { pageSize = v; page = 1 }"
+        />
+      </div>
+    </t-card>
+
+    <t-dialog
+      v-model:visible="dialogVisible"
+      :header="isEdit ? t('project.edit') : t('project.create')"
+      width="480px"
+      :close-on-overlay-click="false"
+      :confirm-btn="{ content: t('common.save'), loading: saving }"
+      @confirm="handleSave"
+    >
+      <t-form ref="formRef" :data="form" :rules="rules" label-align="top">
+        <t-form-item :label="t('project.id')" name="id">
+          <t-input v-model="form.id" :disabled="isEdit" :placeholder="t('project.idPlaceholder')" @change="onIdInput" />
+        </t-form-item>
+        <t-form-item :label="t('project.name')" name="name">
+          <t-input v-model="form.name" :placeholder="t('project.namePlaceholder')" />
+        </t-form-item>
+        <t-form-item :label="t('project.product')" name="product">
+          <t-input v-model="form.product" placeholder="Semiconductor-MES" />
+        </t-form-item>
+        <t-form-item :label="t('project.version')" name="version">
+          <t-input v-model="form.version" placeholder="V2.26.3" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next'
 import {
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  Plus as AddIcon,
-  MoreFilled,
-  Delete as DeleteIcon,
-  View as ViewIcon,
-} from '@element-plus/icons-vue'
+  SearchIcon,
+  RefreshIcon,
+  AddIcon,
+  ChevronDownIcon,
+} from 'tdesign-icons-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { listProjects, getProject, upsertProject, deleteProject } from '@/api/projects'
@@ -140,14 +126,13 @@ const { isMobile } = useBreakpoint()
 const loading = ref(false)
 const projects = ref<ProjectSummary[]>([])
 const searchQuery = ref('')
-
 const page = ref(1)
 const pageSize = ref(10)
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const saving = ref(false)
-const formRef = ref<FormInstance>()
+const formRef = ref<FormInstanceFunctions>()
 const editingFull = ref<ProjectConfig | null>(null)
 
 const form = ref({ id: '', name: '', product: '', version: '' })
@@ -155,9 +140,22 @@ const form = ref({ id: '', name: '', product: '', version: '' })
 const rules = computed<FormRules>(() => ({
   id: [
     { required: true, message: t('project.idRequired'), trigger: 'blur' },
-    { pattern: /^[a-z0-9-]+$/, message: t('project.idPattern'), trigger: ['blur', 'change'] },
+    { pattern: /^[a-z0-9-]+$/, message: t('project.idPattern'), trigger: 'blur' },
   ],
 }))
+
+const columns = computed(() => {
+  const base: any[] = [
+    { colKey: 'id', title: () => t('project.id'), width: 180, ellipsis: true },
+    { colKey: 'name', title: () => t('project.name'), width: 180, cell: 'name' },
+    { colKey: 'product', title: () => t('project.product'), width: 150, ellipsis: true },
+    { colKey: 'version', title: () => t('project.version'), width: 120 },
+    { colKey: 'created_at', title: () => t('project.createdAt'), width: 180, cell: 'created_at' },
+    { colKey: 'operation', title: () => t('common.actions'), width: isMobile.value ? 150 : 160, fixed: 'right', cell: 'operation' },
+  ]
+  if (isMobile.value) return base.filter((c) => !['product', 'version', 'created_at'].includes(c.colKey))
+  return base
+})
 
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -172,17 +170,9 @@ const paged = computed(() => {
   return filtered.value.slice(start, start + pageSize.value)
 })
 
-watch(searchQuery, () => (page.value = 1))
-
 function onIdInput(value: string) {
-  // 实时清洗为大写敏感场景之外的合法 ID 字符，避免提交时才报格式错
-  const cleaned = value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+  const cleaned = (value || '').toLowerCase().replace(/[^a-z0-9-]/g, '')
   if (cleaned !== value) form.value.id = cleaned
-}
-
-function onRowCommand(cmd: string, row: ProjectSummary) {
-  if (cmd === 'view') router.push(`/projects/${row.id}`)
-  else if (cmd === 'delete') confirmDelete(row)
 }
 
 function formatDate(s: string) {
@@ -195,7 +185,7 @@ async function load() {
   try {
     projects.value = await listProjects()
   } catch (e: any) {
-    ElMessage.error(e.response?.data?.error || t('common.error'))
+    MessagePlugin.error(e.response?.data?.error || t('common.error'))
   } finally {
     loading.value = false
   }
@@ -217,14 +207,13 @@ async function openEdit(row: ProjectSummary) {
   try {
     editingFull.value = await getProject(row.id)
   } catch (e: any) {
-    ElMessage.error(e.response?.data?.error || t('common.error'))
+    MessagePlugin.error(e.response?.data?.error || t('common.error'))
   }
 }
 
 async function handleSave() {
-  if (!formRef.value) return
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
+  const valid = await formRef.value?.validate()
+  if (valid !== true) return
 
   saving.value = true
   try {
@@ -251,37 +240,35 @@ async function handleSave() {
       version: form.value.version,
     }
     await upsertProject(payload)
-    ElMessage.success(t('project.saved'))
+    MessagePlugin.success(t('project.saved'))
     dialogVisible.value = false
     await load()
   } catch (e: any) {
-    ElMessage.error(e.response?.data?.error || t('common.error'))
+    MessagePlugin.error(e.response?.data?.error || t('common.error'))
   } finally {
     saving.value = false
   }
 }
 
 function confirmDelete(row: ProjectSummary) {
-  ElMessageBox.confirm(
-    t('project.confirmDeleteMsg', { name: row.name || row.id }),
-    t('project.confirmDeleteTitle'),
-    {
-      type: 'warning',
-      confirmButtonText: t('common.confirm'),
-      cancelButtonText: t('common.cancel'),
-      confirmButtonClass: 'el-button--danger',
-    },
-  )
-    .then(async () => {
+  const dialog = DialogPlugin.confirm({
+    header: t('project.confirmDeleteTitle'),
+    body: t('project.confirmDeleteMsg', { name: row.name || row.id }),
+    theme: 'danger',
+    confirmBtn: t('common.confirm'),
+    cancelBtn: t('common.cancel'),
+    onConfirm: async () => {
       try {
         await deleteProject(row.id)
-        ElMessage.success(t('project.deleted'))
+        MessagePlugin.success(t('project.deleted'))
+        dialog.destroy()
         await load()
       } catch (e: any) {
-        ElMessage.error(e.response?.data?.error || t('common.error'))
+        MessagePlugin.error(e.response?.data?.error || t('common.error'))
+        dialog.destroy()
       }
-    })
-    .catch(() => {})
+    },
+  })
 }
 
 onMounted(load)
@@ -292,23 +279,26 @@ onMounted(load)
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: var(--cim-space-md);
-  flex-wrap: wrap;
   margin-bottom: var(--cim-space-lg);
 }
 
 .search-input {
   max-width: 320px;
-  flex: 1;
+  width: 100%;
 }
 
-.row-more {
-  margin-left: var(--cim-space-sm);
-  vertical-align: middle;
+.dd-caret {
+  margin-left: 2px;
+  font-size: 14px;
+}
+
+.danger-text {
+  color: var(--td-error-color);
 }
 
 .pagination {
   margin-top: var(--cim-space-lg);
+  display: flex;
   justify-content: flex-end;
 }
 

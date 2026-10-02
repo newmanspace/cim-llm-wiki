@@ -28,13 +28,13 @@ defineProps<{ title: string; subtitle?: string }>()
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: var(--el-text-color-primary);
+  color: var(--td-text-color-primary);
 }
 
 .page-header__subtitle {
   margin: 4px 0 0;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  color: var(--td-text-color-secondary);
 }
 
 .page-header__actions {

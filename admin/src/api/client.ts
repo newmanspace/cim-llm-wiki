@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
 
 const client = axios.create({
@@ -27,9 +27,12 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (response) => response,
   (error) => {
-    const msg = error.response?.data?.error || error.message || 'request failed'
     if (error.response?.status === 401) {
-      ElMessage.error('Unauthorized: invalid or expired token')
+      MessagePlugin.error('Unauthorized: invalid or expired token')
+      // 供后续与 weknora 主应用整合时通知父窗口重新鉴权
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'admin-auth-expired' }, '*')
+      }
     }
     return Promise.reject(error)
   },

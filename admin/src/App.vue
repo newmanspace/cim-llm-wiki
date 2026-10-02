@@ -1,24 +1,25 @@
 <template>
-  <el-config-provider :locale="epLocale">
+  <t-config-provider :global-config="globalConfig">
     <router-view />
-  </el-config-provider>
+  </t-config-provider>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import enUs from 'element-plus/es/locale/lang/en'
+import enConfig from 'tdesign-vue-next/es/locale/en_US'
+import zhConfig from 'tdesign-vue-next/es/locale/zh_CN'
 import { useAuthStore } from '@/stores/auth'
 
 const { locale } = useI18n()
 const authStore = useAuthStore()
 
-const localeMap: Record<string, any> = {
-  'zh-CN': zhCn,
-  'en-US': enUs,
+const configMap: Record<string, any> = {
+  'zh-CN': zhConfig,
+  'en-US': enConfig,
 }
-const epLocale = computed(() => localeMap[locale.value] || zhCn)
+
+const globalConfig = computed(() => configMap[locale.value] || enConfig)
 
 onMounted(() => {
   authStore.init()
@@ -32,7 +33,7 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
-    Arial, 'Noto Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--app-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif);
 }
 </style>
