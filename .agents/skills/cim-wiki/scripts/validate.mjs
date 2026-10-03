@@ -21,7 +21,7 @@
 //        且落点与类型路由一致（plane_mismatch，error）：
 //        code/ = apis、schemas、code-index、domain（domain card）、rules（功能契约 contract）
 //        doc/  = business（scenario + 业务规则 business_rule）、designs、modules、requirements、dictionaries、tests、
-//                operations、releases、deployments、incidents、knowledge、products、projects、manuals(人读视图)
+//                runbooks、releases、deployments、incidents、knowledge、products、projects、manuals(人读视图)
 // 退出码: 0 = 无 error（warning 允许），1 = 存在 error
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join, dirname, resolve, relative } from 'node:path'
@@ -82,7 +82,7 @@ function expectedLoc(fm) {
     const isContract = fm.rule_type === 'contract' || fm.granularity === 'contract' || (Array.isArray(fm.applies_to) && fm.applies_to.length > 0)
     return isContract ? { plane: 'code', dir: 'rules' } : { plane: 'doc', dir: 'business' }
   }
-  const dirs = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'requirements', test_case: 'tests', release: 'releases', deployment: 'deployments', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business' }
+  const dirs = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', runbook: 'runbooks', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business', scenario: 'scenarios' }
   return { plane: 'doc', dir: dirs[t] || 'knowledge' }
 }
 
@@ -134,10 +134,15 @@ function main() {
       if (stem !== slugify(nodeId)) warnings.push(`[filename_mismatch] ${key}: id=${nodeId} 期望文件名 ${slugify(nodeId)}.md`)
     }
 
+    const seg = key.split('/')
+    const projPrefix = (!['doc', 'code'].includes(seg[0]) && ['doc', 'code'].includes(seg[1])) ? seg[0] : null
+
     for (const [, target] of text.matchAll(WIKILINK_RE)) {
       const t = target.trim().replace(/^\//, '')
       if (incoming[t] !== undefined) incoming[t]++
       else if (t.endsWith('.md') && incoming[t.slice(0, -3)] !== undefined) incoming[t.slice(0, -3)]++
+      else if (projPrefix && incoming[`${projPrefix}/${t}`] !== undefined) incoming[`${projPrefix}/${t}`]++
+      else if (projPrefix && t.endsWith('.md') && incoming[`${projPrefix}/${t.slice(0, -3)}`] !== undefined) incoming[`${projPrefix}/${t.slice(0, -3)}`]++
       else errors.push(`[broken_link] ${key}: [[${t}]] 不存在`)
     }
 
@@ -184,10 +189,16 @@ function main() {
       if (h !== r.sha256) errors.push(`[doc_drift] ${r.doc_id}: 内容已变更但状态为 ${r.state}（须先 unfreeze 再修正并重新 freeze）`)
     }
   }
-  const wikilinkKey = link => {
+  const wikilinkKey = (link, currentKey) => {
     const t = String(link).trim().replace(/^\[\[|\]\]$/g, '').replace(/^\//, '')
     if (incoming[t] !== undefined) return t
     if (t.endsWith('.md') && incoming[t.slice(0, -3)] !== undefined) return t.slice(0, -3)
+    if (currentKey) {
+      const seg = currentKey.split('/')
+      const proj = (!['doc', 'code'].includes(seg[0]) && ['doc', 'code'].includes(seg[1])) ? seg[0] : null
+      if (proj && incoming[`${proj}/${t}`] !== undefined) return `${proj}/${t}`
+      if (proj && t.endsWith('.md') && incoming[`${proj}/${t.slice(0, -3)}`] !== undefined) return `${proj}/${t.slice(0, -3)}`
+    }
     return null
   }
   const txCodes = {}
@@ -198,8 +209,9 @@ function main() {
     // 双平面路由校验（virtual / sources 聚合层豁免落点目录，仅要求平面正确）
     if (!fm.virtual) {
       const seg = key.split('/')
-      const pagePlane = ['doc', 'code'].includes(seg[0]) ? seg[0] : null
-      const pageDir = pagePlane ? seg[1] : seg[0]
+      const hasProj = (!['doc', 'code'].includes(seg[0]) && ['doc', 'code'].includes(seg[1]))
+      const pagePlane = hasProj ? seg[1] : (['doc', 'code'].includes(seg[0]) ? seg[0] : null)
+      const pageDir = hasProj ? seg[2] : (pagePlane ? seg[1] : seg[0])
       const exp = expectedLoc(fm)
       if (!pagePlane) errors.push(`[plane_mismatch] ${key}: 原子知识页必须位于 doc/（领域知识库）或 code/（代码契约库）平面目录下`)
       else if (!['virtual', 'sources'].includes(pageDir) && (exp.plane !== pagePlane || exp.dir !== pageDir)) {
@@ -235,7 +247,7 @@ function main() {
     // rule card 图闭合：applies_to 必须指向 api 节点（存在性已由 broken_link 覆盖）
     if (fm.type === 'business_rule' && Array.isArray(fm.applies_to)) {
       for (const l of fm.applies_to) {
-        const tk = wikilinkKey(l)
+        const tk = wikilinkKey(l, key)
         if (tk && metas[tk] && metas[tk].type !== 'api') warnings.push(`[applies_to_target] ${key}: applies_to 指向非 api 节点 ${tk}（type=${metas[tk].type}）`)
       }
     }

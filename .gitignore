@@ -22,6 +22,8 @@ data/
 # .qoder/ is scratch created by the qodercli binary and is not the runtime config dir this repo uses.
 **/settings.local.json
 .qoder/
+# .agents/wiki is a machine-specific convenience symlink into the (now independent) data/wiki repo.
+.agents/wiki
 
 # ── 3. 构建与编译生成物 (Build & Compile Artifacts) ───────────────────────────
 # Go 编译产物
