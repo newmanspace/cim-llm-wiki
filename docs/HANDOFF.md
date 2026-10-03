@@ -17,6 +17,11 @@
   - 新增 `scripts/wiki-gitops.mjs`（env 驱动，风格对齐 `admin-client.mjs`）：`WIKI_GITOPS_ENABLED`（未设=完全 no-op）+ `WIKI_GITOPS_ROOT`（默认 `data/wiki`，首次启用自动 `git init` 为独立嵌套仓）+ `WIKI_GIT_REMOTE`/`WIKI_GIT_BRANCH`（配置后 push）+ `WIKI_GIT_AUTHOR_NAME/EMAIL`（流水线身份，默认 `cim-wiki-pipeline`）。
   - 容错：commit 后 push 失败仅告警、**绝不阻断本地编译**（实测假远端 push 失败 exit 仍 0、commit 保留）。端到端验证：启用后 `data/wiki` 生成首条 commit、25 文件入库、主仓 `git status` 无 `data/wiki` 噪声。
   - 待生产部署：如需团队共享，再建独立知识仓库远端并 `git submodule` 挂载，主仓跟踪 submodule 指针（当前以本地独立仓 + env 开关形式落地）。
+  - ✅ **知识仓库远端已建立**（2026-10-03）：`newmanspace/cim-llm-wiki-knowledge`（**private**，默认分支 `main`），`data/wiki` 已绑定 `origin` 并推送全量历史（25 文件，首推 tip `7bb82b3`）。启用自动上传：`WIKI_GITOPS_ENABLED=true WIKI_GIT_REMOTE=origin node compile.mjs <bundle>`。推送前已扫描远端内容，无内网 IP / 令牌 / 私钥泄漏。
+  - **变更记录（本会话，主仓 `newmanspace/cim-llm-wiki`）**：
+    - `946d77b` `feat(wiki)` — Issue #1 GitOps 特性（`wiki-gitops.mjs` + `compile.mjs` Stage 5 接线 + SKILL/HANDOFF 文档），已关联 Issue #1（该 issue 已关闭）。
+    - `db27ed1` `chore(repo)` — 忽略本地作用域配置并取消跟踪 `settings.local.json`（个人 MCP 配置，文件保留在本地磁盘）。
+    - `9f2790b` `fix(cim-wiki)` — `validate.mjs` 适配按项目分树的 wikilink 解析与目录命名同步；`scripts/register-admin.mjs` 改为可移植项目根；忽略机器专属软链 `.agents/wiki`。
 
 - **统一 Docker Compose 一键部署**（`deploy/docker-compose.yml`）：
   - 将原宿主机分散执行的 Go 后端服务与 VitePress Web 前端统一容器化交付，形成包含 5 大服务的统一编排架构：
