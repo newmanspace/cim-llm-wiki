@@ -15,7 +15,7 @@
 - **统一 Docker Compose 一键部署**（`deploy/docker-compose.yml`）：
   - 将原宿主机分散执行的 Go 后端服务与 VitePress Web 前端统一容器化交付，形成包含 5 大服务的统一编排架构：
     1. `cim-wiki-server`（Alpine 静态二进制 42.6MB，`:8080`，内部直连解析引擎 DNS）
-    2. `cim-wiki-web`（Node 22-alpine，`:5174`，挂载 `/data/wiki` 自动刷新侧边栏）
+    2. `cim-wiki-wiki`（Node 22-alpine，`:5174`，挂载 `/data/wiki` 自动刷新侧边栏）
     3. `cim-wiki-mineru`（复杂 PDF 解析引擎，`:8888`）
     4. `cim-wiki-docling`（Office/Word 解析引擎，`:5001`）
     5. `cim-wiki-markitdown`（通用文档解析引擎，`:5002`）
@@ -131,7 +131,7 @@ v1 是完整 Go 服务（HTTP API + 内置 LLM 调用）；v2 转型为 **Skill 
 | HITL 审核 | HTTP 队列 | `data/review/` 变更卡片（pending/approved/rejected/archived）+ 对话内用户裁决 |
 | Wiki 编译 | compiler.go | `scripts/compile.mjs`（nodes.json → data/wiki/，规范见 references/frontmatter.md） |
 | Lint 校验 | 未实现 | `scripts/validate.mjs`（断链/孤儿/元数据/重复嫌疑/过期） |
-| 展示 | 无 | **VitePress**（独立 web/ 子工程，srcDir=../data/wiki，`cd web && npm run docs:dev`） |
+| 展示 | 无 | **VitePress**（独立 wiki/ 子工程，srcDir=../data/wiki，`cd wiki && npm run docs:dev`） |
 | Go 代码 | 主体 | **遗留只读**：mineru.go/docling.go 为 HTTP 契约权威参考，不再演进 |
 
 技术选型对比与 Phase 3 检索层建议见 **docs/TECH-STACK.md**。

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /docker/cim-llm-wiki/admin && npm install 2>&1 | tail -20)",
+      "Bash(cd /docker/cim-llm-wiki/admin && node_modules/.bin/vue-tsc --build 2>&1 | tail -40; echo \"TSC_EXIT=${PIPESTATUS[0]}\")",
+      "Bash(cd /docker/cim-llm-wiki/admin && node -e \"const t=require\\('tdesign-vue-next'\\); console.log\\('NotifyPlugin' in t, 'NotificationPlugin' in t, 'MessagePlugin' in t, 'DialogPlugin' in t\\);\" 2>&1\necho \"---icons---\"\nnode -e \"const i=require\\('tdesign-icons-vue-next'\\); const names=['ArrowLeft','ArrowLeftIcon','Refresh','RefreshIcon','Add','AddIcon','Browse','BrowseIcon','Copy','CopyIcon','Search','SearchIcon','ChevronDown','ChevronDownIcon']; names.forEach\\(n=>console.log\\(n, n in i\\)\\);\" 2>&1)"
+    ]
+  }
+}

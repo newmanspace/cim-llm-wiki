@@ -67,7 +67,7 @@ cd deploy && docker compose up -d
 
 | 服务容器 | 内部/外部端口 | 角色与说明 |
 |---------|-------------|-----------|
-| `cim-wiki-web` | `:5174` | VitePress 知识库 Web 交互站点（对外访问） |
+| `cim-wiki-wiki` | `:5174` | VitePress 知识库 Wiki 交互站点（对外访问） |
 | `cim-wiki-server` | `:8080` | 5 阶段知识处理流水线 Go API 服务 |
 | `cim-wiki-mineru` | `:8888` | 复杂 PDF 解析引擎（双栏/跨页表格/公式，SDD/IDD 主力） |
 | `cim-wiki-docling` | `:5001` | DOCX/PPTX/XLSX/HTML 解析引擎（IBM 开源） |
@@ -86,10 +86,10 @@ Agent 自动执行：解析 → 抽取 → 评分 → 呈现聚合审核卡片�
 ### 4. 浏览知识库
 
 ```bash
-cd web
+cd wiki
 npm run gen          # 仅扫描 data/wiki 刷新侧边栏与首页（.vitepress/sidebar-data.mjs）
 npm run docs:dev     # 开发预览 http://localhost:5174（自动先执行 gen）
-npm run docs:build   # 静态构建到 web/.vitepress/dist/（自动先执行 gen）
+npm run docs:build   # 静态构建到 wiki/.vitepress/dist/（自动先执行 gen）
 npm run docs:preview # 预览静态构建产物
 ```
 
@@ -200,7 +200,7 @@ cim-llm-wiki/
 │       ├── parse.mjs             ← Stage 1 解析客户端（MinerU/Docling/MarkItDown，本地不做任何文档解析）
 │       ├── compile.mjs           ← Stage 5 编译 nodes.json → wiki 页面
 │       └── validate.mjs          ← Stage 6 Lint 校验
-├── web/                          ← ★ 独立 Web 知识库展示工程
+├── wiki/                         ← ★ 独立 Wiki 知识库展示工程
 │   ├── .vitepress/config.mjs     ← VitePress 站点配置（srcDir=../data/wiki）
 │   ├── scripts/gen-sidebar.mjs   ← 扫描 data/wiki 自动生成侧边栏与首页
 │   └── package.json              ← npm run gen / docs:dev / docs:build / docs:preview

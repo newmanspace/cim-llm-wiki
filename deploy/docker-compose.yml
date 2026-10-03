@@ -56,10 +56,10 @@ services:
         condition: service_healthy
 
   # ── 2. 前端展示服务: VitePress 知识库 Web 交互站点 ──────────────────────────
-  web:
+  wiki:
     build:
       context: ..
-      dockerfile: deploy/web/Dockerfile
+      dockerfile: deploy/wiki/Dockerfile
     image: cim-wiki-web:latest
     container_name: cim-wiki-web
     ports:
@@ -177,7 +177,7 @@ services:
     restart: unless-stopped
     depends_on:
       - server
-      - web
+      - wiki
       - admin
 
 volumes:
