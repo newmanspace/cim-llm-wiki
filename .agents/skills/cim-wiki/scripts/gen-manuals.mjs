@@ -10,7 +10,7 @@ import { loadManifest } from './docstore.mjs'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve_root()
 function resolve_root() {
-  // scripts 位于 .qoder/skills/cim-wiki/scripts → 上溯 4 级到项目根
+  // scripts 位于 .agents/skills/cim-wiki/scripts → 上溯 4 级到项目根
   return join(__dirname, '..', '..', '..', '..')
 }
 

@@ -64,12 +64,12 @@
 1. **本地现成样本**（推荐，零依赖）：`data/samples/idd_wip_sample.docx`（MES 的 WIP IDD 样本，走 Docling :5001）。命令：
    ```bash
    MINERU_ENDPOINT=http://localhost:8888 DOCLING_ENDPOINT=http://localhost:5001 MARKITDOWN_ENDPOINT=http://localhost:5002 \
-   node .qoder/skills/cim-wiki/scripts/parse.mjs data/samples/idd_wip_sample.docx --module wip-management
+   node .agents/skills/cim-wiki/scripts/parse.mjs data/samples/idd_wip_sample.docx --module wip-management
    ```
 2. **用户提供的夸克分享链接**：试 `saveas` 转存后 `download`（若同样被 -104 拦截则转方式 1/3）。
 3. **用户手动放到本地路径的 PDF/DOCX**：告知路径 + 模块名后用 skill 摄取。
 
-> 抽取与评分环节由 Agent 按 `.qoder/skills/cim-wiki/references/extraction.md`、`evaluation.md` 直接完成，无需外部 LLM API Key；HITL 审核须生成聚合变更卡片等待用户裁决。
+> 抽取与评分环节由 Agent 按 `.agents/skills/cim-wiki/references/extraction.md`、`evaluation.md` 直接完成，无需外部 LLM API Key；HITL 审核须生成聚合变更卡片等待用户裁决。
 
 **优先级 2 — Project Registry 实战验证**：
 - 为 `mes-wip` 项目创建首个 `project-registry.json` 条目（含 docs、repos、module_mapping）。
@@ -105,9 +105,9 @@
 | 统一入口 Gateway | `:8099` → `/wiki/` 知识库、`/admin/` 控制台、`/api/` 后端、`/login` 登录页；`/` 302→`/wiki/`（`deploy/gateway/`，对外只需开此端口）。`/wiki/`+`/admin/` 经 `auth_request` 会话门控 |
 | 访问鉴权（会话登录） | env：`AUTH_ENABLED`(默认 true) + `AUTH_SESSION_SECRET` + `AUTH_USERNAME`/`AUTH_PASSWORD`(或 `AUTH_PASSWORD_SHA256`) + `AUTH_COOKIE_NAME`/`AUTH_SESSION_TTL_HOURS`/`AUTH_COOKIE_SECURE`；凭证 seam=`AuthHandler.authenticate`（待接用户库） |
 | MinerU / Docling / MarkItDown | :8888 / :5001 / :5002 |
-| 流水线 skill | `.qoder/skills/cim-wiki/SKILL.md`（Stage 0→8 定义） |
+| 流水线 skill | `.agents/skills/cim-wiki/SKILL.md`（Stage 0→8 定义） |
 | Project 注册表 | `data/documents/project-registry.json` |
-| 增量同步脚本 | `.qoder/skills/cim-wiki/scripts/sync-repo.mjs` |
+| 增量同步脚本 | `.agents/skills/cim-wiki/scripts/sync-repo.mjs` |
 | Submodule 数据源 | `data/sources/<project-id>/docs|code/` |
 | Admin API | `ADMIN_ENABLED=true` + PostgreSQL :5432（compose 中宿主映射 :5433） |
 | Admin 端点前缀 | `/api/v1/admin/` |
@@ -138,7 +138,7 @@ v1 是完整 Go 服务（HTTP API + 内置 LLM 调用）；v2 转型为 **Skill 
 
 **目录语义**：`docs/` = 本项目工程文档；`data/wiki/` = LLM 流水线产出的知识库（运行时生成，.gitignore）。
 
-工作流入口：Agent 会话中调用 `cim-wiki` skill（`.qoder/skills/cim-wiki/SKILL.md`），9 阶段流程（Stage 0→8）与规则全部在 skill 内定义。
+工作流入口：Agent 会话中调用 `cim-wiki` skill（`.agents/skills/cim-wiki/SKILL.md`），9 阶段流程（Stage 0→8）与规则全部在 skill 内定义。
 
 ---
 
@@ -268,7 +268,7 @@ go run ./cmd/server
 |------|------|
 | `data/documents/project-registry.json` | Project 注册表（第三类全局注册表） |
 | `data/sources/README.md` | Submodule 目录说明 |
-| `.qoder/skills/cim-wiki/scripts/sync-repo.mjs` | 增量同步脚本 |
+| `.agents/skills/cim-wiki/scripts/sync-repo.mjs` | 增量同步脚本 |
 | `internal/types/types.go` (新增类型) | ProjectConfig / DocSource / RepoBinding / ProjectToken / SyncState / ProjectRegistry |
 | `deploy/postgres/001_init.sql` | PostgreSQL schema（9 张表 + 索引 + 触发器） |
 | `internal/store/postgres.go` | pgx 连接池 + Admin CRUD 存储层 |

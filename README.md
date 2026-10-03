@@ -190,7 +190,7 @@ raw 原始文档（PDF/DOCX/MD）
 
 ```
 cim-llm-wiki/
-├── .qoder/skills/cim-wiki/       ← ★ 核心：知识工程流水线 skill
+├── .agents/skills/cim-wiki/       ← ★ 核心：知识工程流水线 skill
 │   ├── SKILL.md                  ← 7 阶段工作流定义（含引擎路由与命令）
 │   ├── references/
 │   │   ├── extraction.md         ← 知识抽取规范（节点 schema/ID/CIM 分层）
@@ -228,19 +228,19 @@ cim-llm-wiki/
 
 ## 开发指南
 
-流水线由 `cim-wiki` skill 驱动，工作流入口在 Agent 会话中调用该 skill（`.qoder/skills/cim-wiki/SKILL.md`），各阶段规则全部在 skill 的 `references/*.md` 内定义——调整行为即编辑规范文件，无需改代码。
+流水线由 `cim-wiki` skill 驱动，工作流入口在 Agent 会话中调用该 skill（`.agents/skills/cim-wiki/SKILL.md`），各阶段规则全部在 skill 的 `references/*.md` 内定义——调整行为即编辑规范文件，无需改代码。
 
 单阶段脚本可独立运行：
 
 ```bash
 # Stage 1 解析（服务须在线）
-node .qoder/skills/cim-wiki/scripts/parse.mjs <输入文档> [--module <模块名>] [--engine mineru|docling|markitdown]
+node .agents/skills/cim-wiki/scripts/parse.mjs <输入文档> [--module <模块名>] [--engine mineru|docling|markitdown]
 
 # Stage 5 编译（读取 data/work/<bundle_id>/nodes.json）
-node .qoder/skills/cim-wiki/scripts/compile.mjs <bundle_id>
+node .agents/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 
 # Stage 6 Lint 校验
-node .qoder/skills/cim-wiki/scripts/validate.mjs data/wiki
+node .agents/skills/cim-wiki/scripts/validate.mjs data/wiki
 
 # Stage 7 展示
 npm run docs:dev

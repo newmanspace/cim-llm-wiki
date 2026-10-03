@@ -54,7 +54,7 @@ curl -X POST $ADMIN_URL/api/v1/admin/projects/<project-id>/token \
 # 响应: {"token": "cimwt_xxx...", "warning": "store this token securely"}
 
 # 2. skill 拉取最新配置并落地本地 registry
-node .qoder/skills/cim-wiki/scripts/admin-pull.mjs <project-id>      # 或 --all
+node .agents/skills/cim-wiki/scripts/admin-pull.mjs <project-id>      # 或 --all
 ```
 
 **方式 B — 离线模式**：不设置 `ADMIN_URL`，`admin-pull.mjs` 会跳过，`compile.mjs` / `sync-repo.mjs` 仅读写本地 `project-registry.json`，零外部依赖。
@@ -105,13 +105,13 @@ git submodule status data/sources/<project-id>/code
 
 ```bash
 # 同步指定项目：检测 submodule 变更，定位受影响模块
-node .qoder/skills/cim-wiki/scripts/sync-repo.mjs <project-id>
+node .agents/skills/cim-wiki/scripts/sync-repo.mjs <project-id>
 
 # 仅检测变更，不更新状态
-node .qoder/skills/cim-wiki/scripts/sync-repo.mjs <project-id> --dry-run
+node .agents/skills/cim-wiki/scripts/sync-repo.mjs <project-id> --dry-run
 
 # 同步所有项目
-node .qoder/skills/cim-wiki/scripts/sync-repo.mjs --all
+node .agents/skills/cim-wiki/scripts/sync-repo.mjs --all
 ```
 
 同步脚本输出：
@@ -140,7 +140,7 @@ cd deploy && docker compose up -d mineru docling markitdown   # 首次启动解�
 MINERU_ENDPOINT=http://localhost:8888 \
 DOCLING_ENDPOINT=http://localhost:5001 \
 MARKITDOWN_ENDPOINT=http://localhost:5002 \
-node .qoder/skills/cim-wiki/scripts/parse.mjs <输入文档> \
+node .agents/skills/cim-wiki/scripts/parse.mjs <输入文档> \
   --system <系统: MES|SPC|EAP|CIM…> --version <版本号: V2.22.4> --category <文档大类> [--subcategory <子类>] [--name <不含版本号的名称>] \
   [--engine mineru|docling|markitdown]
 ```
@@ -170,11 +170,11 @@ draft ──修正定稿(freeze，记录 sha256)──▶ frozen ──编译入
 | superseded | 被新版本取代 | 保留存档，不删除 |
 
 ```bash
-node .qoder/skills/cim-wiki/scripts/doc-state.mjs list
-node .qoder/skills/cim-wiki/scripts/doc-state.mjs freeze <doc_id> --note "修正完成说明"   # draft → frozen
-node .qoder/skills/cim-wiki/scripts/doc-state.mjs unfreeze <doc_id>                      # 重新开放修正
-node .qoder/skills/cim-wiki/scripts/doc-state.mjs activate <doc_id>                      # 一般由 compile 自动完成
-node .qoder/skills/cim-wiki/scripts/doc-state.mjs verify                                 # 全量 hash/存在性校验
+node .agents/skills/cim-wiki/scripts/doc-state.mjs list
+node .agents/skills/cim-wiki/scripts/doc-state.mjs freeze <doc_id> --note "修正完成说明"   # draft → frozen
+node .agents/skills/cim-wiki/scripts/doc-state.mjs unfreeze <doc_id>                      # 重新开放修正
+node .agents/skills/cim-wiki/scripts/doc-state.mjs activate <doc_id>                      # 一般由 compile 自动完成
+node .agents/skills/cim-wiki/scripts/doc-state.mjs verify                                 # 全量 hash/存在性校验
 ```
 
 - 抽取（步骤 2）应基于 **frozen** 文档进行；文档修正 = `unfreeze` → 修改解析稿 → 重新 `freeze`。
@@ -223,7 +223,7 @@ node .qoder/skills/cim-wiki/scripts/doc-state.mjs verify                        
 对放行的节点执行编译脚本（页面格式规范见 **[references/frontmatter.md](references/frontmatter.md)**）：
 
 ```bash
-node .qoder/skills/cim-wiki/scripts/compile.mjs <bundle_id>
+node .agents/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 ```
 
 - 脚本读取 `data/work/<bundle_id>/nodes.json`，按**双平面物理分库**路由与文件名规则（ID 小写 slug + `.md`）生成页面，自动附加 YAML Frontmatter（含 `plane: doc|code`）与来源页脚；`archive` 节点分流到 `data/review/archived/`。
@@ -237,7 +237,7 @@ node .qoder/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 ## 步骤 6：Lint 校验
 
 ```bash
-node .qoder/skills/cim-wiki/scripts/validate.mjs data/wiki
+node .agents/skills/cim-wiki/scripts/validate.mjs data/wiki
 ```
 
 校验 Frontmatter 必填字段、文件名与 ID 一致性、wikilink 断链、孤立页面、语义重复嫌疑（同模块同类型标题相似），文档状态管控：非 draft 文档 sha256 漂移（`doc_drift`）、登记文件缺失（`doc_missing`）、draft 文档已发布页面（`doc_state`）；rule/domain/api/scenario card 槽位与词表（`vocabulary_violation`、`*_card_incomplete`）；**双平面路由**（`plane_mismatch`：页面落点与类型路由不符为 error，如 api 落进 doc、功能契约落进 doc、业务规则落进 code）；图闭合（`transaction_code` 全库唯一、`applies_to` 指向非 api）。将问题清单报告给用户；断链与元数据错误可直接修复，冲突与重复需用户裁决。
