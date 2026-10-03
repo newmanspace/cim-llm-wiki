@@ -233,6 +233,12 @@ node .agents/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 - 关联节点 wikilink **必须带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/wf-wip-001.md]]`（compile 会把旧无前缀链接自动规范化，存量 bundle 无需手改）。
 - **事务码注册表**：api card 的 `transaction_code` 全局唯一，compile 时登记 `data/documents/api-registry.json`，一码一卡，冲突拒绝整批入库。
 - **虚拟长文档**：SDD 视图写入 `data/wiki/doc/virtual/<module>-sdd.md`，IDD 视图写入 `data/wiki/code/virtual/<module>-idd.md`（Frontmatter 加 `virtual: true`；合成顺序：模块概述 → 业务规则与契约 → 业务对象 → 流程 → UI 接口 → CIM 集成接口 → 设计）。
+- **GitOps 自动提交**（可选，默认关闭）：`data/wiki/` 作为**独立 git 仓库**，每次编译入库自动产生一条 `chore(wiki): <project> <bundle> — N node(s)` commit，赋予知识库 diff/回溯/`git revert` 能力，主仓仍因 `data/` 被 `.gitignore` 而不被产物污染。由环境变量驱动（详见 `scripts/wiki-gitops.mjs`）：
+  - `WIKI_GITOPS_ENABLED`（`1/true/yes` 生效；**未设 = 完全 no-op，零副作用**）
+  - `WIKI_GITOPS_ROOT`（知识仓库根，默认 `data/wiki`；首次启用自动 `git init` 为独立嵌套仓）
+  - `WIKI_GIT_REMOTE` / `WIKI_GIT_BRANCH`（设置后 commit 完成尝试 `push`；**push 失败仅告警、绝不阻断本地编译**）
+  - `WIKI_GIT_AUTHOR_NAME` / `WIKI_GIT_AUTHOR_EMAIL`（流水线提交身份，默认 `cim-wiki-pipeline`）
+  > 与团队知识仓库对接（`git submodule` 化，主仓跟踪 submodule 指针）需先有远端知识仓库地址，属生产部署步骤，当前以本地独立仓 + 可选 push 落地。
 
 ## 步骤 6：Lint 校验
 

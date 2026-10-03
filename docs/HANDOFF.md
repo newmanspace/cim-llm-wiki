@@ -12,6 +12,12 @@
 
 ### 已完成
 
+- **知识库 GitOps 独立版本管理**（新增，对应 Issue #1）：
+  - `data/wiki/` 作为**独立 git 仓库**，`compile.mjs`（Stage 5）编译入库后自动 `git add -A && git commit`，提交信息 `chore(wiki): <project> <bundle> — N node(s)`，赋予知识库版本追溯/diff/回滚（`git revert`）能力；主仓仍因 `.gitignore` 忽略 `data/` 而不被编译产物污染。
+  - 新增 `scripts/wiki-gitops.mjs`（env 驱动，风格对齐 `admin-client.mjs`）：`WIKI_GITOPS_ENABLED`（未设=完全 no-op）+ `WIKI_GITOPS_ROOT`（默认 `data/wiki`，首次启用自动 `git init` 为独立嵌套仓）+ `WIKI_GIT_REMOTE`/`WIKI_GIT_BRANCH`（配置后 push）+ `WIKI_GIT_AUTHOR_NAME/EMAIL`（流水线身份，默认 `cim-wiki-pipeline`）。
+  - 容错：commit 后 push 失败仅告警、**绝不阻断本地编译**（实测假远端 push 失败 exit 仍 0、commit 保留）。端到端验证：启用后 `data/wiki` 生成首条 commit、25 文件入库、主仓 `git status` 无 `data/wiki` 噪声。
+  - 待生产部署：如需团队共享，再建独立知识仓库远端并 `git submodule` 挂载，主仓跟踪 submodule 指针（当前以本地独立仓 + env 开关形式落地）。
+
 - **统一 Docker Compose 一键部署**（`deploy/docker-compose.yml`）：
   - 将原宿主机分散执行的 Go 后端服务与 VitePress Web 前端统一容器化交付，形成包含 5 大服务的统一编排架构：
     1. `cim-wiki-server`（Alpine 静态二进制 42.6MB，`:8080`，内部直连解析引擎 DNS）

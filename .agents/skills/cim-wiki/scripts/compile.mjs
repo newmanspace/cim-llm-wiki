@@ -4,12 +4,14 @@
 // 仅编译已放行节点（review_level != archive）；archive 节点分流到 data/review/archived/<bundle>/
 // 状态门禁: 源文档在 manifest 中登记为 draft 时禁止编译（须先 freeze）；frozen 文档编译入库后自动激活为 active
 // 事务码注册表: api 节点的 transaction_code 全局唯一，登记于 data/documents/api-registry.json，冲突拒绝入库
+// GitOps: WIKI_GITOPS_ENABLED 时，data/wiki 作为独立 git 仓库自动提交本次入库变更（详见 wiki-gitops.mjs）
 // 页面规范见 references/frontmatter.md
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadManifest, activateIfFrozen } from './docstore.mjs'
 import { adminEnabled, pushWikiNodes, resolveProjectIds } from './admin-client.mjs'
+import { gitopsEnabled, ensureRepo, commitWiki, pushWiki } from './wiki-gitops.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..', '..', '..', '..')
@@ -25,7 +27,7 @@ const TYPE_TO_SUBDIR = {
 }
 // 双平面物理分库：doc = 领域知识库（文档视图/高层导航），code = 代码契约库（工程实现/自动化编译）
 // business_object（domain card）与功能契约（rule_type=contract 或带 applies_to）入 code；scenario 与业务规则入 doc
-const DOC_DIRS = ['manuals', 'business', 'designs', 'modules', 'requirements', 'dictionaries', 'tests', 'releases', 'deployments', 'operations', 'incidents', 'knowledge', 'products', 'projects', 'sources', 'virtual']
+const DOC_DIRS = ['manuals', 'business', 'designs', 'modules', 'requirements', 'dictionaries', 'tests', 'releases', 'deployments', 'runbooks', 'incidents', 'knowledge', 'products', 'projects', 'sources', 'virtual']
 const CODE_DIRS = ['domain', 'apis', 'rules', 'schemas', 'code-index']
 function nodeLoc(node) {
   const t = node.type
@@ -37,7 +39,7 @@ function nodeLoc(node) {
     const isContract = node.rule_type === 'contract' || node.granularity === 'contract' || (Array.isArray(node.applies_to) && node.applies_to.length > 0)
     return isContract ? ['code', 'rules'] : ['doc', 'business']
   }
-  const dir = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business' }[t] || 'knowledge'
+  const dir = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', runbook: 'runbooks', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business', scenario: 'scenarios' }[t] || 'knowledge'
   return ['doc', dir]
 }
 // 旧格式 wikilink 规范化为平面前缀路径（存量 bundle nodes.json 无需手改）
@@ -55,7 +57,7 @@ function normLink(v) {
       const p = name.startsWith('br-') ? 'code/rules' : name.startsWith('bo-') ? 'code/domain' : 'doc/business'
       return `[[${p}/${rest}]]`
     }
-    if (/^(products|projects|requirements|designs|modules|tests|releases|deployments|operations|incidents|knowledge|sources|virtual|dictionaries)$/.test(seg[0])) return `[[doc/${t}]]`
+    if (/^(products|projects|requirements|designs|modules|tests|releases|deployments|runbooks|incidents|knowledge|sources|virtual|dictionaries|scenarios)$/.test(seg[0])) return `[[doc/${t}]]`
     return `[[${t}]]`
   })
 }
@@ -230,6 +232,30 @@ async function main() {
       } catch (err) {
         console.warn(`admin: wiki_nodes 回写失败 (${pid}): ${err.message}（不影响本地编译结果）`)
       }
+    }
+  }
+
+  // ── GitOps 提交：知识库作为独立 git 仓库，编译入库产生一条可追溯 commit ─────
+  // 未设 WIKI_GITOPS_ENABLED 时完全 no-op；失败仅告警，绝不阻断本地编译结果。
+  if (gitopsEnabled() && written.length) {
+    const repoRoot = process.env.WIKI_GITOPS_ROOT || wikiRoot
+    try {
+      ensureRepo(repoRoot)
+      const msg = `chore(wiki): ${projectDir} ${bundleId} — ${written.length} node(s)`
+      const res = commitWiki(repoRoot, msg)
+      if (res.committed) {
+        console.log(`gitops: 已提交 ${res.hash} (${res.changed.length} 文件) → ${repoRoot}`)
+        try {
+          const p = pushWiki(repoRoot)
+          if (p.pushed) console.log(`gitops: 已推送 ${p.branch} → ${p.remote}`)
+        } catch (err) {
+          console.warn(`gitops: push 失败（commit 已保留）: ${err.message}`)
+        }
+      } else {
+        console.log('gitops: 无变更，跳过提交')
+      }
+    } catch (err) {
+      console.warn(`gitops: 提交跳过（不影响本地编译）: ${err.message}`)
     }
   }
 
