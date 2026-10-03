@@ -19,8 +19,8 @@
 //        rule: applies_to 指向的节点必须是 api 类型（warning，悬空由 broken_link 覆盖）
 //   9. 双平面物理分库: 页面必须位于 doc/（领域知识库）或 code/（代码契约库）之一，
 //        且落点与类型路由一致（plane_mismatch，error）：
-//        code/ = apis、schemas、code-index、domain（domain card）、rules（微观规则 granularity=micro）
-//        doc/  = business（scenario + 宏观规则）、designs、modules、requirements、dictionaries、tests、
+//        code/ = apis、schemas、code-index、domain（domain card）、rules（功能契约 contract）
+//        doc/  = business（scenario + 业务规则 business_rule）、designs、modules、requirements、dictionaries、tests、
 //                operations、releases、deployments、incidents、knowledge、products、projects、manuals(人读视图)
 // 退出码: 0 = 无 error（warning 允许），1 = 存在 error
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
@@ -79,8 +79,8 @@ function expectedLoc(fm) {
   if (t === 'code_index') return { plane: 'code', dir: 'code-index' }
   if (t === 'business_object') return { plane: 'code', dir: 'domain' }
   if (t === 'business_rule') {
-    const micro = fm.granularity === 'micro' || (Array.isArray(fm.applies_to) && fm.applies_to.length > 0)
-    return micro ? { plane: 'code', dir: 'rules' } : { plane: 'doc', dir: 'business' }
+    const isContract = fm.rule_type === 'contract' || fm.granularity === 'contract' || (Array.isArray(fm.applies_to) && fm.applies_to.length > 0)
+    return isContract ? { plane: 'code', dir: 'rules' } : { plane: 'doc', dir: 'business' }
   }
   const dirs = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'requirements', test_case: 'tests', release: 'releases', deployment: 'deployments', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business' }
   return { plane: 'doc', dir: dirs[t] || 'knowledge' }
@@ -203,12 +203,13 @@ function main() {
       const exp = expectedLoc(fm)
       if (!pagePlane) errors.push(`[plane_mismatch] ${key}: 原子知识页必须位于 doc/（领域知识库）或 code/（代码契约库）平面目录下`)
       else if (!['virtual', 'sources'].includes(pageDir) && (exp.plane !== pagePlane || exp.dir !== pageDir)) {
-        errors.push(`[plane_mismatch] ${key}: type=${fm.type}${fm.granularity ? '/' + fm.granularity : ''} 应落在 ${exp.plane}/${exp.dir}/`)
+        errors.push(`[plane_mismatch] ${key}: type=${fm.type}${fm.rule_type ? '/' + fm.rule_type : fm.granularity ? '/' + fm.granularity : ''} 应落在 ${exp.plane}/${exp.dir}/`)
       }
     }
     if (fm.plane && !['doc', 'code'].includes(fm.plane)) errors.push(`[metadata_error] ${key}: plane 取值非法: ${fm.plane}`)
-    if (fm.granularity && !['macro', 'micro'].includes(fm.granularity)) errors.push(`[metadata_error] ${key}: granularity 取值非法: ${fm.granularity}`)
-    if (fm.type === 'business_rule' && !fm.granularity) warnings.push(`[granularity_missing] ${key}: business_rule 缺少 granularity（macro|micro）`)
+    const ruleKind = fm.rule_type || fm.granularity
+    if (ruleKind && !['contract', 'business_rule'].includes(ruleKind)) errors.push(`[metadata_error] ${key}: rule_type 取值非法: ${ruleKind}（应为 contract 或 business_rule）`)
+    if (fm.type === 'business_rule' && !ruleKind) warnings.push(`[rule_type_missing] ${key}: business_rule 缺少 rule_type（contract|business_rule）`)
     // rule card v2：business_rule 一旦声明 severity 就必须使用结构化槽位
     if (fm.type === 'business_rule' && fm.severity) {
       const pageText = readFileSync(join(root, key), 'utf-8')

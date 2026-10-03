@@ -228,11 +228,11 @@ node .qoder/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 
 - 脚本读取 `data/work/<bundle_id>/nodes.json`，按**双平面物理分库**路由与文件名规则（ID 小写 slug + `.md`）生成页面，自动附加 YAML Frontmatter（含 `plane: doc|code`）与来源页脚；`archive` 节点分流到 `data/review/archived/`。
 - **双平面路由**（判据见 references/extraction.md「双平面物理分库」）：
-  - `data/wiki/code/`（**代码契约库**，面向工程实现与自动化编译）：`apis/`（api card）、`rules/`（微观规则，`granularity: micro` 或带 `applies_to`）、`domain/`（Domain Card / business_object——契约层实体基座）、`schemas/`（data_schema 物理表结构）、`code-index/`（代码索引）。
-  - `data/wiki/doc/`（**领域知识库**，面向人与高层业务导航）：`business/`（scenario wf-*（含 What-Next 分支表）与宏观规则）、`designs/`、`modules/`、`requirements/`、`dictionaries/`（data_dictionary 数据字典/ER mapping）、`tests/`、`operations/`（运维 SOP）、`manuals/`（人读视图：用户手册 user-manual / 系统管理手册 admin-manual，由 gen-manuals.mjs 生成）、其余 products/projects/releases/deployments/incidents/knowledge/sources/virtual。
+  - `data/wiki/code/`（**代码契约库**，面向工程实现与自动化编译）：`apis/`（api card）、`rules/`（功能契约，`rule_type: contract` 或带 `applies_to`）、`domain/`（Domain Card / business_object——契约层实体基座）、`schemas/`（data_schema 物理表结构）、`code-index/`（代码索引）。
+  - `data/wiki/doc/`（**领域知识库**，面向人与高层业务导航）：`business/`（scenario wf-*（含 What-Next 分支表）与业务规则 `rule_type: business_rule`）、`designs/`、`modules/`、`requirements/`、`dictionaries/`（data_dictionary 数据字典/ER mapping）、`tests/`、`operations/`（运维 SOP）、`manuals/`（文档视图：用户手册 user-manual / 系统管理手册 admin-manual，由 gen-manuals.mjs 生成）、其余 products/projects/releases/deployments/incidents/knowledge/sources/virtual。
 - 关联节点 wikilink **必须带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/wf-wip-001.md]]`（compile 会把旧无前缀链接自动规范化，存量 bundle 无需手改）。
 - **事务码注册表**：api card 的 `transaction_code` 全局唯一，compile 时登记 `data/documents/api-registry.json`，一码一卡，冲突拒绝整批入库。
-- **虚拟长文档**：SDD 视图写入 `data/wiki/doc/virtual/<module>-sdd.md`，IDD 视图写入 `data/wiki/code/virtual/<module>-idd.md`（Frontmatter 加 `virtual: true`；合成顺序：模块概述 → 业务规则 → 业务对象 → 流程 → UI 接口 → CIM 集成接口 → 设计）。
+- **虚拟长文档**：SDD 视图写入 `data/wiki/doc/virtual/<module>-sdd.md`，IDD 视图写入 `data/wiki/code/virtual/<module>-idd.md`（Frontmatter 加 `virtual: true`；合成顺序：模块概述 → 业务规则与契约 → 业务对象 → 流程 → UI 接口 → CIM 集成接口 → 设计）。
 
 ## 步骤 6：Lint 校验
 
@@ -240,7 +240,7 @@ node .qoder/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 node .qoder/skills/cim-wiki/scripts/validate.mjs data/wiki
 ```
 
-校验 Frontmatter 必填字段、文件名与 ID 一致性、wikilink 断链、孤立页面、语义重复嫌疑（同模块同类型标题相似），文档状态管控：非 draft 文档 sha256 漂移（`doc_drift`）、登记文件缺失（`doc_missing`）、draft 文档已发布页面（`doc_state`）；rule/domain/api/scenario card 槽位与词表（`vocabulary_violation`、`*_card_incomplete`）；**双平面路由**（`plane_mismatch`：页面落点与类型路由不符为 error，如 api 落进 doc、宏观规则落进 code）；图闭合（`transaction_code` 全库唯一、`applies_to` 指向非 api）。将问题清单报告给用户；断链与元数据错误可直接修复，冲突与重复需用户裁决。
+校验 Frontmatter 必填字段、文件名与 ID 一致性、wikilink 断链、孤立页面、语义重复嫌疑（同模块同类型标题相似），文档状态管控：非 draft 文档 sha256 漂移（`doc_drift`）、登记文件缺失（`doc_missing`）、draft 文档已发布页面（`doc_state`）；rule/domain/api/scenario card 槽位与词表（`vocabulary_violation`、`*_card_incomplete`）；**双平面路由**（`plane_mismatch`：页面落点与类型路由不符为 error，如 api 落进 doc、功能契约落进 doc、业务规则落进 code）；图闭合（`transaction_code` 全库唯一、`applies_to` 指向非 api）。将问题清单报告给用户；断链与元数据错误可直接修复，冲突与重复需用户裁决。
 
 ## 步骤 7：VitePress 展示
 

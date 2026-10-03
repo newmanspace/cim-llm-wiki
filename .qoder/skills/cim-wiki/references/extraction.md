@@ -12,7 +12,7 @@
 {
   "id": "TYPE-DOMAIN-SEQ，如 BR-WIP-001、API-INT-PLM-001",
   "type": "business_rule | business_object | workflow | api | design | module | requirement | test_case | incident | faq | release | deployment | knowledge_article | data_schema | data_dictionary | code_index",
-  "granularity": "仅 business_rule：macro（宏观政策/invariant，入 doc）| micro（接口级校验，带 applies_to，入 code）；缺省按是否带 applies_to 判定",
+  "rule_type": "仅 business_rule：business_rule（业务规则/全局政策，入 doc）| contract（功能契约/接口校验，带 applies_to，入 code）；缺省按是否带 applies_to 判定",
   "title": "简洁标题",
   "content": "完整 Markdown 内容（原子化，一个节点只讲一件事）",
   "product": "产品名称，默认 Semiconductor-MES",
@@ -74,11 +74,11 @@ wiki 按消费对象物理分为两库，compile.mjs 按下表自动路由并写
 
 | 平面 | 定位 | 类型 → 目录 |
 |------|------|-------------|
-| `doc/` 领域知识库（Domain Wiki） | 面向人与高层业务导航，沉淀**描述性资产**（PRD、SDD、用户/系统管理手册、测试用例、运维 SOP、数据字典） | workflow（scenario）与 business_rule(granularity: macro) → `business/`；design → `designs/`；module → `modules/`；requirement → `requirements/`；data_dictionary → `dictionaries/`；test_case → `tests/`；release/deployment/incident/faq 等 → 同名目录；人读视图 → `manuals/`（大类 user-manual=用户手册 / admin-manual=系统管理手册） |
-| `code/` 代码契约库（Code Wiki） | 面向工程实现与自动化编译，沉淀**物理契约与执行资产** | api → `apis/`；business_rule(granularity: micro) → `rules/`；business_object（Domain Card）→ `domain/`；data_schema → `schemas/`；code_index → `code-index/` |
+| `doc/` 领域知识库（Domain Wiki） | 面向人与高层业务导航，沉淀**描述性资产**（PRD、SDD、用户/系统管理手册、测试用例、运维 SOP、数据字典） | workflow（scenario）与 business_rule(rule_type: business_rule) → `business/`；design → `designs/`；module → `modules/`；requirement → `requirements/`；data_dictionary → `dictionaries/`；test_case → `tests/`；release/deployment/incident/faq 等 → 同名目录；人读视图 → `manuals/`（大类 user-manual=用户手册 / admin-manual=系统管理手册） |
+| `code/` 代码契约库（Code Wiki） | 面向工程实现与自动化编译，沉淀**物理契约与执行资产** | api → `apis/`；business_rule(rule_type: contract) → `rules/`；business_object（Domain Card）→ `domain/`；data_schema → `schemas/`；code_index → `code-index/` |
 
 规则：
-1. **业务规则按颗粒度分治**：微观规则 = Conditions of the Service 类接口级校验，必带 `granularity: micro` + `applies_to` 指向具体 api 卡（`code/rules/`）；宏观规则 = 跨模块政策/invariant（`doc/business/`）。同一约束若两层都存在，宏观卡与微观卡互链 `related_rules`。
+1. **业务规则与功能契约分治**：功能契约 = Conditions of the Service 类接口级校验，必带 `rule_type: contract` + `applies_to` 指向具体 api 卡（`code/rules/`）；业务规则 = 跨模块政策/invariant（`doc/business/`）。同一约束若两层都存在，业务规则卡与功能契约卡互链 `related_rules`。
 2. **数据资产三层**：概念实体 = Domain Card（`code/domain/bo-*`，主键/状态机/Reasoning Hint）；概念模型 = 数据字典（`doc/dictionaries/dd-*`，ER mapping、实体-表-业务含义对照）；物理契约 = Schema（`code/schemas/ds-*`，表/字段/类型/键/值域）。三者用 wikilink 串联，不重复内容。
 3. **wikilink 一律带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/wf-wip-001.md]]`。跨平面双向引用合法且常见（api preconditions→规则卡；scenario Steps→api 卡；ds→dd/bo）。compile 会把旧无前缀链接自动规范化，存量 bundle 无需手改。
 
@@ -93,7 +93,7 @@ wiki 按消费对象物理分为两库，compile.mjs 按下表自动路由并写
 | IDD：PLM/ERP/QMS/EAP/WMS 对接报文与协议 | api（api_type: external_integration，必须给出 integration_tier） |
 | IDD：数据字典、ER 图 | data_dictionary（doc/dictionaries，含 ER mapping）；其中核心实体另建 Domain Card（code/domain） |
 | IDD：表结构、字段值域、键与索引 | data_schema（code/schemas） |
-| IDD：业务校验规则、决策矩阵、错误码 | business_rule（绑定接口的 granularity: micro → code/rules；跨模块政策 → doc/business） |
+| IDD：业务校验规则、决策矩阵、错误码 | business_rule（绑定接口的功能契约 contract → code/rules；跨模块业务规则 → doc/business） |
 
 ## CIM 集成层级判定（方案 §3.2）
 
@@ -145,7 +145,7 @@ frontmatter 新增字段（compile.mjs 已支持渲染）：
 | `severity` | 违反影响 | Critical / High / Medium / Low；**Critical 强制 L2_arch 人审** |
 | `rule_category` | 规则切面（跨模块聚合用） | RECIPE / HOLD / PORT / CARRIER / LOT / QTIME / DISPATCH / TRACK… |
 | `verification_status` | 展示用核验状态 | 由 review_level 派生：待审=`AI-Candidate`，批准=`Human-Verified`，归档=`Deprecated`。**不是独立状态机**，审核流程仍以 status/review_level 为准 |
-| `granularity` | 双平面路由键 | `micro`=接口级校验（入 `code/rules/`，应带 applies_to）；`macro`=宏观政策/invariant（入 `doc/business/`） |
+| `rule_type` | 双平面路由键 | `contract`=功能契约（接口级校验，入 `code/rules/`，应带 applies_to）；`business_rule`=业务规则（全局政策/invariant，入 `doc/business/`） |
 | `applies_to` | 规则生效点（rule → api 图闭合） | 列表；元素必须是 api 节点 wikilink，如 `[[apis/api-int-eap-001.md]]`；一条规则可作用于多个接口 |
 
 抽取纪律：

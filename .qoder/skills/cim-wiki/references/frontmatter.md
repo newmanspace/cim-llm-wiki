@@ -8,8 +8,8 @@ wiki 物理分两库：`data/wiki/doc/`（领域知识库，面向人与高层�
 
 | 节点类型 | 落点 | 文件名示例 |
 |----------|------|-----------|
-| business_rule（granularity: micro，带 applies_to） | code/rules/ | br-wip-001.md |
-| business_rule（granularity: macro） | doc/business/ | br-wip-001.md |
+| business_rule（功能契约 contract，带 applies_to） | code/rules/ | br-wip-001.md |
+| business_rule（业务规则 business_rule） | doc/business/ | br-wip-001.md |
 | business_object（Domain Card） | code/domain/ | bo-wip-001.md |
 | workflow（scenario，含 What-Next 分支表） | doc/business/ | wf-wip-001.md |
 | api | code/apis/ | api-wip-ui-001.md / api-int-plm-001.md |
@@ -56,7 +56,7 @@ plane: code   # compile 按双平面路由自动写入：doc | code
 # pattern: linear | what-next-driven  # what-next-driven 必须含 What-Next Branches 分支表
 # content 槽位模板见 extraction.md「workflow 结构化模板」
 # 仅 business_rule（rule card v2）追加以下字段：
-# granularity: micro | macro            # micro→code/rules（带 applies_to）；macro→doc/business
+# rule_type: contract | business_rule   # contract=功能契约（带 applies_to，入 code/rules/）；business_rule=业务规则（入 doc/business/）
 # severity: Critical | High | Medium | Low    # Critical 强制 L2_arch 人审
 # rule_category: vocabulary.md 登记的 Rule Category 枚举值
 # verification_status: AI-Candidate | Human-Verified | Deprecated   # 由 review_level 派生，非独立状态机
@@ -118,6 +118,6 @@ updated_at: 2026-10-01T08:00:00Z
 Frontmatter 追加 `virtual: true` 与 `module`。正文按以下顺序缝合该模块原子节点（strip 掉各自 frontmatter，节点间以 `---` 分隔）：
 
 - **SDD 视图**（doc）：模块概述(doc/modules) → 架构设计(doc/designs) → 业务流程(doc/business/wf) → 需求(doc/requirements)
-- **IDD 视图**（code）：业务对象(code/domain/bo) → 业务规则(code/rules/br + doc/business/br 宏观) → UI 接口(code/apis, api_type=ui_api) → CIM 集成接口(code/apis, api_type=external_integration，按 tier 1→5 排序) → 数据 Schema(code/schemas) → 数据字典(doc/dictionaries)
+- **IDD 视图**（code）：业务对象(code/domain/bo) → 功能契约与业务规则(code/rules/br 功能契约 + doc/business/br 业务规则) → UI 接口(code/apis, api_type=ui_api) → CIM 集成接口(code/apis, api_type=external_integration，按 tier 1→5 排序) → 数据 Schema(code/schemas) → 数据字典(doc/dictionaries)
 
 页首注明「Auto-generated from atomic wiki nodes」与渲染时间。

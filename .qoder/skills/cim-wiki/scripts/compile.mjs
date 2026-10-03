@@ -23,8 +23,8 @@ const TYPE_TO_SUBDIR = {
   incident: 'incidents', defect: 'incidents',
   faq: 'knowledge', knowledge_article: 'knowledge', product: 'products'
 }
-// 双平面物理分库：doc = 领域知识库（人读/导航），code = 代码契约库（工程/自动化）
-// business_object（domain card）与微观 business_rule（granularity=micro 或带 applies_to）入 code；scenario 与宏观规则入 doc
+// 双平面物理分库：doc = 领域知识库（文档视图/高层导航），code = 代码契约库（工程实现/自动化编译）
+// business_object（domain card）与功能契约（rule_type=contract 或带 applies_to）入 code；scenario 与业务规则入 doc
 const DOC_DIRS = ['manuals', 'business', 'designs', 'modules', 'requirements', 'dictionaries', 'tests', 'releases', 'deployments', 'operations', 'incidents', 'knowledge', 'products', 'projects', 'sources', 'virtual']
 const CODE_DIRS = ['domain', 'apis', 'rules', 'schemas', 'code-index']
 function nodeLoc(node) {
@@ -34,8 +34,8 @@ function nodeLoc(node) {
   if (t === 'code_index') return ['code', 'code-index']
   if (t === 'business_object') return ['code', 'domain']
   if (t === 'business_rule') {
-    const micro = node.granularity === 'micro' || (Array.isArray(node.applies_to) && node.applies_to.length > 0)
-    return micro ? ['code', 'rules'] : ['doc', 'business']
+    const isContract = node.rule_type === 'contract' || node.granularity === 'contract' || (Array.isArray(node.applies_to) && node.applies_to.length > 0)
+    return isContract ? ['code', 'rules'] : ['doc', 'business']
   }
   const dir = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business' }[t] || 'knowledge'
   return ['doc', dir]
@@ -63,7 +63,7 @@ const LIST_FIELDS = ['related_requirements', 'related_designs', 'related_rules',
 const SCALAR_FIELDS = [
   'api_type', 'integration_tier', 'integration_system', 'isa95_mapping',
   'endpoint', 'protocol', 'code_repository', 'code_class', 'code_method', 'git_ref',
-  'severity', 'rule_category', 'verification_status', 'granularity',
+  'severity', 'rule_category', 'verification_status', 'rule_type', 'granularity',
   'domain_object', 'primary_key', 'synthesized',
   'operation', 'transaction_code', 'pattern'
 ]
