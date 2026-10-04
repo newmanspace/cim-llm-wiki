@@ -17,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..', '..', '..', '..')
 
 const TYPE_TO_SUBDIR = {
-  business_rule: 'rules_or_business', business_object: 'domain', workflow: 'business',
+  business_rule: 'rules_or_business', business_object: 'domain', frd: 'business',
   api: 'apis', design: 'designs', module: 'modules', data_dictionary: 'dictionaries',
   data_schema: 'schemas', code_index: 'code-index',
   requirement: 'requirements', project: 'projects', test_case: 'tests',
@@ -39,7 +39,7 @@ function nodeLoc(node) {
     const isContract = node.rule_type === 'contract' || node.granularity === 'contract' || (Array.isArray(node.applies_to) && node.applies_to.length > 0)
     return isContract ? ['code', 'rules'] : ['doc', 'business']
   }
-  const dir = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', runbook: 'runbooks', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business', scenario: 'scenarios' }[t] || 'knowledge'
+  const dir = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', runbook: 'runbooks', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', frd: 'business', scenario: 'scenarios' }[t] || 'knowledge'
   return ['doc', dir]
 }
 // 旧格式 wikilink 规范化为平面前缀路径（存量 bundle nodes.json 无需手改）
@@ -61,7 +61,7 @@ function normLink(v) {
     return `[[${t}]]`
   })
 }
-const LIST_FIELDS = ['related_requirements', 'related_designs', 'related_rules', 'related_apis', 'related_code', 'related_tests', 'rule_tags', 'applies_to', 'domain_objects', 'preconditions', 'scenario_variants']
+const LIST_FIELDS = ['related_requirements', 'related_designs', 'related_rules', 'related_apis', 'related_code', 'related_tests', 'rule_tags', 'applies_to', 'domain_objects', 'preconditions', 'scenario_variants', 'related_modules']
 const SCALAR_FIELDS = [
   'api_type', 'integration_tier', 'integration_system', 'isa95_mapping',
   'endpoint', 'protocol', 'code_repository', 'code_class', 'code_method', 'git_ref',

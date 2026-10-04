@@ -11,7 +11,7 @@
 ```json
 {
   "id": "TYPE-DOMAIN-SEQ，如 BR-WIP-001、API-INT-PLM-001",
-  "type": "business_rule | business_object | workflow | api | design | module | requirement | test_case | incident | faq | release | deployment | knowledge_article | data_schema | data_dictionary | code_index",
+  "type": "business_rule | business_object | frd | api | design | module | requirement | test_case | incident | faq | release | deployment | knowledge_article | data_schema | data_dictionary | code_index",
   "rule_type": "仅 business_rule：business_rule（业务规则/全局政策，入 doc）| contract（功能契约/接口校验，带 applies_to，入 code）；缺省按是否带 applies_to 判定",
   "title": "简洁标题",
   "content": "完整 Markdown 内容（原子化，一个节点只讲一件事）",
@@ -30,7 +30,7 @@
   "domain_objects": ["仅 api：操作的领域对象名列表，如 [\"Equipment\", \"ControlJob\"]"],
   "preconditions": ["仅 api：生效校验规则的 wikilink 列表，如 [[business/br-wip-001.md]]；无前置时正文槽位显式写 None"],
   "scenario_variants": ["仅 api：调用场景变体名列表，如 B2B Operation 名 \"Offline-1 Case\""],
-  "pattern": "仅 workflow（scenario card）：linear | what-next-driven",
+  "pattern": "仅 frd（功能需求文档，旧称 workflow/scenario）：linear | what-next-driven",
   "related_requirements": ["[[requirements/req-xxx.md]]"],
   "related_designs": ["[[designs/des-xxx.md]]"],
   "related_rules": ["[[business/br-xxx.md]]"],
@@ -51,7 +51,7 @@
 |------|------|------|
 | business_rule | BR | BR-WIP-001 |
 | business_object | BO | BO-WIP-001 |
-| workflow | WF | WF-WIP-001 |
+| frd | FRD | FRD-WIP-001 |
 | api（UI） | API-{DOMAIN}-UI | API-WIP-UI-001 |
 | api（外部集成） | API-INT-{SYSTEM} | API-INT-PLM-001 |
 | design | DES | DES-WIP-001 |
@@ -74,13 +74,13 @@ wiki 按消费对象物理分为两库，compile.mjs 按下表自动路由并写
 
 | 平面 | 定位 | 类型 → 目录 |
 |------|------|-------------|
-| `doc/` 领域知识库（Domain Wiki） | 面向人与高层业务导航，沉淀**描述性资产**（PRD、SDD、用户/系统管理手册、测试用例、运维 SOP、数据字典） | workflow（scenario）与 business_rule(rule_type: business_rule) → `business/`；design → `designs/`；module → `modules/`；requirement → `requirements/`；data_dictionary → `dictionaries/`；test_case → `tests/`；release/deployment/incident/faq 等 → 同名目录；人读视图 → `manuals/`（大类 user-manual=用户手册 / admin-manual=系统管理手册） |
+| `doc/` 领域知识库（Domain Wiki） | 面向人与高层业务导航，沉淀**描述性资产**（PRD、SDD、用户/系统管理手册、测试用例、运维 SOP、数据字典） | frd（功能需求文档，用例/流程级，旧称 workflow/scenario）与 business_rule(rule_type: business_rule) → `business/`；design → `designs/`；module → `modules/`；requirement → `requirements/`；data_dictionary → `dictionaries/`；test_case → `tests/`；release/deployment/incident/faq 等 → 同名目录；人读视图 → `manuals/`（大类 user-manual=用户手册 / admin-manual=系统管理手册） |
 | `code/` 代码契约库（Code Wiki） | 面向工程实现与自动化编译，沉淀**物理契约与执行资产** | api → `apis/`；business_rule(rule_type: contract) → `rules/`；business_object（Domain Card）→ `domain/`；data_schema → `schemas/`；code_index → `code-index/` |
 
 规则：
 1. **业务规则与功能契约分治**：功能契约 = Conditions of the Service 类接口级校验，必带 `rule_type: contract` + `applies_to` 指向具体 api 卡（`code/rules/`）；业务规则 = 跨模块政策/invariant（`doc/business/`）。同一约束若两层都存在，业务规则卡与功能契约卡互链 `related_rules`。
 2. **数据资产三层**：概念实体 = Domain Card（`code/domain/bo-*`，主键/状态机/Reasoning Hint）；概念模型 = 数据字典（`doc/dictionaries/dd-*`，ER mapping、实体-表-业务含义对照）；物理契约 = Schema（`code/schemas/ds-*`，表/字段/类型/键/值域）。三者用 wikilink 串联，不重复内容。
-3. **wikilink 一律带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/wf-wip-001.md]]`。跨平面双向引用合法且常见（api preconditions→规则卡；scenario Steps→api 卡；ds→dd/bo）。compile 会把旧无前缀链接自动规范化，存量 bundle 无需手改。
+3. **wikilink 一律带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/frd-wip-001.md]]`。跨平面双向引用合法且常见（api preconditions→规则卡；frd Steps→api 卡；ds→dd/bo）。compile 会把旧无前缀链接自动规范化，存量 bundle 无需手改。
 
 ## SDD/IDD 章节解构映射（方案 §4.1）
 
@@ -88,7 +88,7 @@ wiki 按消费对象物理分为两库，compile.mjs 按下表自动路由并写
 |----------------|----------------|
 | SDD：模块功能概述、组件架构、模块依赖 | module（模块驾驶舱页） |
 | SDD：系统架构图、技术方案、扩展性设计 | design |
-| SDD：端到端跨模块业务时序图、主流程 | workflow |
+| SDD：端到端跨模块业务时序图、主流程 | frd |
 | IDD：Web/PDA 前端调用的 RESTful API | api（api_type: ui_api） |
 | IDD：PLM/ERP/QMS/EAP/WMS 对接报文与协议 | api（api_type: external_integration，必须给出 integration_tier） |
 | IDD：数据字典、ER 图 | data_dictionary（doc/dictionaries，含 ER mapping）；其中核心实体另建 Domain Card（code/domain） |
@@ -110,7 +110,7 @@ wiki 按消费对象物理分为两库，compile.mjs 按下表自动路由并写
 | 版面模式 | 抽取方法 |
 |----------|----------|
 | **Conditions of the Service**（Check Item / Required Value 校验表） | 按行拆为独立 business_rule；每行 content 必须保留「校验对象 + 约束谓词 + 违反后果」三要素（如 `Reserved Control Job ID must be blank` → subject=Port, constraint=must_be_blank）；行内 "Refer to …" 交叉引用转为 `related_rules` wikilink，不复制被引内容；条件式规则（If…then…）整体保留谓词结构 |
-| **Operation Flow**（时序表格：列=参与者泳道 IMS/EAP/TOOL/UI，行=消息事件，`(Transaction)` / `UI Operation` 列=语义标签） | 整表重建为一个 workflow 节点的有序 steps（每步含 actor/action/transaction/ui_hint/B2B Operation 场景名）；每个事务码（如 ODIS0001、OEQP0001、move_in_reserve）单独抽为 api 节点（api_type=external_integration，integration_tier=automation，B2B Operation 名记为调用场景变体），由 workflow 的 `related_apis` 引用。**解析注意**：markdown 表格导出会丢失箭头方向，时序判定只依赖行序 + 泳道列位置 + Transaction/UI Operation 文本列，不依赖箭头；原始时序截图由人读视图（manuals）承载，AI 侧不解读图片 |
+| **Operation Flow**（时序表格：列=参与者泳道 IMS/EAP/TOOL/UI，行=消息事件，`(Transaction)` / `UI Operation` 列=语义标签） | 整表重建为一个 frd 节点（功能需求文档，旧称 workflow）的有序 steps（每步含 actor/action/transaction/ui_hint/B2B Operation 场景名）；每个事务码（如 ODIS0001、OEQP0001、move_in_reserve）单独抽为 api 节点（api_type=external_integration，integration_tier=automation，B2B Operation 名记为调用场景变体），由 frd 的 `related_apis` 引用。**解析注意**：markdown 表格导出会丢失箭头方向，时序判定只依赖行序 + 泳道列位置 + Transaction/UI Operation 文本列，不依赖箭头；原始时序截图由人读视图（manuals）承载，AI 侧不解读图片 |
 
 ## business_rule 结构化模板（rule card v2）
 
@@ -281,7 +281,7 @@ content 固定槽位：
 <错误码表逐行抽取；触发条件指向对应 rule card wikilink>
 
 ## Related Scenarios
-- [[business/wf-xxx.md]]
+- [[business/frd-xxx.md]]
 ```
 
 抽取纪律：
@@ -289,41 +289,46 @@ content 固定槽位：
 2. Preconditions 只接受 rule card wikilink；若校验条件尚无独立规则卡，先抽 business_rule 再引用（保持图闭合，禁止正文造自由文本引用）。
 3. Effects 忠实原文状态机；原文未显式给出状态变更时写可观察结果（返回报文、落记录）并降低 confidence。
 
-## workflow 结构化模板（scenario card v1）
+## frd 结构化模板（功能需求文档 FRD，scenario guide v2，doc/business）
 
-scenario 把多张 api 卡串成完整操作流程，是 AI 回答"接下来能做什么/怎么做"的载体。两种形态：`pattern: linear`（固定顺序）与 `pattern: what-next-driven`（动态流程——每次事务返回 What_next 候选集，调用方按上下文选择，EAP 类协议典型形态）。落点 **`doc/business/`**（Domain 侧流程资产，分支表随卡保留；其 Steps 引用的 api 卡位于 `code/apis/`）。
+`frd`（功能需求文档，Functional Requirement Document；旧称 workflow/scenario）承载端到端业务用例与实操指南，**面向人类阅读并兼顾机器图谱索引**。必须严格遵循该类型的**生效模板**（按 `data/wiki/<project>/templates/` 项目自定义 > `data/wiki/templates/` 知识仓全局 > `assets/` 内置 解析，默认 [frd-template.md](../assets/frd-template.md)）进行结构化填充；抽取前用 `scripts/templates.mjs get frd [--project <id>]` 取当前生效骨架，`init frd [--project <id>] [--scope project]` 可复制成项目自定义模板再编辑。
 
-frontmatter 专有字段：`pattern`（lint 校验取值枚举；what-next-driven 卡必须含分支表）。
+frontmatter 专有字段：`pattern`（`linear` | `what-next-driven`；what-next-driven 必含分支表）。
 
 content 固定槽位：
+1. `## 1. 业务场景概述 (Overview)`：业务目标、触发时机、前置条件与预期成果。
+2. `## 2. 端到端泳道时序视图 (Workflow Diagram)`：Mermaid 时序交互图。
+3. `## 3. 分阶段详细实操步骤 (Step-by-Step Operations)`：每一阶段明确操作目的、执行指令/界面指引、输入参数字段表与预期结果。
+4. `## 4. 步骤汇总对照表 (Steps Summary Table)`：必须保留 `## Steps` 表（含 Step, Actor, Action, Target / Transaction, Hint），供自动化图谱与 Lint 校验。
+5. `## 5. 分支决策与故障补偿 (What-Next & Rollback)`：必须保留 `## What-Next Branches`（what-next-driven 必填）。
+6. `## 6. 常见异常排查指引 (Troubleshooting)`：排查表格（异常报错、产生根因、处置步骤）。
 
-```markdown
-# <流程名：如 EAP Move-In 预约流程>
+## design 结构化模板（system design v2，doc/designs）
 
-## Purpose
-<一句话业务目标 + 参与方（UI / EAP / IMS / TOOL）>
+`design` 承载系统架构方案与模块设计说明书 (SDD)，**必须严格遵循 [design-document-template.md](../assets/design-document-template.md) 编写**。
 
-## Steps
-| seq | actor | api | ui_operation | on_fail |
-|-----|-------|-----|--------------|---------|
-| 1 | UI | [[apis/api-wip-ui-001.md]] | Select Equipment | abort |
-| 2 | EAP | [[apis/api-int-eap-001.md]] | — | rollback |
-<有序步骤；每步 api 列必须 wikilink 到 api card，on_fail 取 abort/rollback/retry/手工处理>
+content 固定槽位：
+1. `## 1. 设计背景与业务诉求 (Background & Motivation)`：现状痛点、In-Scope 目标、Out-of-Scope 边界。
+2. `## 2. 总体架构与系统上下文 (System Architecture & Context)`：Mermaid 上下文拓扑、核心组件职责矩阵（包含到对应驾驶舱 `[[doc/modules/mod-xxx.md]]` 的链接）。
+3. `## 3. 详细设计与机制分析 (Detailed Design)`：Mermaid 数据流时序、核心机制剖析。
+4. `## 4. 关键设计决策记录 (Architecture Decision Records - ADR)`：ADR 决策权衡（背景、备选方案、决策理由）。
+5. `## 5. 非功能性考量与容错保障 (Non-Functional Requirements)`：高可用、容错、数据一致性。
 
-## What-Next Branches
-<what-next-driven 必填，linear 可省。来源：原文 What_next[...] / Exp_info[...] 协议字段——每行 context=某状态上下文，allowed_next_transactions=合法后继事务码集合（事务码后附 api 卡 wikilink）>
-| context | allowed_next_transactions |
-|---------|-------------------------|
-| reservation_ok & lot_at_port | TrackIn(OEQP0001 → [[apis/api-int-eap-002.md]])；CancelReservation(ODIS0002 → …) |
+## module 结构化模板（module cockpit v2，doc/modules）
 
-## Exceptions & Recovery
-<异常场景与恢复动作，引用 api/rule 卡 wikilink>
-```
+`module` 承载模块驾驶舱总览页，**必须严格遵循 [module-cockpit-template.md](../assets/module-cockpit-template.md) 编写**。
+
+content 固定槽位：
+1. `## 1. 模块定位与核心职责 (Overview & Responsibilities)`：模块代码、核心定位、职责清单与边界。
+2. `## 2. 核心功能特性矩阵 (Feature Matrix)`：特性清单表（特性 ID、名称、简述、关联流程）。
+3. `## 3. 对外服务与接口契约导航 (API & Contracts)`：UI 接口、集成接口与功能契约的 wikilink 导航。
+4. `## 4. 依赖拓扑与环境配置 (Dependencies & Configuration)`：上下游依赖、配置项与环境变量说明表。
+5. `## 5. 运维监控与故障诊断 (Operations & Health Check)`：健康检查、排障日志路径与排查方法。
 
 抽取纪律：
-1. Operation Flow 时序表重建 scenario 卡：顺序只依据**行序 + 泳道列位置 + Transaction/UI Operation 文本列**（markdown 导出丢失箭头，禁止按箭头推断方向）。
-2. Steps 中每个事务码必须能对应到已抽取的 api card；对应不上时先补 api 卡，不允许悬空事务码。
-3. scenario 是 hub 页（豁免"一节点一知识"原子性检查）：本体只编排引用，规则/接口内容一律不在正文重复展开。
+1. **人读严谨性**：`doc/` 平面节点绝不可写成仅有十几行三元组的简陋机器打卡页，正文必须具备上下文阐述、图表展示与操作实操指导。
+2. **图闭合约束**：正文中凡提及具体 API、规则、模块、领域实体，一律以 `[[plane/dir/file.md]]` 规范显式平面前缀链接。
+3. **忠实原文与适度拓展**：基于源文档内容提取业务实质，补充规范的工程结构（如 Troubleshooting、ADR），不得凭空编造虚假业务参数。
 
 ## 抽取原则
 

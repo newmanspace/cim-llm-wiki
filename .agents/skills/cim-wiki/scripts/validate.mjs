@@ -22,6 +22,9 @@
 //        code/ = apis、schemas、code-index、domain（domain card）、rules（功能契约 contract）
 //        doc/  = business（scenario + 业务规则 business_rule）、designs、modules、requirements、dictionaries、tests、
 //                runbooks、releases、deployments、incidents、knowledge、products、projects、manuals(人读视图)
+//  10. 文档模板结构: 按 data/wiki/templates/manifest.json（全局）+ data/wiki/<project>/templates/manifest.json
+//        （项目覆盖）声明的每个类型 requiredSections 逐页校验，缺失告警
+//        （template_section_missing，warning；自定义模板改结构 → 同步改 manifest 即被 Lint 认识）
 // 退出码: 0 = 无 error（warning 允许），1 = 存在 error
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join, dirname, resolve, relative } from 'node:path'
@@ -41,8 +44,10 @@ const warnings = []
 function walkMd(dir, root, out = []) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name)
-    if (e.isDirectory()) walkMd(p, root, out)
-    else if (e.name.endsWith('.md')) out.push(relative(root, p).split('\\').join('/'))
+    if (e.isDirectory()) {
+      if (e.name === 'templates') continue // 自定义模板目录，不作为知识节点扫描
+      walkMd(p, root, out)
+    } else if (e.name.endsWith('.md')) out.push(relative(root, p).split('\\').join('/'))
   }
   return out
 }
@@ -82,7 +87,7 @@ function expectedLoc(fm) {
     const isContract = fm.rule_type === 'contract' || fm.granularity === 'contract' || (Array.isArray(fm.applies_to) && fm.applies_to.length > 0)
     return isContract ? { plane: 'code', dir: 'rules' } : { plane: 'doc', dir: 'business' }
   }
-  const dirs = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', runbook: 'runbooks', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', workflow: 'business', scenario: 'scenarios' }
+  const dirs = { design: 'designs', module: 'modules', requirement: 'requirements', project: 'projects', test_case: 'tests', release: 'releases', deployment: 'deployments', runbook: 'runbooks', incident: 'incidents', defect: 'incidents', faq: 'knowledge', knowledge_article: 'knowledge', data_dictionary: 'dictionaries', product: 'products', frd: 'business', scenario: 'scenarios' }
   return { plane: 'doc', dir: dirs[t] || 'knowledge' }
 }
 
@@ -99,6 +104,31 @@ function loadVocabulary() {
     if (m && cur) sets[cur].add(m[1])
   }
   return sets
+}
+
+// 文档模板契约：知识仓 data/wiki/templates/manifest.json（全局）+ data/wiki/<project>/templates/manifest.json
+//   （项目覆盖）声明每个类型生效模板的必填槽位（支持自定义模板）。
+// 缺失/无声明 = 不校验；模板正文的解析优先级（project > global > builtin）由 templates.mjs 负责，
+//   此处仅按 requiredSections 做结构回归，项目 manifest 逐 type 覆盖全局。
+function readManifestTemplates(dir) {
+  const mp = join(dir, 'manifest.json')
+  if (!existsSync(mp)) return {}
+  try { return JSON.parse(readFileSync(mp, 'utf-8')).templates || {} } catch { return {} }
+}
+function loadTemplateContracts(wikiRoot) {
+  const globalT = readManifestTemplates(join(wikiRoot, 'templates'))
+  const byProject = {}
+  const contractFor = (project) => {
+    if (!project) return globalT
+    if (!byProject[project]) {
+      const projT = readManifestTemplates(join(wikiRoot, project, 'templates'))
+      const merged = { ...globalT }
+      for (const [type, entry] of Object.entries(projT)) merged[type] = { ...(merged[type] || {}), ...entry }
+      byProject[project] = merged
+    }
+    return byProject[project]
+  }
+  return contractFor
 }
 
 function main() {
@@ -118,7 +148,7 @@ function main() {
     const fm = parseFrontmatter(text)
 
     if (key === 'index.md') continue // 站点首页由 gen-sidebar.mjs 生成，不适用知识节点校验
-    if (/^(doc\/)?manuals\//.test(key)) continue // 人读视图层（gen-manuals.mjs 生成），不参与知识节点校验
+    if (/(^|\/)manuals\//.test(key)) continue // 人读视图层（gen-manuals.mjs 生成），不参与知识节点校验
 
     if (fm === null) {
       errors.push(`[metadata_error] ${key}: 缺少 YAML Frontmatter`)
@@ -158,6 +188,18 @@ function main() {
     if (incoming[key] === 0 && !/(^|\/)virtual\//.test(key) && !/(^|\/)manuals\//.test(key) && key !== 'index.md') {
       warnings.push(`[orphan_knowledge] ${key}: 无入链，建议挂载到模块驾驶舱页`)
     }
+  }
+
+  // 文档模板结构校验：按合并后的 requiredSections（全局 + 项目覆盖）逐页回归（可自定义模板）
+  const contractFor = loadTemplateContracts(root)
+  for (const [key, fm] of Object.entries(metas)) {
+    const seg = key.split('/')
+    const project = (!['doc', 'code'].includes(seg[0]) && ['doc', 'code'].includes(seg[1])) ? seg[0] : null
+    const req = contractFor(project)[fm.type]?.requiredSections
+    if (!Array.isArray(req) || !req.length) continue
+    const t = readFileSync(join(root, key), 'utf-8')
+    const miss = req.filter((s) => !t.includes(s))
+    if (miss.length) warnings.push(`[template_section_missing] ${key}: type=${fm.type} 模板要求槽位缺失 [${miss.join(', ')}]`)
   }
 
   const byGroup = {}
@@ -268,8 +310,8 @@ function main() {
         warnings.push(`[api_card_incomplete] ${key}: domain_objects 应为列表`)
       }
     }
-    // scenario card v1：pattern 枚举与必需槽位
-    if (fm.type === 'workflow' && fm.pattern) {
+    // frd card（功能需求文档，旧称 workflow/scenario）：pattern 枚举与必需槽位
+    if (fm.type === 'frd' && fm.pattern) {
       if (!['linear', 'what-next-driven'].includes(fm.pattern)) errors.push(`[metadata_error] ${key}: pattern 取值非法: ${fm.pattern}（仅 linear | what-next-driven）`)
       const pageText = readFileSync(join(root, key), 'utf-8')
       if (!pageText.includes('## Steps')) warnings.push(`[scenario_card_incomplete] ${key}: 缺少 Steps 表`)

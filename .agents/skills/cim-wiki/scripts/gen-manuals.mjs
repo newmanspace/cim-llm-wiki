@@ -33,16 +33,23 @@ const OUT = join(ROOT, 'data', 'wiki', PROJECT_DIR, 'doc', 'manuals')
 
 // 1. 收集已批准/已发布 bundle 引用的解析稿
 const sources = new Map() // rawRelPath -> {bundleIds, moduleNode}
+const approvedBundles = new Set(
+  existsSync(join(ROOT, 'data', 'review', 'approved'))
+    ? readdirSync(join(ROOT, 'data', 'review', 'approved')).map(f => basename(f, '.md'))
+    : []
+)
 for (const b of existsSync(WORK) ? readdirSync(WORK) : []) {
   const p = join(WORK, b, 'nodes.json')
   if (!existsSync(p)) continue
-  const d = JSON.parse(readFileSync(p, 'utf-8'))
-  if (!d.compiled_at) continue // 未放行的包不出文档视图
-  for (const n of d.nodes || []) {
-    const s = n.source || (String(d.source_doc || '').endsWith('.md') ? d.source_doc : '') // 节点缺 source 时回退 bundle 级 md 源
+  const rawData = JSON.parse(readFileSync(p, 'utf-8'))
+  // 放行判断：在 approved 目录或包含 compiled_at 标记
+  if (!approvedBundles.has(b) && !rawData.compiled_at) continue
+  const nodes = Array.isArray(rawData) ? rawData : (rawData.nodes || [])
+  for (const n of nodes) {
+    const s = n.source || (String(rawData.source_doc || '').endsWith('.md') ? rawData.source_doc : '')
     if (!s) continue
     const e = sources.get(s) || { bundles: new Set(), moduleNode: null }
-    e.bundles.add(d.bundle_id)
+    e.bundles.add(b)
     if (n.type === 'module') e.moduleNode = n
     sources.set(s, e)
   }

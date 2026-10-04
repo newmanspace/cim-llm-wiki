@@ -11,7 +11,7 @@ wiki 物理分两库：`data/wiki/doc/`（领域知识库，面向人与高层�
 | business_rule（功能契约 contract，带 applies_to） | code/rules/ | br-wip-001.md |
 | business_rule（业务规则 business_rule） | doc/business/ | br-wip-001.md |
 | business_object（Domain Card） | code/domain/ | bo-wip-001.md |
-| workflow（scenario，含 What-Next 分支表） | doc/business/ | wf-wip-001.md |
+| frd（功能需求文档，旧称 workflow/scenario，含 What-Next 分支表） | doc/business/ | frd-wip-001.md |
 | api | code/apis/ | api-wip-ui-001.md / api-int-plm-001.md |
 | data_schema（物理表结构） | code/schemas/ | ds-wip-001.md |
 | data_dictionary（数据字典/ER mapping） | doc/dictionaries/ | dd-wip-001.md |
@@ -24,7 +24,7 @@ wiki 物理分两库：`data/wiki/doc/`（领域知识库，面向人与高层�
 
 平面目录全集：`doc/{manuals,business,designs,modules,requirements,dictionaries,tests,releases,deployments,operations,incidents,knowledge,products,projects,sources,virtual}`、`code/{domain,apis,rules,schemas,code-index}`。
 
-**wikilink 一律带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/wf-wip-001.md]]`；跨平面双向引用合法。compile 自动规范化旧无前缀链接。
+**wikilink 一律带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/frd-wip-001.md]]`；跨平面双向引用合法。compile 自动规范化旧无前缀链接。
 
 **文件名规则**：ID 转小写，非 `[a-z0-9-]` 字符替换为 `-`，连续 `-` 合并，首尾去 `-`，加 `.md`。
 
@@ -52,9 +52,9 @@ plane: code   # compile 按双平面路由自动写入：doc | code
 # scenario_variants:                  # 调用场景变体（如 B2B Operation 名）
 #   - "Offline-1 Case"
 # content 槽位模板见 extraction.md「api 结构化模板」
-# 仅 workflow（scenario card v1）追加以下字段：
+# 仅 frd（功能需求文档，旧称 workflow/scenario card）追加以下字段：
 # pattern: linear | what-next-driven  # what-next-driven 必须含 What-Next Branches 分支表
-# content 槽位模板见 extraction.md「workflow 结构化模板」
+# content 槽位模板见 extraction.md「frd 结构化模板」
 # 仅 business_rule（rule card v2）追加以下字段：
 # rule_type: contract | business_rule   # contract=功能契约（带 applies_to，入 code/rules/）；business_rule=业务规则（入 doc/business/）
 # severity: Critical | High | Medium | Low    # Critical 强制 L2_arch 人审
