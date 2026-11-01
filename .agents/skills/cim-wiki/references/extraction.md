@@ -6,7 +6,9 @@
 
 你是专业的半导体 MES 软件知识工程师，擅长解构 SDD/IDD 设计文档。从文档内容中提取所有知识节点，输出严格的 JSON 数组。
 
-## 节点 JSON Schema
+## 节点字段示例
+
+以下为字段说明，不是可执行的 JSON Schema。机器契约位于仓库 `contracts/wiki/v1/`，Bundle 必须声明 `schema_version: "1.0"`、`bundle_id`、`project` 和 `nodes`。类型、字段、正文及关联关系均接受严格校验，不能以本说明替代机器门禁。
 
 ```json
 {
@@ -289,23 +291,34 @@ content 固定槽位：
 2. Preconditions 只接受 rule card wikilink；若校验条件尚无独立规则卡，先抽 business_rule 再引用（保持图闭合，禁止正文造自由文本引用）。
 3. Effects 忠实原文状态机；原文未显式给出状态变更时写可观察结果（返回报文、落记录）并降低 confidence。
 
-## frd 结构化模板（功能需求文档 FRD，scenario guide v2，doc/business）
+## frd 结构化模板（功能需求定义 FRD，Functional Requirement Definition，doc/business）
 
-`frd`（功能需求文档，Functional Requirement Document；旧称 workflow/scenario）承载端到端业务用例与实操指南，**面向人类阅读并兼顾机器图谱索引**。必须严格遵循该类型的**生效模板**（按 `data/wiki/<project>/templates/` 项目自定义 > `data/wiki/templates/` 知识仓全局 > `assets/` 内置 解析，默认 [frd-template.md](../assets/frd-template.md)）进行结构化填充；抽取前用 `scripts/templates.mjs get frd [--project <id>]` 取当前生效骨架，`init frd [--project <id>] [--scope project]` 可复制成项目自定义模板再编辑。
+`frd`（功能需求定义，Functional Requirement Definition；旧称 workflow/scenario）定义业务功能规格与用例契约，**面向人类阅读并兼顾机器图谱索引**。必须严格遵循该类型的**生效模板**（按 `data/wiki/<project>/templates/` 项目自定义 > `data/wiki/templates/` 知识仓全局 > `assets/` 内置 解析，骨架模板见 [functional-requirement-template.md](../assets/functional-requirement-template.md)，完整业务工程样例见 [functional-requirement-example.md](../examples/functional-requirement-example.md)）进行结构化填充；抽取前用 `scripts/templates.mjs get frd [--project <id>]` 取当前生效骨架，`init frd [--project <id>] [--scope project]` 可复制成项目自定义模板再编辑。
 
 frontmatter 专有字段：`pattern`（`linear` | `what-next-driven`；what-next-driven 必含分支表）。
 
-content 固定槽位：
-1. `## 1. 业务场景概述 (Overview)`：业务目标、触发时机、前置条件与预期成果。
-2. `## 2. 端到端泳道时序视图 (Workflow Diagram)`：Mermaid 时序交互图。
-3. `## 3. 分阶段详细实操步骤 (Step-by-Step Operations)`：每一阶段明确操作目的、执行指令/界面指引、输入参数字段表与预期结果。
-4. `## 4. 步骤汇总对照表 (Steps Summary Table)`：必须保留 `## Steps` 表（含 Step, Actor, Action, Target / Transaction, Hint），供自动化图谱与 Lint 校验。
-5. `## 5. 分支决策与故障补偿 (What-Next & Rollback)`：必须保留 `## What-Next Branches`（what-next-driven 必填）。
-6. `## 6. 常见异常排查指引 (Troubleshooting)`：排查表格（异常报错、产生根因、处置步骤）。
+content 固定槽位（参考半导体 12 英寸制造厂《功能需求规格书》标准）：
+1. `## 1. 概述 (Overview)`：
+   - 1.1 业务背景与目标 (Objective)；
+   - 1.2 功能范围 (Function Scope) 与边界 (In-Scope / Out-of-Scope)；
+   - 1.3 系统集成范围与边界 (System Scope，MES/EAP/MCS/RTD/SPC 协作矩阵)；
+   - 1.4 参考与关联文档 (Reference Documents)；
+   - 1.5 用户需求跟踪清单 (User Requirement List)；
+   - 1.6 术语与业务缩略词 (Terminology)；
+   - 1.7 方案总体概述 (Solution Overview)。
+2. `## 2. 需求场景与业务用例规格 (Requirement Scenario)`：
+   - 2.1 业务场景描述 (Business Scenario，工艺背景、前置/后置条件与触发源)；
+   - 2.2 流程时序与交互泳道 (Workflow & Sequence，Mermaid 时序与典型流转示例)；
+   - 2.3 流程执行步骤汇总表（保留带 `(Steps)` 标记的真实编号标题及表格，含 Step, Actor, Action, Target / Transaction, Hint）；
+   - 2.4 分支流程与异常决策表（保留带 `(What-Next Branches)` 标记的真实编号标题，what-next-driven 必填）；
+   - 2.5 界面与数据项定义 (Data Items & UI Specification，数据项名称、字段标识、类型、值域、来源)；
+   - 2.6 业务规则与卡控逻辑 (Business Rules & Validation Logic，时机、计算口径、前置防呆，对齐 `code/rules/`)；
+   - 2.7 执行结果与状态流转 (Execution Results & State Transitions，记录生成、机台/Chamber/Header 状态机变迁矩阵)。
+3. `## 3. 非功能性需求与系统约束 (Non-Functional Requirements)`：性能要求 (SLA)、并发幂等控制与全链路可追溯性。
 
 ## design 结构化模板（system design v2，doc/designs）
 
-`design` 承载系统架构方案与模块设计说明书 (SDD)，**必须严格遵循 [design-document-template.md](../assets/design-document-template.md) 编写**。
+`design` 承载系统架构方案与模块设计说明书 (SDD)，**必须严格遵循 [design-template.md](../assets/design-template.md) 编写**。
 
 content 固定槽位：
 1. `## 1. 设计背景与业务诉求 (Background & Motivation)`：现状痛点、In-Scope 目标、Out-of-Scope 边界。
@@ -314,16 +327,13 @@ content 固定槽位：
 4. `## 4. 关键设计决策记录 (Architecture Decision Records - ADR)`：ADR 决策权衡（背景、备选方案、决策理由）。
 5. `## 5. 非功能性考量与容错保障 (Non-Functional Requirements)`：高可用、容错、数据一致性。
 
-## module 结构化模板（module cockpit v2，doc/modules）
+## 模块与功能规格统一承载说明 (doc/business)
 
-`module` 承载模块驾驶舱总览页，**必须严格遵循 [module-cockpit-template.md](../assets/module-cockpit-template.md) 编写**。
+业务模块级与工序级的功能需求规格书统一使用 `frd` 模板（**[functional-requirement-template.md](../assets/functional-requirement-template.md)**）编写，原 `module-template.md`（驾驶舱模板）已全面被其包含并淘汰。
 
-content 固定槽位：
-1. `## 1. 模块定位与核心职责 (Overview & Responsibilities)`：模块代码、核心定位、职责清单与边界。
-2. `## 2. 核心功能特性矩阵 (Feature Matrix)`：特性清单表（特性 ID、名称、简述、关联流程）。
-3. `## 3. 对外服务与接口契约导航 (API & Contracts)`：UI 接口、集成接口与功能契约的 wikilink 导航。
-4. `## 4. 依赖拓扑与环境配置 (Dependencies & Configuration)`：上下游依赖、配置项与环境变量说明表。
-5. `## 5. 运维监控与故障诊断 (Operations & Health Check)`：健康检查、排障日志路径与排查方法。
+`functional-requirement-template.md` 采用 12 寸晶圆制造厂标准规范（AMAT 300Works / 芯星标准）：
+1. **模块与功能矩阵层（原 module 能力）**：第 1 章节包含业务背景、功能范围与特性矩阵（Feature & Scenario Breakdown）、系统边界（System Scope）、用户需求跟踪清单与专业术语表。
+2. **多场景规格层（FRD 核心能力）**：第 2 章节按特性编号下辖多个业务场景（Scenario），提供参与角色、核心业务步骤（Steps）、输入输出参数、卡控业务规则与异常分支处理。
 
 抽取纪律：
 1. **人读严谨性**：`doc/` 平面节点绝不可写成仅有十几行三元组的简陋机器打卡页，正文必须具备上下文阐述、图表展示与操作实操指导。

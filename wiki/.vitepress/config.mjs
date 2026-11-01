@@ -1,13 +1,16 @@
 import { defineConfig } from 'vitepress'
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sidebar, nav } from './sidebar-data.mjs'
+import { assertValidWiki } from '../../packages/wiki-core/validate.mjs'
 
 const require = createRequire(import.meta.url)
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const srcDir = process.env.WIKI_ROOT || (existsSync(join(__dirname, '../../data/wiki')) ? '../data/wiki' : existsSync('/data/wiki') ? '/data/wiki' : 'data/wiki')
+
+assertValidWiki({ wikiRoot: resolve(__dirname, '..', srcDir) })
 
 export default defineConfig({
   lang: 'zh-CN',
@@ -20,7 +23,7 @@ export default defineConfig({
   // 完整 URL 形如 /wiki/xinshun-mes/doc/business/br-wip-001
   base: '/wiki/',
   cleanUrls: true,
-  ignoreDeadLinks: true,
+  ignoreDeadLinks: false,
   lastUpdated: false,
   vite: {
     resolve: {

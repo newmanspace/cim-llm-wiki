@@ -1,0 +1,266 @@
+{
+  "errors": [
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/apis/api-admin-create-token.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/apis/api-admin-create-token.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/apis/api-admin-pull-config.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/apis/api-admin-pull-config.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/apis/api-admin-sync-status.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/apis/api-admin-sync-status.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/apis/api-admin-wiki-nodes.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/apis/api-admin-wiki-nodes.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/domain/bo-wiki-doc.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/domain/bo-wiki-doc.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/domain/bo-wiki-node.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/domain/bo-wiki-node.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/domain/bo-wiki-project.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/domain/bo-wiki-project.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/rules/br-pipe-draft-gate.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/rules/br-pipe-draft-gate.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/rules/br-pipe-txcode-unique.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/rules/br-pipe-txcode-unique.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-docs.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-docs.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-projects.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-projects.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-repos.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-repos.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-sync-logs.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-sync-logs.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-wiki-nodes.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/code/schemas/ds-pg-wiki-nodes.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/business/frd-pipe-ingest.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "table_columns",
+      "path": "cim-llm-wiki/doc/business/frd-pipe-ingest.md",
+      "message": "## Steps requires a table with columns: Step, Actor, Action, Target / Transaction, Hint"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/business/frd-pipe-ingest.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/business/frd-pipe-sync.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "section_missing",
+      "path": "cim-llm-wiki/doc/business/frd-pipe-sync.md",
+      "message": "Required section missing: ## 3."
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/business/frd-pipe-sync.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/designs/des-arch-dual-plane.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/designs/des-arch-dual-plane.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/dictionaries/dd-core-entities.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/dictionaries/dd-core-entities.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/modules/mod-admin-service.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/modules/mod-admin-service.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/modules/mod-lint-service.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/modules/mod-lint-service.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-compiler.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "section_missing",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-compiler.md",
+      "message": "Required section missing: ## 依赖关系"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-compiler.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-evaluator.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-evaluator.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-extractor.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-extractor.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "schema_error",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-parser.md",
+      "message": "/ must have required property 'schema_version'"
+    },
+    {
+      "code": "review_required",
+      "path": "cim-llm-wiki/doc/modules/mod-pipeline-parser.md",
+      "message": "Human review level requires an identified human reviewer"
+    },
+    {
+      "code": "document_contract_missing",
+      "path": "cim-llm-wiki/document-contract.json",
+      "message": "Every project must declare its document delivery contract"
+    }
+  ],
+  "warnings": [],
+  "scanned": 24
+}

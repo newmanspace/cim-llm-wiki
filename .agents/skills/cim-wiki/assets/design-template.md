@@ -1,10 +1,3 @@
-# System Design Document Template (SDD)
-
-> 知识抽取（Stage 2）抽取 `doc/designs/` 下的 `design`（系统架构与设计方案）节点时，节点的 `content` 应当遵循此人读骨架结构。
-> 编译落盘路径：`data/wiki/<project>/doc/designs/des-<domain>-<name>.md`
-
----
-
 # [系统/子系统/方案名称] 架构设计说明书
 
 ## 1. 设计背景与业务诉求 (Background & Motivation)

@@ -1,0 +1,275 @@
+{
+  "schema_version": "1.0",
+  "types": {
+    "api": {
+      "plane": "code",
+      "dir": "apis",
+      "requiredSections": [
+        "## Purpose",
+        "## Preconditions",
+        "## Effects",
+        "## Errors"
+      ]
+    },
+    "business_object": {
+      "plane": "code",
+      "dir": "domain",
+      "requiredSections": [
+        "## Description",
+        "## Identity",
+        "## State Machine",
+        "## Attributes",
+        "## Relations",
+        "## Reasoning Hint",
+        "## Invariants",
+        "## Related Operations"
+      ],
+      "tables": [
+        {
+          "section": "## State Machine",
+          "columns": [
+            "from",
+            "trigger",
+            "to",
+            "guard"
+          ]
+        }
+      ]
+    },
+    "business_rule": {
+      "plane": "doc",
+      "dir": "business",
+      "requiredSections": [
+        "## Statement",
+        "## Preconditions",
+        "## Constraint",
+        "## Violation",
+        "## Related Operations",
+        "## Test Hint"
+      ],
+      "variants": {
+        "contract": {
+          "plane": "code",
+          "dir": "rules"
+        }
+      }
+    },
+    "frd": {
+      "plane": "doc",
+      "dir": "business",
+      "requiredSections": [
+        "## 1.",
+        "## 2.",
+        "## 3.",
+        "## Steps"
+      ],
+      "tables": [
+        {
+          "section": "## Steps",
+          "columns": [
+            "Step",
+            "Actor",
+            "Action",
+            "Target / Transaction",
+            "Hint"
+          ]
+        }
+      ],
+      "repeatableSections": [
+        "## Steps",
+        "## What-Next Branches"
+      ],
+      "template": "functional-requirement-template.md"
+    },
+    "design": {
+      "plane": "doc",
+      "dir": "designs",
+      "requiredSections": [
+        "## 1.",
+        "## 2.",
+        "## 3.",
+        "## 4.",
+        "## 5."
+      ],
+      "template": "design-template.md"
+    },
+    "module": {
+      "plane": "doc",
+      "dir": "modules",
+      "requiredSections": [
+        "## 模块概述",
+        "## 核心职责",
+        "## 依赖关系"
+      ]
+    },
+    "data_dictionary": {
+      "plane": "doc",
+      "dir": "dictionaries",
+      "requiredSections": [
+        "## Overview",
+        "## Entities",
+        "## ER Mapping",
+        "## Code Tables",
+        "## Change Discipline"
+      ]
+    },
+    "data_schema": {
+      "plane": "code",
+      "dir": "schemas",
+      "requiredSections": [
+        "## Mapping",
+        "## Fields",
+        "## Keys & Constraints",
+        "## Referenced By"
+      ],
+      "tables": [
+        {
+          "section": "## Fields",
+          "columns": [
+            "字段",
+            "类型/长度",
+            "空否",
+            "值域/码表",
+            "业务含义"
+          ]
+        }
+      ]
+    },
+    "code_index": {
+      "plane": "code",
+      "dir": "code-index",
+      "requiredSections": []
+    },
+    "requirement": {
+      "plane": "doc",
+      "dir": "requirements",
+      "requiredSections": []
+    },
+    "project": {
+      "plane": "doc",
+      "dir": "projects",
+      "requiredSections": []
+    },
+    "test_case": {
+      "plane": "doc",
+      "dir": "tests",
+      "requiredSections": []
+    },
+    "release": {
+      "plane": "doc",
+      "dir": "releases",
+      "requiredSections": []
+    },
+    "deployment": {
+      "plane": "doc",
+      "dir": "deployments",
+      "requiredSections": []
+    },
+    "runbook": {
+      "plane": "doc",
+      "dir": "runbooks",
+      "requiredSections": []
+    },
+    "incident": {
+      "plane": "doc",
+      "dir": "incidents",
+      "requiredSections": []
+    },
+    "defect": {
+      "plane": "doc",
+      "dir": "incidents",
+      "requiredSections": []
+    },
+    "faq": {
+      "plane": "doc",
+      "dir": "knowledge",
+      "requiredSections": []
+    },
+    "knowledge_article": {
+      "plane": "doc",
+      "dir": "knowledge",
+      "requiredSections": []
+    },
+    "product": {
+      "plane": "doc",
+      "dir": "products",
+      "requiredSections": []
+    },
+    "scenario": {
+      "plane": "doc",
+      "dir": "scenarios",
+      "requiredSections": [
+        "## Steps"
+      ]
+    },
+    "interaction": {
+      "plane": "code",
+      "dir": "interactions",
+      "requiredSections": []
+    },
+    "user-manual": {
+      "plane": "doc",
+      "dir": "manuals",
+      "requiredSections": [
+        "## 1.",
+        "## 2.",
+        "## 3.",
+        "## 4.",
+        "## 5."
+      ],
+      "template": "user-manual-template.md"
+    },
+    "admin-manual": {
+      "plane": "doc",
+      "dir": "manuals",
+      "requiredSections": [
+        "## 1.",
+        "## 2.",
+        "## 3.",
+        "## 4.",
+        "## 5."
+      ]
+    },
+    "solution": {
+      "plane": "doc",
+      "dir": "manuals",
+      "requiredSections": [
+        "## 1.",
+        "## 2.",
+        "## 3.",
+        "## 4.",
+        "## 5."
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cim-wiki.local/schemas/v1/node-types",
+  "type": "string",
+  "enum": [
+    "api",
+    "business_object",
+    "business_rule",
+    "frd",
+    "design",
+    "module",
+    "data_dictionary",
+    "data_schema",
+    "code_index",
+    "requirement",
+    "project",
+    "test_case",
+    "release",
+    "deployment",
+    "runbook",
+    "incident",
+    "defect",
+    "faq",
+    "knowledge_article",
+    "product",
+    "scenario",
+    "interaction",
+    "user-manual",
+    "admin-manual",
+    "solution"
+  ]
+}

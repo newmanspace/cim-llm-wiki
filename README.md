@@ -1,5 +1,9 @@
 # cim-llm-wiki
 
+> **项目文档集契约**：所有项目必须配置 `data/wiki/<project>/document-contract.json`，声明必交文档、项目/模块数量、附加结构和关联要求；缺失即阻断。参见 [配置说明](docs/document-set-contract.md) 和 [MES 示例](contracts/wiki/examples/mes-document-contract.json)。
+
+> **结构一致性更新（2026-10-28）**：统一契约位于 `contracts/wiki/v1/`，核心运行逻辑位于 `packages/wiki-core/`。所有现有和新增 Wiki 页面必须严格校验；编译先验证候选树，导航、构建和 GitOps 也执行门禁。Go 旧摄取/审核写入接口已停用，返回 410。首次在根目录执行 `npm ci`，详细规则与现有数据迁移要求见 [Wiki 结构一致性修正](docs/wiki-schema-enforcement.md)。
+
 > **一句话**：Skill 驱动的泛半导体 CIM 文档知识工程流水线——原始文档（SDD/IDD/PRD/运维手册）经服务端解析、Agent 抽取与 7 维评分、HITL 聚合审核后，编译为 `data/wiki/` 双平面原子化知识库（`doc/` 领域知识 + `code/` 代码契约），用 VitePress 本地展示，并可经 Admin 管理台登记与知识库 GitOps 独立版本管理。
 
 <p align="center">
@@ -142,7 +146,7 @@ raw 原始文档（PDF/DOCX/MD）
 | 文档状态管控 | 源文档 `draft → frozen → active`，非 draft 内容 sha256 漂移即 `doc_drift` 阻断（Stage 1.5，`doc-state.mjs`） |
 | Project Registry & Admin | 多项目登记（`project-registry.json`）+ TDesign 管理台（`admin/`）+ `project-token` 鉴权，Admin API + PostgreSQL 为可选在线后端 |
 | GitOps 版本管理 | `compile.mjs` 编译后可对独立知识仓自动 `commit`/`push`（`WIKI_GITOPS_ENABLED`，env 未设=完全 no-op，失败仅告警不阻断） |
-| 人读手册视图 | `gen-manuals.mjs` 聚合已放行 bundle 生成 `doc/manuals/` 用户/系统管理手册 |
+| 人读手册视图 | `gen-manuals.mjs <bundle.json>` 经统一严格门禁发布 `doc/manuals/` 用户/系统管理手册 |
 | 展示 | VitePress 1.x，srcDir=data/wiki，本地全文搜索，零后端 |
 
 ### 节点类型 → 双平面目录映射
@@ -164,7 +168,7 @@ wiki 物理分库为两平面：**`doc/`（领域知识库，面向人与高层�
 | data_dictionary（数据字典/ER mapping） | `doc/dictionaries/` | `dd-*.md` |
 | test_case | `doc/tests/` | `tc-trackin-001.md` |
 | 运维 SOP | `doc/runbooks/` | `rb-*.md` |
-| 手册视图（user/admin-manual） | `doc/manuals/` | 由 `gen-manuals.mjs` 生成 |
+| 手册视图（user/admin-manual） | `doc/manuals/` | 由统一编译器发布已审核手册 Bundle |
 
 > 另有 `doc/` 下 `products/`（产品线）、`projects/`（项目）、`releases/`、`deployments/`、`incidents/`、`knowledge/`、`sources/`（源文档索引）、`virtual/`（模块级 SDD/IDD 合成长视图）等目录，侧边栏标签见 `wiki/scripts/gen-sidebar.mjs` 的 `DIR_META`。
 
@@ -184,7 +188,7 @@ wiki 物理分库为两平面：**`doc/`（领域知识库，面向人与高层�
 仓库已跑通 Stage 0→8 全流程，并具备多项目登记、Admin 管理台与知识库 GitOps 版本管理：
 
 - **Project Registry + Admin 管理台**：`data/documents/project-registry.json` 多项目登记，`admin/`（TDesign Vue Next SPA）+ Go Admin API + PostgreSQL，`project-token`（`cimwt_...`）鉴权，网关统一登录门控 wiki/admin 访问。
-- **wiki 产出**：`data/wiki/cim-llm-wiki/` 双平面共 **24** 个原子节点——`doc/`（需求/设计/模块/业务流程/数据字典等）+ `code/`（api 卡、功能契约、领域实体、schema、代码索引），首页与三棵树侧边栏由 `npm run gen` 自动生成，`gen-manuals.mjs` 聚合人读手册视图。
+- **wiki 产出**：`data/wiki/cim-llm-wiki/` 双平面共 **24** 个原子节点——`doc/`（需求/设计/模块/业务流程/数据字典等）+ `code/`（api 卡、功能契约、领域实体、schema、代码索引），首页与三棵树侧边栏由 `npm run gen` 自动生成，`gen-manuals.mjs <bundle.json>` 发布已审核人读手册。
 - **知识库 GitOps 独立版本管理**（Issue #1）：`data/wiki/` 作为独立 git 仓库，`compile.mjs` 编译入库后可自动 `commit`（env 未设=完全 no-op），已对接私有知识仓 `newmanspace/cim-llm-wiki-knowledge`（main 分支），赋予版本追溯/diff/回滚，主仓仍因 `.gitignore` 忽略 `data/` 不被产物污染。
 - **标准人读文档模板**：`assets/` 四类骨架（frd 功能需求文档/design/module/user-manual）纳入 Stage 2 抽取强约束，杜绝退化为空洞提纲。
 
@@ -205,6 +209,8 @@ wiki 物理分库为两平面：**`doc/`（领域知识库，面向人与高层�
 
 ```
 cim-llm-wiki/
+├── contracts/wiki/v1/           ← 版本化节点/Bundle/模板 Schema、目录与正文结构契约
+├── packages/wiki-core/          ← 唯一编译、全库校验与发布实现（npm test / wiki:validate）
 ├── .agents/skills/cim-wiki/       ← ★ 核心：知识工程流水线 skill
 │   ├── SKILL.md                  ← Stage 0→8 工作流定义（含引擎路由与命令）
 │   ├── references/
@@ -220,7 +226,7 @@ cim-llm-wiki/
 │       ├── compile.mjs           ← Stage 5 编译 nodes.json → 双平面 wiki 页面
 │       ├── wiki-gitops.mjs       ← Stage 5 后置：独立知识仓自动 commit/push（env 驱动）
 │       ├── validate.mjs          ← Stage 6 Lint 校验
-│       ├── gen-manuals.mjs       ← 聚合已放行 bundle 生成 doc/manuals 人读手册视图
+│       ├── gen-manuals.mjs       ← 经统一编译门禁发布已审核手册 Bundle
 │       ├── admin-client.mjs      ← Stage 8 状态回写客户端（pushWikiNodes/pushSyncStatus）
 │       ├── admin-pull.mjs        ← Stage 0 从 Admin 拉取 Project Registry 配置
 │       ├── sync-repo.mjs         ← Stage 0 代码仓增量同步与状态回写

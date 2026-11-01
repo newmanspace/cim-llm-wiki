@@ -178,7 +178,7 @@ node .agents/skills/cim-wiki/scripts/doc-state.mjs verify                       
 ```
 
 - 抽取（步骤 2）应基于 **frozen** 文档进行；文档修正 = `unfreeze` → 修改解析稿 → 重新 `freeze`。
-- `compile.mjs` 有状态门禁：源文档为 draft 时拒绝编译（`--allow-draft` 仅用于预演，不激活状态）；frozen 文档编译入库后自动激活为 active，并将同 doc_id 旧版本置为 superseded。
+- `compile.mjs` 有状态门禁：源文档为 draft 时拒绝编译（`--preview` 仅校验、不落盘，仍执行同样严格的状态检查）；frozen 文档编译入库后自动激活为 active，并将同 doc_id 旧版本置为 superseded。
 
 ## 步骤 2：知识抽取（Extract，由你完成）
 
@@ -192,11 +192,11 @@ node .agents/skills/cim-wiki/scripts/doc-state.mjs verify                       
   node .agents/skills/cim-wiki/scripts/templates.mjs init <type> [--project <id>] [--scope global|project] [--copy-from <type>]  # 生成可编辑副本（覆盖内置/全局）
   ```
   当前内置默认（可用 `init` 复制成 `data/wiki/templates/` 自定义版后编辑）：
-  - 功能需求文档（`frd`，Functional Requirement Document，旧称 workflow/scenario）
+  - 功能需求定义（`frd`，Functional Requirement Definition，旧称 workflow/scenario）
   - 系统架构与设计说明书（`design`）
   - 模块驾驶舱与规格说明（`module`）
-  - 用户操作手册视图（`user-manual`，Stage 5 由 `gen-manuals.mjs` 聚合生成，非 Stage 2 抽取节点）
-- **新增自定义文档类型**：`templates.mjs init <新类型>` 生成骨架 → 编辑 → 在对应 `data/wiki/templates/manifest.json`（或 `data/wiki/<project>/templates/manifest.json` 实现项目级覆盖）补 `dir`（落点目录）与 `requiredSections`（Stage 6 结构校验锚点），无需改脚本即可让抽取与 Lint 认识该类型。
+  - 用户操作手册视图（`user-manual`，须构造成已审核 Bundle，由 `gen-manuals.mjs <bundle.json>` 调用统一编译门禁发布）
+- **新增文档类型**：先在 `contracts/wiki/v1/node-types.json` 登记类型、目录与基础正文结构，再配置模板。项目模板仅能追加结构要求，不能改写目录或取消基础必填项。
 - 长文档（>6000 字符）分块处理，块间保留 500 字符重叠。
 - 将抽取结果（JSON 数组）写入 `data/work/<bundle_id>/nodes.json`，其中 `bundle_id` 格式为 `CR-YYYYMMDD-NNNN`（当日递增）。
 
@@ -241,8 +241,8 @@ node .agents/skills/cim-wiki/scripts/compile.mjs <bundle_id>
 - 脚本读取 `data/work/<bundle_id>/nodes.json`，按**双平面物理分库**路由与文件名规则（ID 小写 slug + `.md`）生成页面，自动附加 YAML Frontmatter（含 `plane: doc|code`）与来源页脚；`archive` 节点分流到 `data/review/archived/`。
 - **双平面路由**（判据见 references/extraction.md「双平面物理分库」）：
   - `data/wiki/code/`（**代码契约库**，面向工程实现与自动化编译）：`apis/`（api card）、`rules/`（功能契约，`rule_type: contract` 或带 `applies_to`）、`domain/`（Domain Card / business_object——契约层实体基座）、`schemas/`（data_schema 物理表结构）、`code-index/`（代码索引）。
-  - `data/wiki/doc/`（**领域知识库**，面向人与高层业务导航）：`business/`（功能需求文档 frd-*（含 What-Next 分支表，旧称 scenario/wf-*）与业务规则 `rule_type: business_rule`）、`designs/`、`modules/`、`requirements/`、`dictionaries/`（data_dictionary 数据字典/ER mapping）、`tests/`、`operations/`（运维 SOP）、`manuals/`（文档视图：用户手册 user-manual / 系统管理手册 admin-manual，由 gen-manuals.mjs 生成）、其余 products/projects/releases/deployments/incidents/knowledge/sources/virtual。
-- 关联节点 wikilink **必须带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/frd-wip-001.md]]`（compile 会把旧无前缀链接自动规范化，存量 bundle 无需手改）。
+  - `data/wiki/doc/`（**领域知识库**，面向人与高层业务导航）：`business/`（功能需求文档 frd-*（含 What-Next 分支表，旧称 scenario/wf-*）与业务规则 `rule_type: business_rule`）、`designs/`、`modules/`、`requirements/`、`dictionaries/`（data_dictionary 数据字典/ER mapping）、`tests/`、`operations/`（运维 SOP）、`manuals/`（文档视图：用户手册 user-manual / 系统管理手册 admin-manual，由 gen-manuals.mjs <bundle.json> 调用统一编译门禁发布）、其余 products/projects/releases/deployments/incidents/knowledge/sources/virtual。
+- 关联节点 wikilink **必须带平面前缀**：`[[code/apis/api-int-eap-001.md]]`、`[[doc/business/frd-wip-001.md]]`（不再自动猜测旧链接含义；存量 Bundle 需显式迁移）。
 - **事务码注册表**：api card 的 `transaction_code` 全局唯一，compile 时登记 `data/documents/api-registry.json`，一码一卡，冲突拒绝整批入库。
 - **虚拟长文档**：SDD 视图写入 `data/wiki/doc/virtual/<module>-sdd.md`，IDD 视图写入 `data/wiki/code/virtual/<module>-idd.md`（Frontmatter 加 `virtual: true`；合成顺序：模块概述 → 业务规则与契约 → 业务对象 → 流程 → UI 接口 → CIM 集成接口 → 设计）。
 - **GitOps 自动提交**（可选，默认关闭）：`data/wiki/` 作为**独立 git 仓库**，每次编译入库自动产生一条 `chore(wiki): <project> <bundle> — N node(s)` commit，赋予知识库 diff/回溯/`git revert` 能力，主仓仍因 `data/` 被 `.gitignore` 而不被产物污染。由环境变量驱动（详见 `scripts/wiki-gitops.mjs`）：
@@ -253,6 +253,14 @@ node .agents/skills/cim-wiki/scripts/compile.mjs <bundle_id>
   > 与团队知识仓库对接（`git submodule` 化，主仓跟踪 submodule 指针）需先有远端知识仓库地址，属生产部署步骤，当前以本地独立仓 + 可选 push 落地。
 
 ## 步骤 6：Lint 校验
+
+**强制契约**：以 `contracts/wiki/v1/` 为机器规则来源，`packages/wiki-core/` 为唯一编译/校验实现。所有存量页面同样严格校验；结构错误必须修复后才能发布，禁止通过降低规则或伪造审核人消除错误。
+
+- 每个项目必须在 `data/wiki/<project>/document-contract.json` 显式声明交付清单。抽取前读取其文档类型、模块覆盖、结构和关联要求；缺失时不能根据已有页面擅自生成或放宽交付标准。配置方法见 `docs/document-set-contract.md`。
+
+- `nodes.json` 必须为带 `schema_version: "1.0"`、`bundle_id`、`project`、`nodes` 的 Bundle 对象。目标项目必须明确，节点须提供真实业务元数据与审核记录。
+- 编译在临时目录执行全库强校验，成功后才落盘；手动 Lint 是额外检查，不能代替编译内置门禁。
+- 元数据、必填章节、表格、目录、引用与模板损坏均为阻断错误；只有陈旧和孤立页等质量提示可保留 warning。
 
 ```bash
 node .agents/skills/cim-wiki/scripts/validate.mjs data/wiki
@@ -275,7 +283,7 @@ npm run docs:build   # 静态构建
 
 编译/同步完成后自动回写，形成闭环。**回写由脚本自动触发，无需手动 curl**——只要设定了环境变量：
 
-- `compile.mjs`（Stage 5）编译入库后 → 自动 `POST /projects/:id/wiki-nodes`（按模块归属解析目标项目，`ADMIN_PROJECT_ID` 可显式覆盖）。
+- `compile.mjs`（Stage 5）编译入库后 → 自动 `POST /projects/:id/wiki-nodes`（只回写 Bundle 声明的项目；`ADMIN_PROJECT_ID` 若存在必须一致）。
 - `sync-repo.mjs`（Stage 0 增量）检测到仓库变更后 → 自动 `POST /projects/:id/sync-status`（需 `ADMIN_PROJECT_TOKEN`）。
 - **未设置 `ADMIN_URL` 时两者都跳过 Admin 回写，仅更新本地 `project-registry.json`**（离线模式）。Admin 不可达仅打印 `admin: ... 回写失败` 告警，不阻断流水线。
 

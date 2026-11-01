@@ -5,11 +5,15 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
+import { assertValidWiki } from '../../packages/wiki-core/validate.mjs'
+import { NODE_TYPES } from '../../packages/wiki-core/contracts.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const WEB_ROOT = join(__dirname, '..')
 const WIKI_ROOT = process.env.WIKI_ROOT || (existsSync(join(WEB_ROOT, '../data/wiki')) ? join(WEB_ROOT, '../data/wiki') : existsSync('/data/wiki') ? '/data/wiki' : join(WEB_ROOT, 'data/wiki'))
 const OUT = join(WEB_ROOT, '.vitepress', 'sidebar-data.mjs')
+
+assertValidWiki({ wikiRoot: WIKI_ROOT })
 
 // 双平面物理分库：doc = 领域知识库（文档视图/高层导航），code = 代码契约库（工程实现/自动化编译）
 const PLANES = [
@@ -39,6 +43,14 @@ const PLANES = [
     ['code-index', '代码索引'],
   ]],
 ]
+
+// Keep display labels/order here; derive supported directories from the contract.
+const locations = Object.values(NODE_TYPES).flatMap(e => [e, ...Object.values(e.variants || {})])
+for (const [plane, , dirs] of PLANES) {
+  const supported = new Set(locations.filter(e => e.plane === plane).map(e => e.dir))
+  for (let i = dirs.length - 1; i >= 0; i--) if (!supported.has(dirs[i][0])) dirs.splice(i, 1)
+  for (const dir of supported) if (!dirs.some(d => d[0] === dir) && dir !== 'manuals') dirs.push([dir, dir])
+}
 
 // 文档视图层：data/wiki/<project>/doc/manuals/<系统>/<版本>/<大类>/<子类>/<文档>.md
 const MANUAL_KIND = { 'user-manual': '用户手册', 'admin-manual': '系统管理手册', solution: '方案设计视图' }

@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cim-wiki.local/schemas/v1/document-set",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project",
+    "documents"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "project": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+    },
+    "modules": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
+    "allow_unlisted": {
+      "type": "boolean"
+    },
+    "documents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "scope",
+          "min"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          },
+          "type": {
+            "$ref": "https://cim-wiki.local/schemas/v1/node-types"
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "module"
+            ]
+          },
+          "min": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "modules": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          },
+          "where": {
+            "type": "object",
+            "properties": {
+              "api_type": {
+                "$ref": "https://cim-wiki.local/schemas/v1/node#/properties/api_type"
+              },
+              "rule_type": {
+                "$ref": "https://cim-wiki.local/schemas/v1/node#/properties/rule_type"
+              },
+              "domain": {
+                "$ref": "https://cim-wiki.local/schemas/v1/node#/properties/domain"
+              },
+              "version": {
+                "$ref": "https://cim-wiki.local/schemas/v1/node#/properties/version"
+              },
+              "plane": {
+                "$ref": "https://cim-wiki.local/schemas/v1/node#/properties/plane"
+              }
+            },
+            "additionalProperties": false
+          },
+          "structure": {
+            "type": "object",
+            "properties": {
+              "requiredSections": {
+                "$ref": "https://cim-wiki.local/schemas/v1/template#/properties/templates/additionalProperties/properties/requiredSections"
+              },
+              "tables": {
+                "$ref": "https://cim-wiki.local/schemas/v1/template#/properties/templates/additionalProperties/properties/tables"
+              }
+            },
+            "additionalProperties": false
+          },
+          "template": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*\\.md$"
+          },
+          "references": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "required": [
+                "field",
+                "target_rule",
+                "min"
+              ],
+              "properties": {
+                "field": {
+                  "enum": [
+                    "applies_to",
+                    "preconditions",
+                    "related_apis",
+                    "related_rules",
+                    "related_designs",
+                    "related_requirements",
+                    "related_tests",
+                    "related_modules",
+                    "related_code"
+                  ]
+                },
+                "target_rule": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+                },
+                "min": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "same_module": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

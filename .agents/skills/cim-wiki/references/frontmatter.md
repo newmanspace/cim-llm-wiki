@@ -1,5 +1,7 @@
 # Wiki 页面编译规范（Stage 5）
 
+机器契约以 `contracts/wiki/v1/` 为准；本文件为阅读说明。所有页面须声明 `schema_version: "1.0"`，通过共享核心的 Schema、Markdown 结构及全库关联校验后才能发布。
+
 > 迁移自 `internal/pipeline/compiler/compiler.go`。
 
 ## 目录映射（type → 双平面物理分库）
@@ -33,6 +35,7 @@ wiki 物理分两库：`data/wiki/doc/`（领域知识库，面向人与高层�
 ```markdown
 ---
 id: BR-WIP-001
+schema_version: "1.0"
 type: business_rule
 plane: code   # compile 按双平面路由自动写入：doc | code
 # 仅 api 类型追加以下字段：
@@ -52,7 +55,7 @@ plane: code   # compile 按双平面路由自动写入：doc | code
 # scenario_variants:                  # 调用场景变体（如 B2B Operation 名）
 #   - "Offline-1 Case"
 # content 槽位模板见 extraction.md「api 结构化模板」
-# 仅 frd（功能需求文档，旧称 workflow/scenario card）追加以下字段：
+# 仅 frd（功能需求定义 Functional Requirement Definition，业务用例与功能规格，旧称 workflow/scenario card）追加以下字段：
 # pattern: linear | what-next-driven  # what-next-driven 必须含 What-Next Branches 分支表
 # content 槽位模板见 extraction.md「frd 结构化模板」
 # 仅 business_rule（rule card v2）追加以下字段：

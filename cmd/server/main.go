@@ -20,7 +20,6 @@ import (
 "cim-llm-wiki/internal/config"
 "cim-llm-wiki/internal/handler"
 "cim-llm-wiki/internal/hitl"
-"cim-llm-wiki/internal/pipeline"
 "cim-llm-wiki/internal/pipeline/compiler"
 "cim-llm-wiki/internal/store"
 )
@@ -46,15 +45,7 @@ slog.Error("hitl.Open failed", "err", err)
 os.Exit(1)
 }
 
-// ── Build pipeline ───────────────────────────────────────────────────────
-slog.Info("initialising pipeline", "wiki_out", cfg.Wiki.OutputDir)
-p, err := pipeline.New(cfg, hitlQ)
-if err != nil {
-slog.Error("pipeline.New failed", "err", err)
-os.Exit(1)
-}
-
-// ── Build compiler (also needed by review handler) ────────────────────────
+// Build the legacy compiler for read-only queries.
 comp, err := compiler.New(cfg.Wiki.OutputDir)
 if err != nil {
 slog.Error("compiler.New failed", "err", err)
@@ -100,16 +91,15 @@ r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "
 // API v1
 v1 := r.Group("/api/v1")
 {
-// Ingest: upload raw doc → run pipeline
-ingest := handler.NewIngestHandler(cfg, p)
-v1.POST("/ingest", ingest.Handle)
+// Legacy writes are disabled to enforce the shared wiki contract.
+v1.POST("/ingest", handler.LegacyWriteDisabled)
 
 // HITL review workflow
 review := handler.NewReviewHandler(cfg, hitlQ, comp)
 v1.GET("/review", review.List)
 v1.GET("/review/:id", review.Get)
-v1.POST("/review/:id/approve", review.Approve)
-v1.POST("/review/:id/reject", review.Reject)
+v1.POST("/review/:id/approve", handler.LegacyWriteDisabled)
+v1.POST("/review/:id/reject", handler.LegacyWriteDisabled)
 
 // Wiki content queries
 wiki := handler.NewWikiHandler(cfg, comp)

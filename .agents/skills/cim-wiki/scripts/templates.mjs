@@ -23,6 +23,8 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { loadTemplateContracts, NODE_TYPES } from '../../../../packages/wiki-core/contracts.mjs'
+import { parsePage, structureErrors } from '../../../../packages/wiki-core/markdown.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..', '..', '..', '..')
@@ -50,13 +52,20 @@ function saveManifestAt(dir, m) {
 
 // 合并 manifest：全局为底，项目逐 type 覆盖（type 内字段浅合并）
 function mergeManifest(project) {
+  const contracts = loadTemplateContracts(WIKI_ROOT)(project)
   const globalM = loadManifestAt(join(WIKI_ROOT, 'templates'))
-  const templates = { ...(globalM.templates || {}) }
+  const templates = Object.fromEntries(Object.entries(NODE_TYPES).filter(([, e]) => e.template).map(([type, e]) =>
+    [type, { file: e.template, plane: e.plane, dir: `${e.plane}/${e.dir}` }]))
+  for (const [type, entry] of Object.entries(globalM.templates || {})) templates[type] = { ...(templates[type] || {}), ...entry }
   if (project) {
     const projM = loadManifestAt(join(WIKI_ROOT, project, 'templates'))
     for (const [type, entry] of Object.entries(projM.templates || {})) {
       templates[type] = { ...(templates[type] || {}), ...entry }
     }
+  }
+  for (const [type, entry] of Object.entries(templates)) {
+    entry.requiredSections = contracts[type].requiredSections
+    entry.tables = contracts[type].tables
   }
   return { version: 1, templates }
 }
@@ -84,9 +93,7 @@ function typesInManifest(project) {
   const keys = Object.keys(merged.templates)
   const usedFiles = new Set(keys.map((t) => merged.templates[t].file))
   // 内置 assets 里未被 manifest 登记的模板文件也纳入展示（按文件名派生类型）
-  const extra = safeReaddir(BUILTIN_DIR)
-    .filter((f) => f.endsWith('.md') && !usedFiles.has(f))
-    .map((f) => f.replace(/-template\.md$/, '').replace(/\.md$/, ''))
+  const extra = Object.entries(NODE_TYPES).filter(([, e]) => e.template && !usedFiles.has(e.template)).map(([type]) => type)
   return [...new Set([...keys, ...extra])].sort()
 }
 function safeReaddir(d) { try { return readdirSync(d) } catch { return [] } }
@@ -118,6 +125,8 @@ function cmdPath(type, project) {
 
 function cmdInit(type, opts) {
   const { project, scope, copyFrom } = opts
+  const contract = NODE_TYPES[type]
+  if (!contract) throw new Error(`Unregistered node type: ${type}; register it in contracts/wiki/v1 first`)
   const src = resolveTemplate(copyFrom || type, project)
   if (src.source === 'missing') { console.error(`无可复制来源：类型「${copyFrom || type}」在项目/全局/内置目录均不存在`); process.exit(1) }
   // 写入目标：scope=project 且给了 project → 项目级；否则全局级
@@ -130,7 +139,7 @@ function cmdInit(type, opts) {
   if (existsSync(dest)) { console.error(`已存在，不覆盖：${dest}`); process.exit(1) }
   copyFileSync(src.path, dest)
   m.templates = m.templates || {}
-  if (!m.templates[type]) m.templates[type] = { file: fileName, plane: 'doc', dir: `doc/${type}s`, requiredSections: [] }
+  if (!m.templates[type]) m.templates[type] = { file: fileName, plane: contract.plane, dir: `${contract.plane}/${contract.dir}`, requiredSections: contract.requiredSections }
   saveManifestAt(targetDir, m)
   console.log(`已生成可编辑模板：${dest}`)
   console.log(`作用域：${targetDir === join(WIKI_ROOT, 'templates') ? 'global' : `project(${project})`}`)
@@ -146,8 +155,9 @@ function cmdCheck(project) {
     if (r.source === 'missing') { console.error(`ERR ${type}: 模板文件不存在 ${r.fileName}`); bad++; continue }
     if (!entry.requiredSections) { console.error(`WARN ${type}: manifest 缺 requiredSections 字段（视为不校验）`) }
     const text = readFileSync(r.path, 'utf-8')
-    const miss = (entry.requiredSections || []).filter((s) => !text.includes(s))
-    if (miss.length) { console.error(`ERR ${type}: 模板 ${r.fileName} 自身缺少声明的必填槽位 [${miss.join(', ')}]`); bad++ }
+    const tokens = parsePage(`---\ntype: ${type}\n---\n${text}`).tokens
+    const miss = structureErrors(tokens, entry, { type }).filter(e => ['section_missing', 'section_duplicate', 'heading_level', 'table_columns'].includes(e.code))
+    if (miss.length) { console.error(`ERR ${type}: ${miss.map(e => e.message).join('; ')}`); bad++ }
     else console.log(`OK  ${type}: ${r.fileName} (${r.source}) — ${entry.requiredSections?.length || 0} 必填槽位齐备`)
   }
   process.exit(bad ? 1 : 0)
