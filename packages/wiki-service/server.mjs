@@ -8,7 +8,7 @@ import { PROJECT_ROOT, CONTRACT_ROOT, NODE_TYPES, schemaErrors, loadTemplateCont
 import { compileBundle } from '../wiki-core/compile.mjs'
 import { validateWiki } from '../wiki-core/validate.mjs'
 import { loadManifest, saveManifest, transition } from '../wiki-core/docstore.mjs'
-import { sharedRoots, resolveShared, hashFile, hashValue, nodeProvenance } from '../wiki-core/sources.mjs'
+import { sharedRoots, resolveShared, hashFile, hashValue, nodeProvenance, writeSharedFile } from '../wiki-core/sources.mjs'
 import { convertInput, embedImages } from './parsers.mjs'
 
 const PREFIX = '/api/v2/knowledge'
@@ -100,9 +100,10 @@ export function createKnowledgeServer({ projectRoot = process.env.CIM_WIKI_WORKS
       if (hashFile(original) !== beforeHash) fail('Original document changed during conversion', 409)
       // Recheck the shared mount after an asynchronous parser call.
       resolveShared(parsedUri, roots, { write: true })
-      mkdirSync(dirname(parsed), { recursive: true })
-      const embedded = embedImages(result.md, result.images || [], dirname(parsed), basename(parsed, '.md'))
-      writeFileSync(parsed, embedded.md, { flag: 'wx' })
+      const sharedParent = parsedUri.slice(0, parsedUri.lastIndexOf('/') + 1)
+      const embedded = embedImages(result.md, result.images || [], dirname(parsed), basename(parsed, '.md'),
+        (path, bytes) => writeSharedFile(sharedParent + path, bytes, roots))
+      writeSharedFile(parsedUri, embedded.md, roots)
     }
     if (!readFileSync(parsed, 'utf8').trim()) fail('Parsed Markdown is empty', 422)
     const record = { doc_id: `shared-${hashValue({ project: data.project, source: data.source }).slice(0, 20)}`,

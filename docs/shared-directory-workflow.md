@@ -32,7 +32,7 @@ export DOCLING_ENDPOINT=http://localhost:5001
 npm run knowledge:serve
 ```
 
-`CIM_WIKI_WORKSPACE` 是服务端状态目录，无需等于代码目录；共享文件也无需放在状态目录内。项目交付契约置于 `$WIKI_ROOT/<project>/document-contract.json`，沿用 [文档集契约](document-set-contract.md)。服务默认监听 127.0.0.1:8090，容器通过 KNOWLEDGE_HOST=0.0.0.0 监听内部网络。
+`CIM_WIKI_WORKSPACE` 是服务端状态目录，无需等于代码目录；共享文件也无需放在状态目录内。项目交付契约置于 `$WIKI_ROOT/<project>/document-contract.json`，沿用 [文档集契约](document-set-contract.md)。共享文件安全写入依赖 Linux 的 /proc/self/fd、目录句柄和 O_NOFOLLOW，避免共享目录被替换为符号链接后越界写入；非 Linux 服务环境请使用提供的 Linux 容器。Agent 客户端仅需 Node.js，不受此服务端限制。服务默认监听 127.0.0.1:8090，容器通过 KNOWLEDGE_HOST=0.0.0.0 监听内部网络。
 
 Docker Compose 已新增 knowledge 服务和网关路由。启动前在 Compose 环境中设置 CIM_WIKI_API_TOKEN 和 CIM_WIKI_SHARED_DIR；API token 缺失时 knowledge 服务拒绝启动。宿主机共享目录同时挂载给 knowledge（读写）和 wiki（只读），前端全库校验读取同一原件。网关入口为 `http://<host>:8099/api/v2/knowledge/`。部署前设置实际值，不将密钥写进仓库。
 

@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, realpathSync, readFileSync, statSync, openSync, closeSync, mkdirSync, writeFileSync, constants } from 'node:fs'
 import { resolve, relative, sep, dirname } from 'node:path'
 import { createHash } from 'node:crypto'
 
@@ -52,4 +52,31 @@ export function nodeProvenance(node, manifest) {
       original_sha256: rec.original_sha256, version: rec.version,
       ...(rec.ingest_path ? { ingest_path: rec.ingest_path } : {}) }
   })
+}
+
+
+// Anchor each path component to an open directory. O_NOFOLLOW alone on the
+// final filename would still allow a shared parent to be swapped for a symlink.
+export function writeSharedFile(uri, content, roots = sharedRoots()) {
+  resolveShared(uri, roots, { write: true })
+  const [, rootId, relativePath] = uri.match(/^shared:\/\/([^/]+)\/(.+)$/)
+  const parts = relativePath.split('/')
+  const directoryFlags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
+  const descriptors = []
+  try {
+    let directory = openSync(realpathSync(roots[rootId]), directoryFlags)
+    descriptors.push(directory)
+    for (const part of parts.slice(0, -1)) {
+      const path = `/proc/self/fd/${directory}/${part}`
+      try { mkdirSync(path) } catch (e) { if (e.code !== 'EEXIST') throw e }
+      directory = openSync(path, directoryFlags)
+      descriptors.push(directory)
+    }
+    const file = openSync(`/proc/self/fd/${directory}/${parts.at(-1)}`,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o640)
+    descriptors.push(file)
+    writeFileSync(file, content)
+  } finally {
+    for (const fd of descriptors.reverse()) closeSync(fd)
+  }
 }

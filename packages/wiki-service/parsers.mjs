@@ -187,18 +187,20 @@ async function parseMarkitdown(src) {
 }
 
 // 图片落盘 + 占位重写：images 按文档流顺序与 standalone `<!-- image -->` 行一一对应
-export function embedImages(md, images, outDir, stem) {
+export function embedImages(md, images, outDir, stem, writeAsset) {
   if (!images.length) return { md, written: 0 }
   const assetDirName = `${stem}_assets`
   const assetDir = join(outDir, assetDirName)
-  mkdirSync(assetDir, { recursive: true })
+  if (!writeAsset) mkdirSync(assetDir, { recursive: true })
   let idx = 0
   const lines = md.split('\n')
   for (let i = 0; i < lines.length && idx < images.length; i++) {
     if (/^[ \t]*(?:[-*][ \t]+)?<!--\s*image\s*-->[ \t]*$/.test(lines[i])) {
       const img = images[idx]
       const name = `img-${String(idx + 1).padStart(3, '0')}.${(/^(png|jpe?g|gif|webp|svg)$/i.test(img.ext || '') ? img.ext : 'png')}`
-      writeFileSync(join(assetDir, name), Buffer.from(img.data, 'base64'))
+      const data = Buffer.from(img.data, 'base64')
+      if (writeAsset) writeAsset(`${assetDirName}/${name}`, data)
+      else writeFileSync(join(assetDir, name), data)
       lines[i] = `![图${idx + 1}](${assetDirName}/${name})`
       idx++
     }

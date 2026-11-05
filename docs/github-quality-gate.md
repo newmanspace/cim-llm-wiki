@@ -1,6 +1,6 @@
 # GitHub 代码质量门禁
 
-流水线由 `.github/workflows/quality.yml` 和 `codeql.yml` 定义。默认分支、codex/** 开发分支与 Pull Request 均运行检查；CodeQL 另每周执行一次。公共 PR 使用 GitHub 托管 Runner，不向贡献者提供共享目录、业务文件或部署凭证。
+流水线由 `.github/workflows/quality.yml` 和 `codeql.yml` 定义。默认分支与 Pull Request 均运行检查；CodeQL 另每周执行一次。公共 PR 使用 GitHub 托管 Runner，不向贡献者提供共享目录、业务文件或部署凭证。
 
 ## 必需检查
 

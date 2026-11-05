@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import { createKnowledgeServer } from '../../wiki-service/server.mjs'
-import { resolveShared, hashFile } from '../sources.mjs'
+import { resolveShared, hashFile, writeSharedFile } from '../sources.mjs'
 import { validateWiki } from '../validate.mjs'
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
@@ -177,4 +177,23 @@ test('two automatic submissions cannot bypass review by racing to replace the sa
   const stale = await f.api('compile', { bundle_id: b.bundle_id })
   assert.equal(stale.status, 409); assert.match(stale.value.error, /baseline changed/)
   assert.match(readFileSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md'), 'utf8'), /A concrete source-backed term definition/)
+})
+
+
+test('shared writes reject symlinked parents and never overwrite an existing file', t => {
+  const root = mkdtempSync(join(tmpdir(), 'shared-write-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const mount = join(root, 'mount'), outside = join(root, 'outside')
+  mkdirSync(mount); mkdirSync(outside)
+  const roots = { team: mount }
+  writeSharedFile('shared://team/project/parsed/source.md', 'Converted content', roots)
+  assert.equal(readFileSync(join(mount, 'project/parsed/source.md'), 'utf8'), 'Converted content')
+  assert.throws(() => writeSharedFile('shared://team/project/parsed/source.md', 'Overwrite', roots))
+  mkdirSync(join(mount, 'safe'))
+  symlinkSync(join(mount, 'safe'), join(mount, 'link'))
+  assert.throws(() => writeSharedFile('shared://team/link/blocked.md', 'Do not write through a link', roots))
+  symlinkSync(outside, join(mount, 'escape'))
+  assert.throws(() => writeSharedFile('shared://team/escape/blocked.md', 'Do not escape', roots))
+  assert.equal(existsSync(join(outside, 'blocked.md')), false)
+  assert.equal(existsSync(join(mount, 'safe/blocked.md')), false)
 })
