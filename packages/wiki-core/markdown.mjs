@@ -123,9 +123,11 @@ export function renderingErrors(tokens) {
   const errors = []
   const visit = token => {
     if (['html_block', 'html_inline'].includes(token.type)) {
-      const remainder = token.content.replace(/<!--[\s\S]*?-->/g, '')
-        .replace(/<\/?(?:br|hr|sub|sup|kbd|details|summary)\s*\/?>/gi, '').trim()
-      if (remainder) errors.push({ code: 'active_content', message: 'Executable or unsupported HTML is not permitted in Wiki content; use fenced examples' })
+      const html = token.content.trim()
+      const comment = html.startsWith('<!--') && html.endsWith('-->') &&
+        !html.slice(4, -3).includes('<!--') && !html.slice(4, -3).includes('-->')
+      const safeTags = /^(?:<\/?(?:br|hr|sub|sup|kbd|details|summary)\s*\/?>\s*)+$/i.test(html)
+      if (!comment && !safeTags) errors.push({ code: 'active_content', message: 'Executable or unsupported HTML is not permitted in Wiki content; use fenced examples' })
     }
     if (token.type === 'text' && /\{\{|\}\}/.test(token.content)) errors.push({ code: 'active_content', message: 'Vue interpolation must be shown as code, not executable document content' })
     for (const child of token.children || []) visit(child)

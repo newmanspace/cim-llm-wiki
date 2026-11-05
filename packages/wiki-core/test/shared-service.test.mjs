@@ -12,7 +12,7 @@ import { validateWiki } from '../validate.mjs'
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
 function save(path, data) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, typeof data === 'string' ? data : JSON.stringify(data)) }
-async function fixture(t) {
+async function fixture(t, { autoPublish = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'shared-knowledge-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const projectRoot = join(root, 'state'), wikiRoot = join(projectRoot, 'data/wiki'), shared = join(root, 'external-share')
@@ -22,7 +22,7 @@ async function fixture(t) {
   save(join(shared, 'sources/original.xlsx'), 'original XLSX fixture bytes')
   const reviewToken = 'human-review-only-' + 'r'.repeat(32)
   const calls = []
-  const server = createKnowledgeServer({ projectRoot, wikiRoot, roots, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
+  const server = createKnowledgeServer({ projectRoot, wikiRoot, roots, autoPublish, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
     calls.push({ input, engine }); return { md: '# Terms\n\nA source-backed definition.\n', images: [] }
   } })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -208,5 +208,16 @@ test('automation cannot assert a human identity or use reviewer tokens for publi
   assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve', reviewer: 'Someone Else' }, f.reviewToken)).status, 403)
   assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve' }, f.reviewToken)).value.review.reviewer, 'Domain Reviewer')
   assert.equal((await f.api('compile', { bundle_id: b.bundle_id }, f.reviewToken)).status, 403)
+  assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 200)
+})
+
+
+test('model scores cannot enable automatic publication without server policy opt-in', async t => {
+  const f = await fixture(t, { autoPublish: false }); await ready(f)
+  const b = f.bundle('CR-20261105-0301')
+  const result = await f.submit(b)
+  assert.equal(result.value.state, 'pending')
+  assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 409)
+  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve' }, f.reviewToken)).status, 200)
   assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 200)
 })

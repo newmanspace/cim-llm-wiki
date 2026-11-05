@@ -50,6 +50,7 @@ function sameToken(actual, expected) {
 
 export function createKnowledgeServer({ projectRoot = process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT,
   wikiRoot = process.env.WIKI_ROOT || join(projectRoot, 'data/wiki'), roots = sharedRoots(),
+  autoPublish = process.env.CIM_WIKI_AUTO_PUBLISH === 'true',
   token = process.env.CIM_WIKI_API_TOKEN, reviewerTokens = JSON.parse(process.env.CIM_WIKI_REVIEW_TOKENS || '{}'), parser = convertInput } = {}) {
   if (!token) throw new Error('CIM_WIKI_API_TOKEN is required')
   if (!reviewerTokens || typeof reviewerTokens !== 'object' || Array.isArray(reviewerTokens)) throw new Error('CIM_WIKI_REVIEW_TOKENS must map human identities to separate tokens')
@@ -161,7 +162,7 @@ export function createKnowledgeServer({ projectRoot = process.env.CIM_WIKI_WORKS
     if (errors.length) fail(`Bundle contract failed: ${errors.join('; ')}`)
     const path = bundlePath(value.bundle_id)
     if (existsSync(path)) fail('Bundle ID is already submitted; use a new ID for revisions', 409)
-    const needsReview = value.nodes.some(n => {
+    const needsReview = !autoPublish || value.nodes.some(n => {
       const [plane, dir] = nodeLocation(n)
       return ['L1_expert', 'L2_arch'].includes(n.review_level) || existsSync(join(wikiRoot, value.project, plane, dir, `${slugify(n.id)}.md`))
     })

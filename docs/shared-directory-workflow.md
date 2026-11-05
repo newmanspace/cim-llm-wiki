@@ -70,3 +70,5 @@ CIM_WIKI_SHARED_DIR=/mnt/knowledge docker compose -f deploy/docker-compose.yml u
 ## 内容信任边界
 
 发布校验拒绝可执行 HTML/Vue 和非代码区域的 Vue 插值，保留围栏代码和行内代码示例。原始路径正文按文本转义，Frontmatter 保留原始证据。该控制防止主动页面内容，不承诺消除自然语言提示注入；Agent 必须把文档和检索页视为参考数据，禁止其覆盖用户指令或授权工具调用。
+
+自动发布权限由服务器管理员显式设置 CIM_WIKI_AUTO_PUBLISH=true 开启，默认关闭。模型提供的评分只决定候选审核等级，不能单独授权发布。原件绝对路径按用户的溯源要求保留，业务 Wiki 仍由现有网关认证保护，业务页面和共享目录不被代码流水线发布为公共站点。

@@ -68,6 +68,7 @@ services:
       - CIM_WIKI_WORKSPACE=/app
       - WIKI_ROOT=/app/data/wiki
       - CIM_WIKI_SHARED_ROOTS={"team":"/shared"}
+      - CIM_WIKI_AUTO_PUBLISH=${CIM_WIKI_AUTO_PUBLISH:-false}
       - CIM_WIKI_API_TOKEN=${CIM_WIKI_API_TOKEN:-}
       - CIM_WIKI_REVIEW_TOKENS=${CIM_WIKI_REVIEW_TOKENS:-}
       - MINERU_ENDPOINT=http://mineru:8888

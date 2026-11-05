@@ -332,7 +332,7 @@ test('the old unvalidated manual rebuild fails without deleting published manual
 
 test('published Markdown rejects executable HTML and Vue while preserving code examples', t => {
   const f = fixture(t)
-  for (const body of ['# Test\n\n<script>alert(1)</script>', '# Test\n\n<div v-html="unsafe">content</div>', '# Test\n\n{{ dangerousExpression() }}']) {
+  for (const body of ['# Test\n\n<script>alert(1)</script>', '# Test\n\n<div v-html="unsafe">content</div>', '# Test\n\n{{ dangerousExpression() }}', '# Test\n\n<!--<!--hidden-->-->']) {
     page(f, metadata(), body)
     assert.ok(codes(validateWiki(f)).includes('active_content'))
   }
