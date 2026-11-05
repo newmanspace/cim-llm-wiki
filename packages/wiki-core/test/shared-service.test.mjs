@@ -20,8 +20,9 @@ async function fixture(t) {
   const contract = { schema_version: '1.0', project: 'demo', documents: [{ id: 'requirements', type: 'requirement', scope: 'project', min: 1 }] }
   save(join(wikiRoot, 'demo/document-contract.json'), contract)
   save(join(shared, 'sources/original.xlsx'), 'original XLSX fixture bytes')
+  const reviewToken = 'human-review-only-' + 'r'.repeat(32)
   const calls = []
-  const server = createKnowledgeServer({ projectRoot, wikiRoot, roots, token: 'test-token', parser: async (input, engine) => {
+  const server = createKnowledgeServer({ projectRoot, wikiRoot, roots, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
     calls.push({ input, engine }); return { md: '# Terms\n\nA source-backed definition.\n', images: [] }
   } })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -41,7 +42,7 @@ async function fixture(t) {
     qscore: { auth: 1, comp: 1, rel: 1, fresh: 1, struct: 1, reuse: 1, risk: .1, total: .99 },
   }] })
   const submit = async b => { save(join(shared, 'demo/work/nodes.json'), b); return api('bundles', { uri: 'shared://team/demo/work/nodes.json' }) }
-  return { root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
+  return { reviewToken, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
 }
 async function ready(f) {
   const converted = await f.api('convert', f.registration)
@@ -111,8 +112,8 @@ test('human review binds to an immutable submitted bundle and low scores cannot 
   const b = f.bundle('CR-20261105-0002', 'L1_expert')
   assert.equal((await f.submit(b)).value.state, 'pending')
   assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 409)
-  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve', reviewer: 'auto' })).status, 400)
-  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve', reviewer: 'Domain Reviewer', note: 'Approved after source check' })).status, 200)
+  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve', reviewer: 'auto' })).status, 403)
+  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve', reviewer: 'Domain Reviewer', note: 'Approved after source check' }, f.reviewToken)).status, 200)
   assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 200)
   assert.match(readFileSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md'), 'utf8'), /reviewer: Domain Reviewer/)
   const revised = f.bundle('CR-20261105-0003'); revised.nodes[0].qscore.fresh = 0; revised.nodes[0].qscore.total = .84
@@ -122,7 +123,7 @@ test('human review binds to an immutable submitted bundle and low scores cannot 
   assert.equal((await f.submit(critical)).status, 400)
   const replacement = f.bundle('CR-20261105-0005')
   assert.equal((await f.submit(replacement)).value.state, 'pending', 'Existing pages always require approval')
-  assert.equal((await f.api('review', { bundle_id: replacement.bundle_id, decision: 'reject', reviewer: 'Domain Reviewer' })).status, 200)
+  assert.equal((await f.api('review', { bundle_id: replacement.bundle_id, decision: 'reject', reviewer: 'Domain Reviewer' }, f.reviewToken)).status, 200)
   assert.equal((await f.api('compile', { bundle_id: replacement.bundle_id })).status, 409)
 })
 
@@ -196,4 +197,16 @@ test('shared writes reject symlinked parents and never overwrite an existing fil
   assert.throws(() => writeSharedFile('shared://team/escape/blocked.md', 'Do not escape', roots))
   assert.equal(existsSync(join(outside, 'blocked.md')), false)
   assert.equal(existsSync(join(mount, 'safe/blocked.md')), false)
+})
+
+
+test('automation cannot assert a human identity or use reviewer tokens for publication', async t => {
+  const f = await fixture(t); await ready(f)
+  const b = f.bundle('CR-20261105-0201', 'L1_expert')
+  assert.equal((await f.submit(b)).status, 200)
+  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve', reviewer: 'Domain Reviewer' })).status, 403)
+  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve', reviewer: 'Someone Else' }, f.reviewToken)).status, 403)
+  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve' }, f.reviewToken)).value.review.reviewer, 'Domain Reviewer')
+  assert.equal((await f.api('compile', { bundle_id: b.bundle_id }, f.reviewToken)).status, 403)
+  assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 200)
 })

@@ -50,8 +50,13 @@ function sameToken(actual, expected) {
 
 export function createKnowledgeServer({ projectRoot = process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT,
   wikiRoot = process.env.WIKI_ROOT || join(projectRoot, 'data/wiki'), roots = sharedRoots(),
-  token = process.env.CIM_WIKI_API_TOKEN, parser = convertInput } = {}) {
+  token = process.env.CIM_WIKI_API_TOKEN, reviewerTokens = JSON.parse(process.env.CIM_WIKI_REVIEW_TOKENS || '{}'), parser = convertInput } = {}) {
   if (!token) throw new Error('CIM_WIKI_API_TOKEN is required')
+  if (!reviewerTokens || typeof reviewerTokens !== 'object' || Array.isArray(reviewerTokens)) throw new Error('CIM_WIKI_REVIEW_TOKENS must map human identities to separate tokens')
+  for (const [name, credential] of Object.entries(reviewerTokens)) {
+    actor(name)
+    if (typeof credential !== 'string' || credential.length < 32 || credential === token) throw new Error('Reviewer tokens must be independent and at least 32 characters')
+  }
   projectRoot = resolve(projectRoot); wikiRoot = resolve(wikiRoot)
   const options = { projectRoot, wikiRoot, roots }
   const docs = () => loadManifest(projectRoot)
@@ -170,7 +175,7 @@ export function createKnowledgeServer({ projectRoot = process.env.CIM_WIKI_WORKS
     return record
   }
 
-  async function route(req, url, data) {
+  async function route(req, url, data, reviewerIdentity) {
     const path = url.pathname.slice(PREFIX.length)
     if (req.method === 'GET' && path === '/context') return context(url.searchParams.get('project'))
     if (req.method === 'GET' && path === '/document') {
@@ -190,10 +195,12 @@ export function createKnowledgeServer({ projectRoot = process.env.CIM_WIKI_WORKS
     }
     if (req.method === 'POST' && path === '/bundles') return submittedBundle(data)
     if (req.method === 'POST' && path === '/review') {
+      if (!reviewerIdentity) fail('Human review requires an independent reviewer credential', 403)
+      if (data.reviewer !== undefined && data.reviewer !== reviewerIdentity) fail('Reviewer identity is bound to the authenticated credential', 403)
       const record = getBundle(data.bundle_id)
       if (record.state !== 'pending') fail('Only pending bundles can be reviewed', 409)
       if (!['approve', 'reject'].includes(data.decision)) fail('Decision must be approve or reject')
-      record.review = { decision: data.decision, reviewer: actor(data.reviewer), note: data.note || '', at: now(), digest: record.digest }
+      record.review = { decision: data.decision, reviewer: reviewerIdentity, note: data.note || '', at: now(), digest: record.digest }
       record.state = data.decision === 'approve' ? 'approved' : 'rejected'
       writeJson(bundlePath(data.bundle_id), record)
       return record
@@ -222,7 +229,9 @@ export function createKnowledgeServer({ projectRoot = process.env.CIM_WIKI_WORKS
     try {
       const url = new URL(req.url, 'http://localhost')
       if (req.method === 'GET' && url.pathname === '/healthz') { send(200, { status: 'ok' }); return }
-      if (!sameToken(req.headers.authorization, token)) { send(401, { error: 'Bearer token required' }); return }
+      const reviewerIdentity = Object.entries(reviewerTokens).find(([, credential]) => sameToken(req.headers.authorization, credential))?.[0]
+      if (!sameToken(req.headers.authorization, token) && !reviewerIdentity) { send(401, { error: 'Bearer token required' }); return }
+      if (reviewerIdentity && req.method !== 'GET' && url.pathname !== PREFIX + '/review') fail('Reviewer credentials may only submit review decisions', 403)
       if (!url.pathname.startsWith(PREFIX + '/')) fail('Endpoint not found', 404)
       const data = req.method === 'POST' ? await body(req) : null
       if (req.method === 'POST') {
@@ -232,7 +241,7 @@ export function createKnowledgeServer({ projectRoot = process.env.CIM_WIKI_WORKS
           const lockPath = join(projectRoot, 'data/.knowledge-service.lock')
           let lock
           try { lock = openSync(lockPath, 'wx') } catch { fail('Another service mutation is running', 409) }
-          try { return await route(req, url, data) } finally { closeSync(lock); rmSync(lockPath, { force: true }) }
+          try { return await route(req, url, data, reviewerIdentity) } finally { closeSync(lock); rmSync(lockPath, { force: true }) }
         })
         queue = work.catch(() => {})
         send(200, await work)

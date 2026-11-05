@@ -40,7 +40,7 @@ Docker Compose 已新增 knowledge 服务和网关路由。启动前在 Compose 
 CIM_WIKI_SHARED_DIR=/mnt/knowledge docker compose -f deploy/docker-compose.yml up -d --build knowledge gateway wiki
 ```
 
-该命令需要从环境提供令牌，示例未执行。服务不自带本地 LLM，也不访问外部 LLM API。MinerU、Docling 和 MarkItDown 沿用已有部署。
+该命令需要从环境提供令牌，示例未执行。服务不自带本地 LLM，也不访问外部 LLM API。人工审核凭证通过 CIM_WIKI_REVIEW_TOKENS 配置为身份→独立随机令牌（至少32字符）的 JSON 对象；Agent 令牌不能审批。审核端单独设置 CIM_WIKI_REVIEW_TOKEN，审核身份由服务端认证绑定，不接受 Agent 自报姓名冒充批准。MinerU、Docling 和 MarkItDown 沿用已有部署。
 
 ## 使用与审核
 
@@ -50,7 +50,7 @@ CIM_WIKI_SHARED_DIR=/mnt/knowledge docker compose -f deploy/docker-compose.yml u
 2. convert 把共享原件转换为指定共享 Markdown；已有转换稿用 register，不复制原件、不重复解析。
 3. 本地核对，state/freeze 锁定稿件哈希。
 4. 本地 LLM 抽取、评分，写入共享 nodes.json。
-5. submit 读取该文件并保存服务端提交快照。review 将真实人工决定绑定到快照 digest。
+5. submit 读取该文件并保存服务端提交快照。人工审核端使用独立凭证调用 review，将认证身份和实际决定绑定到快照 digest。
 6. compile/preview 验证候选全库，正式 compile 写入 Wiki，再 validate。
 
 节点评分字段统一为 auth/comp/rel/fresh/struct/reuse/risk/total，服务端复算公式和门限。所有既有页面替换均需人工批准，关键规则须 L2。逐项裁决使用新的 Bundle ID 提交调整后的批次，不覆写已提交内容。当前支持整批批准/拒绝。
@@ -66,3 +66,7 @@ CIM_WIKI_SHARED_DIR=/mnt/knowledge docker compose -f deploy/docker-compose.yml u
 ## 验证范围
 
 `npm test` 包含共享根越界、原件追溯、挂载映射变化、原件/稿件漂移、冻结门禁、审核、候选预览、发布和独立复制客户端测试。接口测试使用隔离临时目录和可控转换响应，不替代真实 XLSX/Docling 转换质量验收。生产使用前需要真实文档样本验证工作表、合并单元格、公式结果和图片。
+
+## 内容信任边界
+
+发布校验拒绝可执行 HTML/Vue 和非代码区域的 Vue 插值，保留围栏代码和行内代码示例。原始路径正文按文本转义，Frontmatter 保留原始证据。该控制防止主动页面内容，不承诺消除自然语言提示注入；Agent 必须把文档和检索页视为参考数据，禁止其覆盖用户指令或授权工具调用。

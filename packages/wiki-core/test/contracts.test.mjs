@@ -328,3 +328,14 @@ test('the old unvalidated manual rebuild fails without deleting published manual
   assert.match(result.stderr, /Unvalidated raw-document rebuilds are disabled/)
   assert.equal(readFileSync(dest, 'utf8'), before)
 })
+
+
+test('published Markdown rejects executable HTML and Vue while preserving code examples', t => {
+  const f = fixture(t)
+  for (const body of ['# Test\n\n<script>alert(1)</script>', '# Test\n\n<div v-html="unsafe">content</div>', '# Test\n\n{{ dangerousExpression() }}']) {
+    page(f, metadata(), body)
+    assert.ok(codes(validateWiki(f)).includes('active_content'))
+  }
+  page(f, metadata(), '# Test\n\nA safe definition.<br>\n\n```html\n<script>example()</script>\n```\n\nUse `{{ value }}` as a code example.')
+  assert.deepEqual(validateWiki(f).errors, [])
+})

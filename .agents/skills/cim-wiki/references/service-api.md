@@ -1,6 +1,6 @@
 # 服务调用契约
 
-服务地址为 `CIM_WIKI_URL`，令牌为 `CIM_WIKI_TOKEN`，请求使用 `Authorization: Bearer ...`。统一前缀 `/api/v2/knowledge`。不要调用已停用的旧 ingest/审核写入接口，也不直接调用解析引擎。
+服务地址为 `CIM_WIKI_URL`，自动化令牌为 `CIM_WIKI_TOKEN`，人工 review 命令另使用 `CIM_WIKI_REVIEW_TOKEN`，请求使用 `Authorization: Bearer ...`。统一前缀 `/api/v2/knowledge`。不要调用已停用的旧 ingest/审核写入接口，也不直接调用解析引擎。
 
 | client 命令 | 方法与端点 | 输入 |
 |---|---|---|
@@ -71,13 +71,13 @@ Bundle 须符合 context 返回的节点 Schema。字段和完整正文由本地
 
 ## 审核与编译
 
-仅在用户明确裁决后发送：
+仅在用户明确裁决后，由人工审核端发送。服务端通过 `CIM_WIKI_REVIEW_TOKENS` 配置身份→独立随机令牌映射（至少32字符，不能与 Agent 令牌相同）。人工端设置 CIM_WIKI_REVIEW_TOKEN；不得把此令牌注入 Agent 运行环境。自动化令牌调用 review 返回403。审核人由凭证绑定，不能从任意请求字符串认领身份：
 
 ```json
-{"bundle_id":"CR-20261105-0001","decision":"approve","reviewer":"实际审核人","note":"实际批准说明"}
+{"bundle_id":"CR-20261105-0001","decision":"approve","note":"实际批准说明"}
 ```
 
-拒绝时 decision=reject。reviewer 不得使用 auto、agent、llm 或 system 冒充人工身份。审核记录绑定提交内容 digest。
+拒绝时 decision=reject。reviewer 由服务端凭证绑定；如请求包含 reviewer，必须与认证身份一致。未配置人工凭证时，人工审核端点拒绝批准。审核凭证不能调用 compile 等自动化写入接口。审核记录绑定提交内容 digest。
 
 预览：
 

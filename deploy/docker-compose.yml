@@ -69,6 +69,7 @@ services:
       - WIKI_ROOT=/app/data/wiki
       - CIM_WIKI_SHARED_ROOTS={"team":"/shared"}
       - CIM_WIKI_API_TOKEN=${CIM_WIKI_API_TOKEN:-}
+      - CIM_WIKI_REVIEW_TOKENS=${CIM_WIKI_REVIEW_TOKENS:-}
       - MINERU_ENDPOINT=http://mineru:8888
       - DOCLING_ENDPOINT=http://docling:5001
       - MARKITDOWN_ENDPOINT=http://markitdown:5002

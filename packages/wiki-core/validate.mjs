@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve, relative, posix } from 'node:path'
 import { createHash } from 'node:crypto'
 import { PROJECT_ROOT, CONTRACT_ROOT, schemaErrors, nodeLocation, slugify, loadTemplateContracts, REFERENCE_TYPES } from './contracts.mjs'
-import { parsePage, structureErrors, pageLinks } from './markdown.mjs'
+import { parsePage, structureErrors, pageLinks, renderingErrors } from './markdown.mjs'
 import { validateDocumentSets } from './document-set.mjs'
 
 const vocabulary = JSON.parse(readFileSync(join(CONTRACT_ROOT, 'vocabulary.json'), 'utf8'))
@@ -65,6 +65,7 @@ export function validateWiki({ projectRoot = process.env.CIM_WIKI_WORKSPACE || P
       }
       continue
     }
+    errors.push(...renderingErrors(page.tokens).map(e => issue(e.code, key, e.message)))
     const { fm } = page
     const segments = key.split('/')
     const project = segments[0]
