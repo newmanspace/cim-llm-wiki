@@ -8,7 +8,8 @@
     "build": "vue-tsc --build && vite build",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "axios": "^1.16.0",
@@ -23,10 +24,15 @@
     "@tsconfig/node22": "^22.0.5",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-vue": "6.0.6",
+    "@vitest/coverage-v8": "5.1.0",
     "@vue/tsconfig": "^0.9.1",
     "less": "^4.6.4",
     "typescript": "~6.0.3",
     "vite": "^7.3.5",
+    "vitest": "5.1.0",
     "vue-tsc": "^3.2.8"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

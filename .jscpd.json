@@ -1,0 +1,38 @@
+{
+  "path": [
+    "packages",
+    "scripts",
+    "internal",
+    "cmd",
+    "admin/src",
+    "deploy",
+    ".agents/skills/cim-wiki/scripts",
+    "wiki/.vitepress"
+  ],
+  "pattern": "**/*.{js,mjs,cjs,ts,vue,go,py,html,css}",
+  "formatsExts": {
+    "javascript": [
+      "js",
+      "mjs",
+      "cjs"
+    ]
+  },
+  "ignore": [
+    "**/node_modules/**",
+    "**/test/**",
+    "**/*_test.go",
+    "**/*.test.*",
+    "**/dist/**",
+    "**/sidebar-data.mjs"
+  ],
+  "minLines": 10,
+  "minTokens": 70,
+  "threshold": 5,
+  "reporters": [
+    "console",
+    "json",
+    "html"
+  ],
+  "output": "reports/duplication",
+  "absolute": false
+}

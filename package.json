@@ -3,14 +3,17 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "test": "node --test packages/wiki-core/test/*.test.mjs",
     "wiki:validate": "node packages/wiki-core/cli.mjs validate",
     "wiki:compile": "node packages/wiki-core/cli.mjs compile",
     "knowledge:serve": "node packages/wiki-service/server.mjs",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "test:coverage": "c8 npm test",
+    "quality:duplicates": "jscpd --config .jscpd.json",
+    "quality:lint": "eslint . --max-warnings 0 --format json --output-file reports/eslint.json"
   },
   "dependencies": {
     "ajv": "^8.17.1",
@@ -20,9 +23,11 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "c8": "12.0.0",
     "eslint": "10.14.0",
     "eslint-plugin-vue": "10.12.0",
     "globals": "17.14.0",
+    "jscpd": "5.4.2",
     "typescript-eslint": "8.72.1",
     "vue-eslint-parser": "10.4.1"
   }

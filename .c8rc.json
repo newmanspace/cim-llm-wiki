@@ -1,0 +1,26 @@
+{
+  "all": true,
+  "include": [
+    "packages/**/*.mjs",
+    "scripts/**/*.mjs",
+    ".agents/skills/cim-wiki/scripts/**/*.mjs",
+    "wiki/.vitepress/**/*.mjs"
+  ],
+  "exclude": [
+    "**/test/**",
+    "**/*.test.mjs",
+    "**/sidebar-data.mjs"
+  ],
+  "reporter": [
+    "text",
+    "json-summary",
+    "lcov",
+    "html"
+  ],
+  "reports-dir": "reports/node-coverage",
+  "check-coverage": true,
+  "lines": 80,
+  "statements": 80,
+  "functions": 80,
+  "branches": 70
+}
