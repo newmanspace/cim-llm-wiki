@@ -1,3 +1,4 @@
+import { sharedRoots, nodeProvenance } from './sources.mjs'
 import { cpSync, existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, renameSync, openSync, closeSync, lstatSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -33,14 +34,17 @@ function replaceFiles(changes) {
   }
 }
 
-export async function compileBundle(input, { projectRoot = PROJECT_ROOT, wikiRoot = join(projectRoot, 'data/wiki'), preview = false, afterPublish } = {}) {
+export async function compileBundle(input, { projectRoot = process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, wikiRoot = join(projectRoot, 'data/wiki'), preview = false, roots = sharedRoots(), afterPublish } = {}) {
   const data = structuredClone(input)
   if (!data || Array.isArray(data) || typeof data !== 'object' || !Array.isArray(data.nodes)) throw new Error('A versioned bundle object with nodes is required')
+  const sourceManifest = json(join(projectRoot, 'data/documents/manifest.json')) || { docs: [] }
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
   for (const node of data.nodes) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) throw new Error('Each node must be an object')
     node.schema_version ??= SCHEMA_VERSION
     node.source ??= data.source_doc
+    const provenance = nodeProvenance(node, sourceManifest)
+    if (provenance.length) node.provenance = provenance
     node.module ??= data.module
     node.product ??= data.product
     node.version ??= data.version
@@ -99,8 +103,8 @@ export async function compileBundle(input, { projectRoot = PROJECT_ROOT, wikiRoo
       written.push(path)
       wikiEntries.push({ plane, path: `data/wiki/${path}`, node_id: node.id, bundle_id: data.bundle_id })
     }
-    try { assertValidWiki({ projectRoot, wikiRoot: candidateRoot }) }
-    catch (e) { throw new Error(e.message.replaceAll(candidateRoot, wikiRoot)) }
+    try { assertValidWiki({ projectRoot, wikiRoot: candidateRoot, roots }) }
+    catch (e) { throw new Error(e.message.replaceAll(candidateRoot, wikiRoot), { cause: e }) }
     if (preview) return { project: data.project, bundleId: data.bundle_id, written, archived, wikiEntries, preview: true }
 
     const registryPath = join(docsDir, 'project-registry.json')

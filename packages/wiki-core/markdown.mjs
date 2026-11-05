@@ -14,8 +14,12 @@ export function parsePage(text) {
   return { fm, body, tokens: markdown.parse(body, {}) }
 }
 
+const escapeTrace = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replace(/[\r\n]/g, ' ')
+
 export function renderPage(fm, title, content) {
-  return `---\n${stringify(fm, { lineWidth: 0 })}---\n\n# ${title}\n\n${content.trim()}\n`
+  const trace = (fm.provenance || []).map(p => `> 原始文档路径：${escapeTrace(p.original_path)}\n> 原始文档标识：${escapeTrace(p.original_uri)}\n> 原件 SHA-256：${escapeTrace(p.original_sha256)}\n> 文档版本：${escapeTrace(p.version)}`).join('\n>\n')
+  const location = fm.source_location ? `\n> 文档内位置：${Object.entries(fm.source_location).map(([k, v]) => `${k}=${escapeTrace(v)}`).join('; ')}` : ''
+  return `---\n${stringify(fm, { lineWidth: 0 })}---\n\n# ${title}\n\n${content.trim()}\n${trace ? `\n---\n${trace}${location}\n` : ''}`
 }
 
 export function headings(tokens) {
@@ -110,4 +114,24 @@ export function pageLinks(tokens) {
     }
   }
   return result
+}
+
+
+// Markdown is document data. VitePress must not compile executable HTML/Vue
+// supplied through documents, while fenced and inline code remain readable.
+export function renderingErrors(tokens) {
+  const errors = []
+  const visit = token => {
+    if (['html_block', 'html_inline'].includes(token.type)) {
+      const html = token.content.trim()
+      const comment = html.startsWith('<!--') && html.endsWith('-->') &&
+        !html.slice(4, -3).includes('<!--') && !html.slice(4, -3).includes('-->')
+      const safeTags = /^(?:<\/?(?:br|hr|sub|sup|kbd|details|summary)\s*\/?>\s*)+$/i.test(html)
+      if (!comment && !safeTags) errors.push({ code: 'active_content', message: 'Executable or unsupported HTML is not permitted in Wiki content; use fenced examples' })
+    }
+    if (token.type === 'text' && /\{\{|\}\}/.test(token.content)) errors.push({ code: 'active_content', message: 'Vue interpolation must be shown as code, not executable document content' })
+    for (const child of token.children || []) visit(child)
+  }
+  for (const token of tokens) visit(token)
+  return errors
 }

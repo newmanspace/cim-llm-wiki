@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { adminEnabled, fetchProjectConfig } from './admin-client.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PROJECT_ROOT = resolve(__dirname, '..', '..', '..', '..')
+const PROJECT_ROOT = resolve(process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'))
 const REGISTRY_PATH = join(PROJECT_ROOT, 'data', 'documents', 'project-registry.json')
 
 function loadRegistry() {

@@ -1,12 +1,12 @@
 # Wiki 页面编译规范（Stage 5）
 
-机器契约以 `contracts/wiki/v1/` 为准；本文件为阅读说明。所有页面须声明 `schema_version: "1.0"`，通过共享核心的 Schema、Markdown 结构及全库关联校验后才能发布。
+机器契约以服务端 context 返回的 Schema 为准（服务内部 `contracts/wiki/v1/`）；本文件为阅读说明。所有页面须声明 `schema_version: "1.0"`，通过共享核心的 Schema、Markdown 结构及全库关联校验后才能发布。
 
 > 迁移自 `internal/pipeline/compiler/compiler.go`。
 
 ## 目录映射（type → 双平面物理分库）
 
-wiki 物理分两库：`data/wiki/doc/`（领域知识库，面向人与高层业务导航）与 `data/wiki/code/`（代码契约库，面向工程实现与自动化编译）。compile.mjs 按下表路由并在 Frontmatter 写入 `plane: doc|code`（validate `plane_mismatch` 校验落点）。
+服务端 wiki 按项目分两库：`<wiki-root>/<project>/doc/`（领域知识库，面向人与高层业务导航）与 `<wiki-root>/<project>/code/`（代码契约库，面向工程实现与自动化编译）。compile.mjs 按下表路由并在 Frontmatter 写入 `plane: doc|code`（validate `plane_mismatch` 校验落点）。
 
 | 节点类型 | 落点 | 文件名示例 |
 |----------|------|-----------|
@@ -76,7 +76,7 @@ product: Semiconductor-MES
 version: V5.2
 domain: manufacturing-execution
 module: wip-management
-source: data/raw/wip/idd_wip_v5.2.md
+source: shared://team/wip/parsed/V5.2/idd.md
 related_requirements:
   - "[[doc/requirements/req-wip-001.md]]"
 related_rules:
@@ -104,7 +104,7 @@ updated_at: 2026-10-01T08:00:00Z
 <节点 Markdown 正文>
 
 ---
-> **来源文档**: `data/raw/wip/idd_wip_v5.2.md`
+> **来源文档**: `shared://team/wip/parsed/V5.2/idd.md`
 > **置信度**: 83.20%
 > **适用版本**: V5.2
 ```
@@ -124,3 +124,7 @@ Frontmatter 追加 `virtual: true` 与 `module`。正文按以下顺序缝合该
 - **IDD 视图**（code）：业务对象(code/domain/bo) → 功能契约与业务规则(code/rules/br 功能契约 + doc/business/br 业务规则) → UI 接口(code/apis, api_type=ui_api) → CIM 集成接口(code/apis, api_type=external_integration，按 tier 1→5 排序) → 数据 Schema(code/schemas) → 数据字典(doc/dictionaries)
 
 页首注明「Auto-generated from atomic wiki nodes」与渲染时间。
+
+## 共享目录溯源
+
+source 指向登记后的共享转换稿 URI。provenance 由服务端自动填充原件 original_uri、original_path、original_sha256 和 version，可保留 ingest_path；source_location 表达节点在原件中的实际位置。不能将转换稿当成原件路径，也不能手工伪造 provenance。服务端发布时检查原件与转换稿的存在性和哈希。

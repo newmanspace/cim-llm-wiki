@@ -23,9 +23,6 @@ export function gitopsEnabled() {
   return TRUTHY.has((process.env.WIKI_GITOPS_ENABLED || '').toLowerCase())
 }
 
-function gitRepoRoot(defaultRoot) {
-  return process.env.WIKI_GITOPS_ROOT || defaultRoot
-}
 
 function runGit(args, cwd) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf-8' })

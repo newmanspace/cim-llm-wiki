@@ -1,3 +1,5 @@
+> 当前共享目录/API 工作流见 [共享目录工作流](shared-directory-workflow.md)。以下历史维护脚本已迁移至 packages/wiki-tools；远程 Agent 仅安装轻量 skill。
+
 # cim-llm-wiki 项目交接与工程交付文档 (Handoff)
 
 > **版本**: v2.1.0（Project Registry 架构）  
@@ -75,7 +77,7 @@
 1. **本地现成样本**（推荐，零依赖）：`data/samples/idd_wip_sample.docx`（MES 的 WIP IDD 样本，走 Docling :5001）。命令：
    ```bash
    MINERU_ENDPOINT=http://localhost:8888 DOCLING_ENDPOINT=http://localhost:5001 MARKITDOWN_ENDPOINT=http://localhost:5002 \
-   node .agents/skills/cim-wiki/scripts/parse.mjs data/samples/idd_wip_sample.docx --module wip-management
+   node packages/wiki-tools/parse.mjs data/samples/idd_wip_sample.docx --module wip-management
    ```
 2. **用户提供的夸克分享链接**：试 `saveas` 转存后 `download`（若同样被 -104 拦截则转方式 1/3）。
 3. **用户手动放到本地路径的 PDF/DOCX**：告知路径 + 模块名后用 skill 摄取。
@@ -118,7 +120,7 @@
 | MinerU / Docling / MarkItDown | :8888 / :5001 / :5002 |
 | 流水线 skill | `.agents/skills/cim-wiki/SKILL.md`（Stage 0→8 定义） |
 | Project 注册表 | `data/documents/project-registry.json` |
-| 增量同步脚本 | `.agents/skills/cim-wiki/scripts/sync-repo.mjs` |
+| 增量同步脚本 | `packages/wiki-tools/sync-repo.mjs` |
 | Submodule 数据源 | `data/sources/<project-id>/docs|code/` |
 | Admin API | `ADMIN_ENABLED=true` + PostgreSQL :5432（compose 中宿主映射 :5433） |
 | Admin 端点前缀 | `/api/v1/admin/` |
@@ -279,7 +281,7 @@ go run ./cmd/server
 |------|------|
 | `data/documents/project-registry.json` | Project 注册表（第三类全局注册表） |
 | `data/sources/README.md` | Submodule 目录说明 |
-| `.agents/skills/cim-wiki/scripts/sync-repo.mjs` | 增量同步脚本 |
+| `packages/wiki-tools/sync-repo.mjs` | 增量同步脚本 |
 | `internal/types/types.go` (新增类型) | ProjectConfig / DocSource / RepoBinding / ProjectToken / SyncState / ProjectRegistry |
 | `deploy/postgres/001_init.sql` | PostgreSQL schema（9 张表 + 索引 + 触发器） |
 | `internal/store/postgres.go` | pgx 连接池 + Admin CRUD 存储层 |

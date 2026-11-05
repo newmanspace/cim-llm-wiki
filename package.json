@@ -2,16 +2,28 @@
   "name": "cim-llm-wiki",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test packages/wiki-core/test/*.test.mjs",
     "wiki:validate": "node packages/wiki-core/cli.mjs validate",
-    "wiki:compile": "node packages/wiki-core/cli.mjs compile"
+    "wiki:compile": "node packages/wiki-core/cli.mjs compile",
+    "knowledge:serve": "node packages/wiki-service/server.mjs",
+    "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "markdown-it": "^14.1.0",
     "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "eslint-plugin-vue": "10.12.0",
+    "globals": "17.14.0",
+    "typescript-eslint": "8.72.1",
+    "vue-eslint-parser": "10.4.1"
   }
 }

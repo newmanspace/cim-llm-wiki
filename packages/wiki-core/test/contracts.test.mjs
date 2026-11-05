@@ -262,7 +262,7 @@ test('GitOps refuses invalid content before invoking git or staging changes', t 
 test('legacy CLI delegates to strict core and returns machine-readable failures', t => {
   const f = fixture(t)
   page(f, { ...metadata(), status: 'invalid' })
-  const result = spawnSync(process.execPath, [join(PROJECT_ROOT, '.agents/skills/cim-wiki/scripts/validate.mjs'),
+  const result = spawnSync(process.execPath, [join(PROJECT_ROOT, 'packages/wiki-tools/validate.mjs'),
     f.wikiRoot, '--project-root', f.projectRoot, '--json'], { encoding: 'utf8' })
   assert.equal(result.status, 1)
   assert.ok(codes(JSON.parse(result.stdout)).includes('schema_error'))
@@ -307,7 +307,7 @@ test('a source footer marker cannot hide subsequent malformed content', t => {
 
 test('builtin template lookup and checks work without a wiki manifest', t => {
   const f = fixture(t)
-  const script = join(PROJECT_ROOT, '.agents/skills/cim-wiki/scripts/templates.mjs')
+  const script = join(PROJECT_ROOT, 'packages/wiki-tools/templates.mjs')
   const env = { ...process.env, CIM_WIKI_ROOT: f.wikiRoot }
   const get = spawnSync(process.execPath, [script, 'get', 'frd'], { env, encoding: 'utf8' })
   assert.equal(get.status, 0, get.stderr)
@@ -321,10 +321,21 @@ test('the old unvalidated manual rebuild fails without deleting published manual
   const f = fixture(t)
   const dest = page(f, metadata(), '# Existing\n\nText.', 'a/doc/manuals/existing.md')
   const before = readFileSync(dest, 'utf8')
-  const result = spawnSync(process.execPath, [join(PROJECT_ROOT, '.agents/skills/cim-wiki/scripts/gen-manuals.mjs')], {
+  const result = spawnSync(process.execPath, [join(PROJECT_ROOT, 'packages/wiki-tools/gen-manuals.mjs')], {
     env: { ...process.env, WIKI_ROOT: f.wikiRoot, ADMIN_PROJECT_ID: 'a' }, encoding: 'utf8',
   })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /Unvalidated raw-document rebuilds are disabled/)
   assert.equal(readFileSync(dest, 'utf8'), before)
+})
+
+
+test('published Markdown rejects executable HTML and Vue while preserving code examples', t => {
+  const f = fixture(t)
+  for (const body of ['# Test\n\n<script>alert(1)</script>', '# Test\n\n<div v-html="unsafe">content</div>', '# Test\n\n{{ dangerousExpression() }}', '# Test\n\n<!--<!--hidden-->-->']) {
+    page(f, metadata(), body)
+    assert.ok(codes(validateWiki(f)).includes('active_content'))
+  }
+  page(f, metadata(), '# Test\n\nA safe definition.<br>\n\n```html\n<script>example()</script>\n```\n\nUse `{{ value }}` as a code example.')
+  assert.deepEqual(validateWiki(f).errors, [])
 })

@@ -60,7 +60,7 @@ export function loadTemplateContracts(wikiRoot) {
     if (!existsSync(path)) return {}
     let value
     try { value = readContractJson(path) }
-    catch (e) { throw new Error(`${path}: ${e.message}`) }
+    catch (e) { throw new Error(`${path}: ${e.message}`, { cause: e }) }
     const errors = schemaErrors('template', value)
     if (errors.length) throw new Error(`${path}: ${errors.join('; ')}`)
     for (const [type, entry] of Object.entries(value.templates)) {

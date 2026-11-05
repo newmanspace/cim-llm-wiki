@@ -1,5 +1,7 @@
 # cim-llm-wiki
 
+> **共享目录工作流**：Skill 已改为轻量 HTTP 客户端，本地 Agent/LLM 负责抽取与评分；转换、审核记录、校验和编译由 `/api/v2/knowledge` 服务执行。原件与转换稿可保留在任意共享目录，节点保留原件路径、版本和 SHA-256。使用方法见 [共享目录工作流](docs/shared-directory-workflow.md)。旧本地维护脚本已移至 `packages/wiki-tools/`。
+
 > **项目文档集契约**：所有项目必须配置 `data/wiki/<project>/document-contract.json`，声明必交文档、项目/模块数量、附加结构和关联要求；缺失即阻断。参见 [配置说明](docs/document-set-contract.md) 和 [MES 示例](contracts/wiki/examples/mes-document-contract.json)。
 
 > **结构一致性更新（2026-10-28）**：统一契约位于 `contracts/wiki/v1/`，核心运行逻辑位于 `packages/wiki-core/`。所有现有和新增 Wiki 页面必须严格校验；编译先验证候选树，导航、构建和 GitOps 也执行门禁。Go 旧摄取/审核写入接口已停用，返回 410。首次在根目录执行 `npm ci`，详细规则与现有数据迁移要求见 [Wiki 结构一致性修正](docs/wiki-schema-enforcement.md)。
@@ -103,21 +105,19 @@ npm run docs:preview # 预览静态构建产物
 ## 架构设计
 
 ```
-raw 原始文档（PDF/DOCX/MD）
+共享目录：原始文档 → 转换稿/附件 → 本地 LLM 生成 nodes.json
+      │                     │                     │
+      ▼                     ▼                     ▼
+服务端 /api/v2/knowledge：convert/register → state/freeze → bundles
       │
-      ▼ [Stage 0] 项目配置拉取  ← skill scripts/admin-pull.mjs · sync-repo.mjs：从 Admin 拉 Project Registry（未配 ADMIN_URL=离线本地 registry）
-      ▼ [Stage 1] 文档解析      ← skill scripts/parse.mjs：MinerU(:8888, PDF) / Docling(:5001, Office) / MarkItDown(:5002, 备选)，硬性依赖服务在线
-      ▼ [Stage 1.5] 文档状态管控 ← skill scripts/doc-state.mjs：源文档 draft → frozen → active 漂移门禁
-      ▼ [Stage 2] 知识抽取      ← Agent 按 skill references/extraction.md + assets/ 标准人读模板执行
-      ▼ [Stage 3] 7 维评分      ← Agent 按 skill references/evaluation.md 执行
-      ▼ [Stage 4] 聚合审核 HITL ← data/review/ 变更卡片 + 对话内用户裁决
-      ▼ [Stage 5] Wiki 编译     ← skill scripts/compile.mjs：双平面写入 data/wiki/<project>/{doc,code}/（WIKI_GITOPS_ENABLED 时自动对独立知识仓 commit/push）
-      ▼ [Stage 6] Lint 校验     ← skill scripts/validate.mjs
-      ▼ [Stage 7] VitePress 展示 ← wiki/（srcDir 指向 data/wiki）
-      ▼ [Stage 8] 状态回写      ← skill scripts/admin-client.mjs：编译/同步结果 POST 回 Admin（wiki-nodes / sync-status）
+      ▼ 人工裁决（需要时） → review → compile/preview → compile → validate
+      │
+      ▼ Wiki 页面：原始路径、共享 URI、版本、SHA-256 与文档内位置
 ```
 
-> 表中 `skill scripts/` 均位于 `.agents/skills/cim-wiki/scripts/`。各环节模块化解耦、组件可替换：解析引擎以独立 Docker server 形式插拔（Phase 2+ 可增 PaddleOCR），LLM 智能环节完全由 skill 规范（`references/*.md` + `assets/*.md` 模板）定义——改规范即改行为，存储层是 Markdown + YAML Frontmatter + Git（天然支持原子提交/回滚）。
+Skill 仅使用 `scripts/client.mjs` 访问服务；所有 LLM 抽取与语义评分在当前 Agent 完成。服务端源码为 `packages/wiki-service/`，严格编译与校验复用 `packages/wiki-core/`。独立共享目录无需复制到项目下，详细配置见 [共享目录工作流](docs/shared-directory-workflow.md)。
+
+服务器维护人员仍可使用 `packages/wiki-tools/` 的本地工具；这些工具不是远程 Agent 的运行依赖。Admin 回写和 GitOps 目前保留在维护 CLI，新服务更新本地来源与 Wiki 索引。
 
 ### 用户意图路由
 
@@ -211,8 +211,10 @@ wiki 物理分库为两平面：**`doc/`（领域知识库，面向人与高层�
 cim-llm-wiki/
 ├── contracts/wiki/v1/           ← 版本化节点/Bundle/模板 Schema、目录与正文结构契约
 ├── packages/wiki-core/          ← 唯一编译、全库校验与发布实现（npm test / wiki:validate）
+├── packages/wiki-service/       ← 共享目录转换、来源、审核与编译 HTTP 服务
+├── packages/wiki-tools/         ← 服务器维护 CLI（不随 skill 安装）
 ├── .agents/skills/cim-wiki/       ← ★ 核心：知识工程流水线 skill
-│   ├── SKILL.md                  ← Stage 0→8 工作流定义（含引擎路由与命令）
+│   ├── SKILL.md                  ← 服务调用、本地 LLM 抽取评分与审核流程
 │   ├── references/
 │   │   ├── extraction.md         ← 知识抽取规范（节点 schema/ID/双平面/CIM 分层）
 │   │   ├── evaluation.md         ← 7 维评分与门限规则
@@ -220,17 +222,7 @@ cim-llm-wiki/
 │   │   └── vocabulary.md         ← 词表与卡片槽位约束
 │   ├── assets/                   ← ★ 标准人读文档模板（frd 功能需求文档/design/module/user-manual 骨架）
 │   └── scripts/
-│       ├── parse.mjs             ← Stage 1 解析客户端（MinerU/Docling/MarkItDown，本地不做任何文档解析）
-│       ├── doc-state.mjs         ← Stage 1.5 源文档 draft/frozen/active 状态门禁
-│       ├── docstore.mjs          ← 文档源存储与 sha256 漂移检测
-│       ├── compile.mjs           ← Stage 5 编译 nodes.json → 双平面 wiki 页面
-│       ├── wiki-gitops.mjs       ← Stage 5 后置：独立知识仓自动 commit/push（env 驱动）
-│       ├── validate.mjs          ← Stage 6 Lint 校验
-│       ├── gen-manuals.mjs       ← 经统一编译门禁发布已审核手册 Bundle
-│       ├── admin-client.mjs      ← Stage 8 状态回写客户端（pushWikiNodes/pushSyncStatus）
-│       ├── admin-pull.mjs        ← Stage 0 从 Admin 拉取 Project Registry 配置
-│       ├── sync-repo.mjs         ← Stage 0 代码仓增量同步与状态回写
-│       └── templates.mjs         ← 文档模板自定义：解析(项目>全局>内置)/list/get/init/check [--project]
+│       └── client.mjs            ← 轻量 HTTP 客户端（无主项目依赖）
 ├── admin/                        ← ★ 管理台（TDesign Vue Next SPA：项目登记/Token/审核/进度）
 ├── scripts/
 │   └── register-admin.mjs        ← 一次性 Admin 引导：登记项目/发 Token/同步 wiki 节点
@@ -244,8 +236,8 @@ cim-llm-wiki/
 │   ├── TECH-STACK.md             ← 技术框架选型建议
 │   └── 泛半导体CIM…落地方案.md   ← 方案原文
 ├── data/                         ← 运行时数据（.gitignore）
-│   ├── raw/<module>/             ← 解析后的 Markdown 存根 + 原始文件副本
-│   ├── work/<bundle_id>/         ← 抽取中间产物（nodes.json）
+│   ├── raw/<module>/             ← 历史本地维护流程产物；新流程使用外部共享目录
+│   ├── work/<bundle_id>/         ← 历史本地批次；新流程 nodes.json 可位于共享目录
 │   ├── review/                   ← HITL 变更卡片（pending/approved/rejected/archived）
 │   ├── documents/                ← project-registry.json / api-registry.json 等登记文件
 │   ├── samples/                  ← 测试样本文档
@@ -270,16 +262,17 @@ cim-llm-wiki/
 
 ```bash
 # Stage 1 解析（服务须在线）
-node .agents/skills/cim-wiki/scripts/parse.mjs <输入文档> [--module <模块名>] [--engine mineru|docling|markitdown]
+# 以下为服务器维护命令；Agent 使用上文轻量 skill/API
+node packages/wiki-tools/parse.mjs <输入文档> [--module <模块名>] [--engine mineru|docling|markitdown]
 
 # Stage 1.5 文档状态管控（draft → frozen → active）
-node .agents/skills/cim-wiki/scripts/doc-state.mjs verify
+node packages/wiki-tools/doc-state.mjs verify
 
 # Stage 5 编译（读取 data/work/<bundle_id>/nodes.json；配 WIKI_GITOPS_ENABLED 时对知识仓自动提交）
-node .agents/skills/cim-wiki/scripts/compile.mjs <bundle_id>
+node packages/wiki-tools/compile.mjs <bundle_id>
 
 # Stage 6 Lint 校验
-node .agents/skills/cim-wiki/scripts/validate.mjs data/wiki
+node packages/wiki-tools/validate.mjs data/wiki
 
 # Stage 7 展示
 cd wiki && npm run docs:dev

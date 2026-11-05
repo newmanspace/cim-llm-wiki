@@ -1,0 +1,3 @@
+# Historical documentation used the literal placeholder "Bearer cimwt_xxx...".
+# Ignore only that exact historical finding; new credentials are still blocked.
+e19c2162affe4fba4065ddd6c41fc88fa35bad2a:.qoder/skills/cim-wiki/SKILL.md:curl-auth-header:272

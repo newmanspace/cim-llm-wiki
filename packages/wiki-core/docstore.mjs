@@ -1,3 +1,4 @@
+import { resolveSource, sharedRoots, resolveShared, hashFile } from './sources.mjs'
 // 文档注册表公共库：data/documents/manifest.json（文档状态机唯一状态源）
 // 状态机: draft ──freeze──▶ frozen ──compile/activate──▶ active ──新版本active──▶ superseded
 import { readFileSync, writeFileSync, mkdirSync, existsSync, createReadStream } from 'node:fs'
@@ -39,7 +40,10 @@ export function makeDocId({ system, category, subcategory, name }) {
 
 export function findDoc(m, idOrPath) {
   const norm = String(idOrPath).replace(/^\.\//, '')
-  return m.docs.find(d => d.doc_id === slug(idOrPath) || d.doc_id === idOrPath || d.path === norm || d.path === join('data', norm.replace(/^data\//, '')) || basename(d.path) === basename(norm))
+  const exact = m.docs.find(d => d.path === norm || d.doc_id === idOrPath)
+  if (exact) return exact
+  const matches = m.docs.filter(d => d.doc_id === slug(idOrPath) || d.path === join('data', norm.replace(/^data\//, '')) || basename(d.path) === basename(norm))
+  return matches.length === 1 ? matches[0] : undefined
 }
 
 export function sha256(file) {
@@ -75,7 +79,7 @@ export function upsertDraft(projectRoot, { system, version, category, subcategor
   return { manifest: m, record: rec }
 }
 
-export async function transition(projectRoot, idOrPath, to, { by = 'doc-state.mjs', note = '', sha = undefined } = {}) {
+export async function transition(projectRoot, idOrPath, to, { by = 'doc-state.mjs', note = '', sha = undefined, roots = sharedRoots() } = {}) {
   const m = loadManifest(projectRoot)
   const rec = findDoc(m, idOrPath)
   if (!rec) throw new Error(`manifest 中找不到文档: ${idOrPath}`)
@@ -83,9 +87,10 @@ export async function transition(projectRoot, idOrPath, to, { by = 'doc-state.mj
     throw new Error(`非法状态迁移: ${rec.id ?? rec.doc_id} ${rec.state} → ${to}（允许: ${(TRANSITIONS[rec.state] || []).join(', ') || '无'}）`)
   }
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
-  const abs = join(projectRoot, rec.path)
+  const abs = resolveSource(rec.path, projectRoot, roots)
   if (!existsSync(abs)) throw new Error(`文档文件不存在: ${rec.path}`)
   if (to === 'frozen') {
+    if (rec.original_uri && hashFile(resolveShared(rec.original_uri, roots)) !== rec.original_sha256) throw new Error('Original document content has changed; register a new version')
     rec.sha256 = sha ?? await sha256(abs)
   }
   if (to === 'draft') { rec.sha256 = null }

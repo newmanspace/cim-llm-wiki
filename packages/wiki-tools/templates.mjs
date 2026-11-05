@@ -23,13 +23,13 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadTemplateContracts, NODE_TYPES } from '../../../../packages/wiki-core/contracts.mjs'
-import { parsePage, structureErrors } from '../../../../packages/wiki-core/markdown.mjs'
+import { loadTemplateContracts, NODE_TYPES } from '../wiki-core/contracts.mjs'
+import { parsePage, structureErrors } from '../wiki-core/markdown.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PROJECT_ROOT = resolve(__dirname, '..', '..', '..', '..')
-const BUILTIN_DIR = join(PROJECT_ROOT, '.agents', 'skills', 'cim-wiki', 'assets')
-const WIKI_ROOT = resolve(process.env.CIM_WIKI_ROOT || join(PROJECT_ROOT, 'data', 'wiki'))
+const PROJECT_ROOT = resolve(process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'))
+const BUILTIN_DIR = resolve(__dirname, '../../.agents/skills/cim-wiki/assets')
+const WIKI_ROOT = resolve(process.env.CIM_WIKI_ROOT || process.env.WIKI_ROOT || join(PROJECT_ROOT, 'data', 'wiki'))
 
 // 检索目录（不含内置）：[项目级?, 全局级]
 function customDirs(project) {

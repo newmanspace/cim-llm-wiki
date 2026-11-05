@@ -1,14 +1,15 @@
+import { sharedRoots, resolveSource, resolveShared, hashFile, nodeProvenance } from './sources.mjs'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve, relative, posix } from 'node:path'
 import { createHash } from 'node:crypto'
 import { PROJECT_ROOT, CONTRACT_ROOT, schemaErrors, nodeLocation, slugify, loadTemplateContracts, REFERENCE_TYPES } from './contracts.mjs'
-import { parsePage, structureErrors, pageLinks } from './markdown.mjs'
+import { parsePage, structureErrors, pageLinks, renderingErrors } from './markdown.mjs'
 import { validateDocumentSets } from './document-set.mjs'
 
 const vocabulary = JSON.parse(readFileSync(join(CONTRACT_ROOT, 'vocabulary.json'), 'utf8'))
 const issue = (code, path, message) => ({ code, path, message })
 
-export function validateWiki({ wikiRoot = join(PROJECT_ROOT, 'data/wiki'), projectRoot = PROJECT_ROOT } = {}) {
+export function validateWiki({ projectRoot = process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, wikiRoot = join(projectRoot, 'data/wiki'), roots = sharedRoots() } = {}) {
   wikiRoot = resolve(wikiRoot)
   const errors = [], warnings = [], pages = new Map(), files = new Set(), projects = new Set()
   const add = (code, path, message) => errors.push(issue(code, path, message))
@@ -64,6 +65,7 @@ export function validateWiki({ wikiRoot = join(PROJECT_ROOT, 'data/wiki'), proje
       }
       continue
     }
+    errors.push(...renderingErrors(page.tokens).map(e => issue(e.code, key, e.message)))
     const { fm } = page
     const segments = key.split('/')
     const project = segments[0]
@@ -165,9 +167,16 @@ export function validateWiki({ wikiRoot = join(PROJECT_ROOT, 'data/wiki'), proje
       const byPath = new Map()
       for (const rec of manifest.docs) {
         byPath.set(rec.path, rec)
-        const path = resolve(projectRoot, rec.path || '')
-        if (!path.startsWith(resolve(projectRoot) + '/')) { add('unsafe_path', rec.path, 'Source escapes project root'); continue }
+        let path
+        try { path = resolveSource(rec.path, projectRoot, roots) }
+        catch (e) { add('source_unavailable', rec.path, e.message); continue }
         if (!existsSync(path)) { add('doc_missing', rec.path, 'Registered source does not exist'); continue }
+        if (rec.path.startsWith('shared://')) {
+          try {
+            if (!rec.original_uri || !rec.original_path || !rec.original_sha256 || !rec.version) throw new Error('Original document provenance is incomplete')
+            if (hashFile(resolveShared(rec.original_uri, roots)) !== rec.original_sha256) add('original_drift', rec.path, 'Original document content has changed')
+          } catch (e) { add('original_unavailable', rec.path, e.message) }
+        }
         if (rec.state !== 'draft') {
           const hash = createHash('sha256').update(readFileSync(path)).digest('hex')
           if (!rec.sha256 || hash !== rec.sha256) add('doc_drift', rec.path, 'Frozen source hash is missing or has changed')
@@ -175,10 +184,19 @@ export function validateWiki({ wikiRoot = join(PROJECT_ROOT, 'data/wiki'), proje
       }
       for (const [key, { fm }] of pages) {
         for (const source of Array.isArray(fm.source) ? fm.source : [fm.source]) {
+          if (typeof source === 'string' && source.startsWith('shared://')) {
+            try {
+              const expected = nodeProvenance({ source }, manifest)[0]
+              if (!fm.provenance?.some(p => JSON.stringify(p) === JSON.stringify(expected))) add('provenance_mismatch', key, 'Original document provenance is absent or differs from the registered source')
+            } catch (e) { add('provenance_missing', key, e.message) }
+          }
           if (byPath.get(source)?.state === 'draft') add('doc_state', key, `Source is still draft: ${source}`)
         }
       }
     } catch (e) { add('source_manifest_error', manifestPath, e.message) }
+  }
+  if (!existsSync(manifestPath)) for (const [key, { fm }] of pages) {
+    if ((Array.isArray(fm.source) ? fm.source : [fm.source]).some(s => typeof s === 'string' && s.startsWith('shared://'))) add('provenance_missing', key, 'Shared source manifest is missing')
   }
   return { errors, warnings, scanned: pages.size }
 }
