@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveSource, resolveShared, hashFile } from '../wiki-core/sources.mjs'
 // 文档状态管控 CLI：data/documents/manifest.json
 // 状态机: draft ──freeze──▶ frozen ──activate(或 compile 自动)──▶ active ──新版本active──▶ superseded
 //
@@ -17,11 +18,11 @@ import { fileURLToPath } from 'node:url'
 import { loadManifest, findDoc, transition, sha256 } from './docstore.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const ROOT = resolve(__dirname, '..', '..', '..', '..')
+const ROOT = resolve(process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'))
 
 function fail(msg) { console.error(msg); process.exit(1) }
 
-function referencedBundles(m) {
+function referencedBundles() {
   // doc path -> bundles whose nodes cite it as source
   const work = join(ROOT, 'data', 'work')
   const out = {}
@@ -31,7 +32,7 @@ function referencedBundles(m) {
     if (!existsSync(p)) continue
     const d = JSON.parse(readFileSync(p, 'utf-8'))
     for (const s of new Set([d.source_doc, ...(d.nodes || []).map(n => n.source)].filter(Boolean))) {
-      if (!String(s).startsWith('data/')) continue
+      if (!String(s).startsWith('data/') && !String(s).startsWith('shared://')) continue
       ;(out[s] ||= []).push({ bundle: d.bundle_id || b, compiled: !!d.compiled_at })
     }
   }
@@ -66,7 +67,7 @@ async function main() {
     }
     case 'freeze': {
       const rec = need(args[1])
-      const abs = join(ROOT, rec.path)
+      const abs = resolveSource(rec.path, ROOT)
       if (!existsSync(abs)) fail(`文档文件不存在: ${rec.path}`)
       const h = await sha256(abs)
       const updated = await transition(ROOT, rec.doc_id, 'frozen', { by: process.env.USER || 'user', note: opt('--note') || '修正完成，正文定稿' })
@@ -100,8 +101,9 @@ async function main() {
     case 'verify': {
       let bad = 0
       for (const r of m.docs) {
-        const abs = join(ROOT, r.path)
+        const abs = resolveSource(r.path, ROOT)
         if (!existsSync(abs)) { console.log(`ERROR [doc_missing] ${r.doc_id}: ${r.path}`); bad++; continue }
+        if (r.original_uri && hashFile(resolveShared(r.original_uri)) !== r.original_sha256) { console.log(`ERROR [original_drift] ${r.doc_id}`); bad++ }
         if (r.state !== 'draft' && r.sha256) {
           const h = await sha256(abs)
           if (h !== r.sha256) { console.log(`ERROR [doc_drift] ${r.doc_id}: 内容已变更但状态为 ${r.state}（freeze 后禁止修改，需先 unfreeze）`); bad++ }

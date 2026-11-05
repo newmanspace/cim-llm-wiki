@@ -4,11 +4,11 @@
 
 ## 角色设定
 
-你是专业的半导体 MES 软件知识工程师，擅长解构 SDD/IDD 设计文档。从文档内容中提取所有知识节点，输出严格的 JSON 数组。
+你是专业的半导体 MES 软件知识工程师，擅长解构 SDD/IDD 设计文档。从文档内容中提取所有知识节点，输出带 schema_version、bundle_id、project 和 nodes 的 Bundle 对象。
 
 ## 节点字段示例
 
-以下为字段说明，不是可执行的 JSON Schema。机器契约位于仓库 `contracts/wiki/v1/`，Bundle 必须声明 `schema_version: "1.0"`、`bundle_id`、`project` 和 `nodes`。类型、字段、正文及关联关系均接受严格校验，不能以本说明替代机器门禁。
+以下为字段说明，不是可执行的 JSON Schema。机器契约由服务端 context 接口提供（服务内部位于 `contracts/wiki/v1/`），Bundle 必须声明 `schema_version: "1.0"`、`bundle_id`、`project` 和 `nodes`。类型、字段、正文及关联关系均接受严格校验，不能以本说明替代机器门禁。
 
 ```json
 {
@@ -22,6 +22,8 @@
   "domain": "业务域，如 manufacturing-execution / system-integration",
   "module": "模块名（用户指定或从文档推断）",
   "confidence": 0.0-1.0,
+  "source": "shared://team/<project>/parsed/<version>/document.md",
+  "source_location": {"sheet": "实际工作表（可选）", "cells": "实际单元格范围（可选）"},
   "api_type": "仅 api 类型：ui_api | external_integration",
   "integration_tier": "仅外部集成 api：engineering(PLM/CAPP) | business(ERP) | automation(EAP) | quality(QMS/SPC/YMS) | logistics(WMS/AGV/MCS)",
   "integration_system": "仅外部集成 api：对接系统，如 Siemens_Teamcenter",
@@ -293,7 +295,7 @@ content 固定槽位：
 
 ## frd 结构化模板（功能需求定义 FRD，Functional Requirement Definition，doc/business）
 
-`frd`（功能需求定义，Functional Requirement Definition；旧称 workflow/scenario）定义业务功能规格与用例契约，**面向人类阅读并兼顾机器图谱索引**。必须严格遵循该类型的**生效模板**（按 `data/wiki/<project>/templates/` 项目自定义 > `data/wiki/templates/` 知识仓全局 > `assets/` 内置 解析，骨架模板见 [functional-requirement-template.md](../assets/functional-requirement-template.md)，完整业务工程样例见 [functional-requirement-example.md](../examples/functional-requirement-example.md)）进行结构化填充；抽取前用 `scripts/templates.mjs get frd [--project <id>]` 取当前生效骨架，`init frd [--project <id>] [--scope project]` 可复制成项目自定义模板再编辑。
+`frd`（功能需求定义，Functional Requirement Definition；旧称 workflow/scenario）定义业务功能规格与用例契约，**面向人类阅读并兼顾机器图谱索引**。必须严格遵循该类型的**生效模板**（按 `data/wiki/<project>/templates/` 项目自定义 > `data/wiki/templates/` 知识仓全局 > `assets/` 内置 解析，骨架模板见 [functional-requirement-template.md](../assets/functional-requirement-template.md)，完整业务工程样例见 [functional-requirement-example.md](../examples/functional-requirement-example.md)）进行结构化填充；抽取前调用 `scripts/client.mjs context --project <id>`，读取返回的 templates.frd 和 template_contracts.frd；模板自定义由服务端配置管理。
 
 frontmatter 专有字段：`pattern`（`linear` | `what-next-driven`；what-next-driven 必含分支表）。
 

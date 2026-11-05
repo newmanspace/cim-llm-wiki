@@ -55,6 +55,29 @@ services:
       postgres:
         condition: service_healthy
 
+  # Shared-directory workflow; local agents only need the lightweight skill.
+  knowledge:
+    build:
+      context: ..
+      dockerfile: deploy/knowledge/Dockerfile
+    image: cim-wiki-knowledge:latest
+    volumes:
+      - ../data:/app/data
+      - ${CIM_WIKI_SHARED_DIR:-../data/shared}:/shared
+    environment:
+      - CIM_WIKI_WORKSPACE=/app
+      - WIKI_ROOT=/app/data/wiki
+      - CIM_WIKI_SHARED_ROOTS={"team":"/shared"}
+      - CIM_WIKI_API_TOKEN=${CIM_WIKI_API_TOKEN:-}
+      - MINERU_ENDPOINT=http://mineru:8888
+      - DOCLING_ENDPOINT=http://docling:5001
+      - MARKITDOWN_ENDPOINT=http://markitdown:5002
+    restart: unless-stopped
+    depends_on:
+      - mineru
+      - docling
+      - markitdown
+
   # ── 2. 前端展示服务: VitePress 知识库 Web 交互站点 ──────────────────────────
   wiki:
     build:
@@ -66,9 +89,12 @@ services:
       - "5174:5174"
     volumes:
       - ../data/wiki:/data/wiki
+      - ../data:/app/data:ro
+      - ${CIM_WIKI_SHARED_DIR:-../data/shared}:/shared:ro
     environment:
       - PORT=5174
       - WIKI_ROOT=/data/wiki
+      - CIM_WIKI_SHARED_ROOTS={"team":"/shared"}
     restart: unless-stopped
     depends_on:
       - server
@@ -176,6 +202,7 @@ services:
       - "8099:80"
     restart: unless-stopped
     depends_on:
+      - knowledge
       - server
       - wiki
       - admin

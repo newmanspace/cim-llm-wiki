@@ -1,2 +1,2 @@
 // Compatibility entrypoint. Runtime implementation lives in wiki-core.
-export * from '../../../../packages/wiki-core/wiki-gitops.mjs'
+export * from '../wiki-core/docstore.mjs'

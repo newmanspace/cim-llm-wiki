@@ -2,11 +2,14 @@
   "name": "cim-llm-wiki",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test packages/wiki-core/test/*.test.mjs",
     "wiki:validate": "node packages/wiki-core/cli.mjs validate",
-    "wiki:compile": "node packages/wiki-core/cli.mjs compile"
+    "wiki:compile": "node packages/wiki-core/cli.mjs compile",
+    "knowledge:serve": "node packages/wiki-service/server.mjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",

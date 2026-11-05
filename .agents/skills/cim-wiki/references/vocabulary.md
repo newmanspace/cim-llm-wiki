@@ -1,6 +1,6 @@
 # 受控词表（Rule / Domain / Operation 三份枚举）
 
-> 本文件为受控词表的阅读说明；校验器的机器词表来源为 `contracts/wiki/v1/vocabulary.json`。变更时须同步此说明，禁止只改说明而绕过机器契约。
+> 本文件为受控词表的阅读说明；服务端校验器的机器词表来源为 `contracts/wiki/v1/vocabulary.json`（context 返回 vocabulary）。变更时须同步此说明，禁止只改说明而绕过机器契约。
 > 新增枚举值必须先在此登记，再在节点中使用；未登记的值报 `vocabulary_violation` error。
 
 ## Rule Category（rule card 的 `rule_category` 与 domain card 的 `rule_tags` 共用）

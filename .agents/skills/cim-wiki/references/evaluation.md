@@ -65,3 +65,9 @@ hits ≥4 → 0.9；≥2 → 0.6；=1 → 0.3；0 → 0.1。
 | < 0.55 | archive | 归档到 data/review/archived/，不入主库 |
 
 **强制升级规则**：即使得分达到 L0，若节点修改/冲突了既有 business_rule，或涉及 Hold/Release 状态机、QTime 约束、PLM/ERP 关键集成接口，或 rule card 声明 `severity: Critical`，一律升级为 L2_arch。
+
+## 服务端交接格式
+
+语义评分由当前本地 Agent/LLM 执行。每个节点使用 `qscore: {auth, comp, rel, fresh, struct, reuse, risk, total}`，各维度为 [0,1] 数值；total 按上式保留四位小数。服务端只复算总分、检查门限及审核条件，不另行调用 LLM。source 应为登记后的共享稿件 URI；来源可信度依据来源记录的原始文件格式，不能因为转换稿扩展名为 .md 而降级正式 XLSX/PDF 原件。
+
+已有页面变更需用户批准，即使分数达到 L0；修改既有 business_rule 或触及关键规则须升级为 L2。审批针对服务端保存的提交快照，修订用新的 Bundle ID。

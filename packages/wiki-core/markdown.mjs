@@ -15,7 +15,9 @@ export function parsePage(text) {
 }
 
 export function renderPage(fm, title, content) {
-  return `---\n${stringify(fm, { lineWidth: 0 })}---\n\n# ${title}\n\n${content.trim()}\n`
+  const trace = (fm.provenance || []).map(p => `> 原始文档路径：${p.original_path}\n> 原始文档标识：${p.original_uri}\n> 原件 SHA-256：${p.original_sha256}\n> 文档版本：${p.version}`).join('\n>\n')
+  const location = fm.source_location ? `\n> 文档内位置：${Object.entries(fm.source_location).map(([k, v]) => `${k}=${v}`).join('; ')}` : ''
+  return `---\n${stringify(fm, { lineWidth: 0 })}---\n\n# ${title}\n\n${content.trim()}\n${trace ? `\n---\n${trace}${location}\n` : ''}`
 }
 
 export function headings(tokens) {

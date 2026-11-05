@@ -23,7 +23,7 @@ export async function runCli(argv = process.argv.slice(2)) {
         values[arg] = args[++i]
       }
     }
-    const projectRoot = resolve(values['--project-root'] || PROJECT_ROOT)
+    const projectRoot = resolve(values['--project-root'] || process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT)
     if (command === 'validate') {
       if (positional.length > 1) throw new Error('validate accepts a single wiki directory')
       const wikiRoot = resolve(positional[0] || process.env.WIKI_ROOT || join(projectRoot, 'data/wiki'))
@@ -55,7 +55,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       }
       if (adminEnabled() && result.wikiEntries.length) {
         try { await pushWikiNodes(result.project, result.wikiEntries) }
-        catch (e) { throw new Error(`Local publication succeeded, but Admin indexing failed: ${e.message}`) }
+        catch (e) { throw new Error(`Local publication succeeded, but Admin indexing failed: ${e.message}`, { cause: e }) }
       }
     } })
     console.log(JSON.stringify(result, null, 2))
