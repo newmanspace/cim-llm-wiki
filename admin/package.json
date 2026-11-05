@@ -16,7 +16,7 @@
     "tdesign-icons-vue-next": "0.4.4",
     "tdesign-vue-next": "^1.19.2",
     "vue": "^3.5.34",
-    "vue-i18n": "^11.4.2",
+    "vue-i18n": "^11.4.17",
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
