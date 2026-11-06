@@ -49,7 +49,7 @@
 ### 1. 安装依赖
 
 ```bash
-npm install          # 仓库根执行
+npm ci               # 仓库根执行，使用已锁定并审计的依赖
 ```
 
 ### 2. 启动解析引擎（首次需拉取镜像）
@@ -66,8 +66,11 @@ docker tag  swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/docling-project/doc
             quay.io/docling-project/docling-serve:latest
 ```
 
+启动网关会话认证前，在仓库根目录 `.env` 配置独立随机的 `AUTH_SESSION_SECRET`（至少 32 字符）及 bcrypt `AUTH_PASSWORD_HASH`；摘要在 `.env` 中使用单引号包围，保留其中的 `$`。旧 `AUTH_PASSWORD_SHA256` 配置必须迁移，默认口令和默认签名密钥已移除。详见 [认证配置迁移](docs/github-quality-gate.md#密码配置迁移)。
+
 ```bash
-cd deploy && docker compose up -d
+# 在仓库根目录执行，显式读取根目录配置
+docker compose --env-file .env -f deploy/docker-compose.yml up -d
 ```
 
 一键拉起核心服务（Wiki 站点 + 流水线 API + 3 解析引擎；检索层为 Phase 3 预留）：

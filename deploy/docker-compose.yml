@@ -1,6 +1,6 @@
 # ==============================================================================
 # cim-llm-wiki 统一容器编排服务 (docker-compose.yml)
-# 运行说明: cd deploy && docker compose up -d --build
+# 运行说明: 在仓库根目录配置 .env 后执行 docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 # 统一入口 (gateway :8099，推荐对外只开这一个端口):
 #   - 知识库 Wiki 站点:   http://<宿主机IP>:8099/
 #   - Admin 管理控制台:   http://<宿主机IP>:8099/admin/
@@ -35,7 +35,7 @@ services:
       - ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-cimwiki}:${POSTGRES_PASSWORD:-cimwiki_dev_2026}@postgres:5432/${POSTGRES_DB:-cim_wiki_admin}?sslmode=disable
       - ADMIN_MIGRATION_DIR=/app/deploy/postgres
       # ── 访问鉴权（网关会话登录，保护 /wiki/ 与 /admin/）────────────────
-      #    凭证来源暂用 env（机制先行），生产务必覆盖 SECRET 与口令，或改用 SHA256。
+      #    凭证来源暂用 env（机制先行），启动前配置独立随机 SECRET 与 bcrypt 摘要；旧 SHA256 配置会被拒绝。
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
       - AUTH_SESSION_SECRET=${AUTH_SESSION_SECRET:-}
       - AUTH_COOKIE_NAME=${AUTH_COOKIE_NAME:-cim_session}
