@@ -95,3 +95,5 @@ docker compose -f deploy/docker-compose.yml config --quiet
 Admin 测试保留 Vue 状态、事件、路由调用及国际化，使用 UI 组件替身隔离第三方控件；它们不等价于真实浏览器端到端测试。Python 测试使用真实 FastAPI 类型与临时文件，但模拟重量级转换引擎，不下载模型；不将适配层 100% 覆盖率解释为 Docling/MarkItDown 引擎质量保证。Go 管理接口测试使用每个测试独立的 PostgreSQL schema，测试结束后删除；CI 使用独立服务容器，不连接生产数据库。
 
 覆盖率门槛针对所声明源码范围的整体结果，未测试文件也计入分母；不宣称每个文件均达到 80%。复杂度门槛针对生产源码，测试代码仍接受缺陷和安全检查。
+
+具体正常文件/HTTP 数据流告警的复核依据见 [CodeQL 预期数据流复核](codeql-reviewed-flows.md)。这不是查询排除配置，也不豁免后续扩大输入或输出权限的修改。
