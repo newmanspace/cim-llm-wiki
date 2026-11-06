@@ -37,12 +37,14 @@ services:
       # ── 访问鉴权（网关会话登录，保护 /wiki/ 与 /admin/）────────────────
       #    凭证来源暂用 env（机制先行），生产务必覆盖 SECRET 与口令，或改用 SHA256。
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
-      - AUTH_SESSION_SECRET=${AUTH_SESSION_SECRET:-dev-insecure-change-me-session-secret}
+      - AUTH_SESSION_SECRET=${AUTH_SESSION_SECRET:-}
       - AUTH_COOKIE_NAME=${AUTH_COOKIE_NAME:-cim_session}
       - AUTH_SESSION_TTL_HOURS=${AUTH_SESSION_TTL_HOURS:-12}
       - AUTH_COOKIE_SECURE=${AUTH_COOKIE_SECURE:-false}
       - AUTH_USERNAME=${AUTH_USERNAME:-admin}
-      - AUTH_PASSWORD=${AUTH_PASSWORD:-cimwiki-dev-2026}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+      - AUTH_PASSWORD_HASH=${AUTH_PASSWORD_HASH:-}
+      # Forward the obsolete variable so the server rejects unmigrated configurations.
       - AUTH_PASSWORD_SHA256=${AUTH_PASSWORD_SHA256:-}
     restart: unless-stopped
     depends_on:

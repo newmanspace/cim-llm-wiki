@@ -9,7 +9,7 @@
 > **一句话**：Skill 驱动的泛半导体 CIM 文档知识工程流水线——原始文档（SDD/IDD/PRD/运维手册）经服务端解析、Agent 抽取与 7 维评分、HITL 聚合审核后，编译为 `data/wiki/` 双平面原子化知识库（`doc/` 领域知识 + `code/` 代码契约），用 VitePress 本地展示，并可经 Admin 管理台登记与知识库 GitOps 独立版本管理。
 
 <p align="center">
-  <a href="#"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=nodedotjs&logoColor=white"></a>
+  <a href="#"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.22.2-339933?style=flat-square&logo=nodedotjs&logoColor=white"></a>
   <a href="#"><img alt="VitePress" src="https://img.shields.io/badge/VitePress-1.x-646cff?style=flat-square"></a>
   <a href="#"><img alt="架构" src="https://img.shields.io/badge/架构-v2.1·Skill驱动·Admin·GitOps-b8863b?style=flat-square"></a>
   <a href="#"><img alt="解析引擎" src="https://img.shields.io/badge/解析引擎-MinerU·Docling·MarkItDown-0a7d6f?style=flat-square"></a>
@@ -44,7 +44,7 @@
 
 ## 快速开始
 
-需要 [Node.js](https://nodejs.org/) ≥ 20、[Docker](https://www.docker.com/) 与 [Docker Compose](https://docs.docker.com/compose/)。
+需要 [Node.js](https://nodejs.org/) ≥ 22.22.2（主项目开发及质量检查；独立 skill 客户端仍可使用 Node.js 20）、[Docker](https://www.docker.com/) 与 [Docker Compose](https://docs.docker.com/compose/)。
 
 ### 1. 安装依赖
 

@@ -42,7 +42,7 @@ jobs:
       - if: ${{ !cancelled() }}
         run: npm audit --prefix wiki --registry=https://registry.npmjs.org --audit-level=high --json > reports/npm-wiki.json
       - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: node-quality-reports
           path: reports/
@@ -53,6 +53,19 @@ jobs:
     name: Go checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cim_quality
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cim_quality"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/cim_quality?sslmode=disable
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -69,7 +82,7 @@ jobs:
           go tool cover -html=reports/go.cover -o reports/go-coverage.html
           node scripts/check-go-coverage.mjs reports/go.cover
       - if: ${{ !cancelled() }}
-        run: go run github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0 -over 15 internal cmd | tee reports/go-complexity.txt
+        run: go run github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0 -ignore '_test\.go$' -over 15 internal cmd | tee reports/go-complexity.txt
       - if: ${{ !cancelled() }}
         run: |
           GOBIN="$RUNNER_TEMP/quality-tools" go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
@@ -78,7 +91,7 @@ jobs:
       - if: ${{ !cancelled() }}
         run: go build -o "$RUNNER_TEMP/cim-server" ./cmd/server
       - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: go-quality-reports
           path: reports/
@@ -91,7 +104,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - run: python3 -m pip install ruff==0.17.3 coverage==7.17.2
+      - run: python3 -m pip install ruff==0.17.3 coverage==7.17.2 fastapi==0.162.0 python-multipart==0.0.22
       - run: mkdir -p reports/python-coverage
       - run: ruff check deploy scripts tests --output-format=json --output-file=reports/python-lint.json
       - if: ${{ !cancelled() }}
@@ -105,7 +118,7 @@ jobs:
       - if: ${{ !cancelled() }}
         run: coverage report
       - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: python-quality-reports
           path: reports/
@@ -133,7 +146,7 @@ jobs:
       - if: ${{ !cancelled() }}
         run: npm audit --registry=https://registry.npmjs.org --audit-level=high --json > npm-audit.json
       - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: admin-quality-reports
           path: |

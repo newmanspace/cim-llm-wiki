@@ -32,7 +32,7 @@ ESLint 使用推荐缺陷检查；允许现有 TypeScript explicit any、Vue 声
 
 独立检查步骤在前一检查失败后继续执行（取消除外），作业仍保持失败。报告以 `node-quality-reports`、`go-quality-reports`、`python-quality-reports`、`admin-quality-reports` 上传至该次 Actions 运行，保留 14 天。Node/Python/Admin 提供覆盖率 HTML 和机器可读报告，Go 提供 coverprofile、HTML、测试 JSON 与漏洞 JSON。报告中只使用仓库源码与合成数据。
 
-本次遵循“先增加规则，再统一修复”的顺序。基线见 [quality-baseline.md](quality-baseline.md)。基线不达标时保持 PR 红灯，不降低阈值、不关闭门禁、不伪造测试通过。
+本次先在独立提交接入规则并实测失败阻断，再统一修复。历史扫描和整改结果见 [quality-baseline.md](quality-baseline.md)。不降低阈值、不关闭门禁、不伪造测试通过。
 
 ## 效率
 
@@ -81,3 +81,17 @@ docker compose -f deploy/docker-compose.yml config --quiet
 ## 门禁生效验证
 
 在测试 PR 中暂时加入必然失败的用例，确认 Quality Gate 失败且 GitHub 显示禁止合并，再移除该用例。等待最新提交全部检查通过后才能合并。检查结果必须属于当前 PR 提交，不能使用先前提交的绿色结果。服务发布和代码合并是独立操作，本流水线不会自动部署业务服务。
+
+## 密码配置迁移
+
+`AUTH_PASSWORD_SHA256` 不再支持，启动时明确拒绝旧配置；请重新设置密码并用可信 bcrypt 工具生成 cost 至少 12 的摘要，改存为 `AUTH_PASSWORD_HASH`。摘要优先于开发环境的 `AUTH_PASSWORD`，无效摘要不能回退明文口令。保留会话 HMAC-SHA256 签名；密码存储与会话完整性使用不同机制。升级前完成配置迁移，避免登录不可用。
+
+开启认证时，`AUTH_SESSION_SECRET` 必须是至少 32 字符的独立随机密钥；旧开发默认值会阻止启动。Compose 不再提供默认密码或默认签名密钥。无密码配置时登录拒绝访问；只有显式 `AUTH_ENABLED=false` 才保留透明门控。此 PR 不会自动重启或部署服务，升级前须完成配置迁移。
+
+## 依赖兼容与测试范围
+
+根包和 Admin 分别锁定修复后的 minimatch/glob，避免静态检查与测试工具继续引入已知拒绝服务漏洞；Wiki 的 Vite 固定在兼容的 6.4 补丁线，保留 VitePress 1.6.4，并通过合成站点构建验证。Go 升级至 1.26.10，更新受影响的 net/text/quic-go 依赖。Node 开发环境最低 22.22.2，对齐浏览器测试环境的依赖要求；独立 skill 客户端仍不需要 npm 安装。
+
+Admin 测试保留 Vue 状态、事件、路由调用及国际化，使用 UI 组件替身隔离第三方控件；它们不等价于真实浏览器端到端测试。Python 测试使用真实 FastAPI 类型与临时文件，但模拟重量级转换引擎，不下载模型；不将适配层 100% 覆盖率解释为 Docling/MarkItDown 引擎质量保证。Go 管理接口测试使用每个测试独立的 PostgreSQL schema，测试结束后删除；CI 使用独立服务容器，不连接生产数据库。
+
+覆盖率门槛针对所声明源码范围的整体结果，未测试文件也计入分母；不宣称每个文件均达到 80%。复杂度门槛针对生产源码，测试代码仍接受缺陷和安全检查。

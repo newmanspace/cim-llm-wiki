@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 
 	"cim-llm-wiki/internal/config"
 )
@@ -43,10 +44,8 @@ func (h *AuthHandler) authenticate(username, password string) bool {
 		return false
 	}
 	switch {
-	case h.cfg.PasswordSHA256 != "":
-		sum := sha256.Sum256([]byte(password))
-		got := hex.EncodeToString(sum[:])
-		return subtle.ConstantTimeCompare([]byte(strings.ToLower(got)), []byte(strings.ToLower(h.cfg.PasswordSHA256))) == 1
+	case h.cfg.PasswordHash != "":
+		return bcrypt.CompareHashAndPassword([]byte(h.cfg.PasswordHash), []byte(password)) == nil
 	case h.cfg.Password != "":
 		return subtle.ConstantTimeCompare([]byte(password), []byte(h.cfg.Password)) == 1
 	default:

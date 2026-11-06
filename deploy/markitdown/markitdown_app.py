@@ -3,8 +3,10 @@
 请求: multipart/form-data, 字段名 "file"（pdf/docx/pptx/xlsx/html...）
 响应: {"document": {"md_content": "<markdown>"}, "engine": "markitdown", "status": "ok"}
 """
+
 import tempfile
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from markitdown import MarkItDown
@@ -13,8 +15,20 @@ app = FastAPI(title="cim-wiki markitdown parser", version="1.0.0")
 converter = MarkItDown()
 
 SUPPORTED = {
-    ".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
-    ".html", ".htm", ".epub", ".csv", ".json", ".xml", ".zip",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".pptx",
+    ".ppt",
+    ".xlsx",
+    ".xls",
+    ".html",
+    ".htm",
+    ".epub",
+    ".csv",
+    ".json",
+    ".xml",
+    ".zip",
 }
 
 
@@ -24,7 +38,7 @@ def healthz():
 
 
 @app.post("/v1/convert/file")
-async def convert_file(file: UploadFile = File(...)):
+async def convert_file(file: Annotated[UploadFile, File()]):
     suffix = Path(file.filename or "upload.bin").suffix.lower()
     if suffix not in SUPPORTED:
         raise HTTPException(status_code=415, detail=f"unsupported file type: {suffix}")
@@ -41,6 +55,8 @@ async def convert_file(file: UploadFile = File(...)):
             "status": "ok",
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"markitdown convert failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"markitdown convert failed: {exc}"
+        ) from exc
     finally:
         Path(tmp_path).unlink(missing_ok=True)

@@ -58,8 +58,16 @@
 
     function safeNext() {
       var p = new URLSearchParams(location.search).get('next');
-      // 仅允许站内相对路径，拒绝 //host 形式的开放重定向
-      if (p && p.charAt(0) === '/' && p.charAt(1) !== '/') return p;
+      // Parse and compare the browser's canonical origin, including backslash handling.
+      if (p) {
+        try {
+          var target = new URL(p, location.origin);
+          if (target.origin === location.origin &&
+              (target.pathname.startsWith('/wiki/') || target.pathname.startsWith('/admin/'))) {
+            return target.href;
+          }
+        } catch { /* Invalid URL: return the default page. */ }
+      }
       return '/wiki/';
     }
 
