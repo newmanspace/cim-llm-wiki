@@ -97,3 +97,9 @@ Admin 测试保留 Vue 状态、事件、路由调用及国际化，使用 UI �
 覆盖率门槛针对所声明源码范围的整体结果，未测试文件也计入分母；不宣称每个文件均达到 80%。复杂度门槛针对生产源码，测试代码仍接受缺陷和安全检查。
 
 具体正常文件/HTTP 数据流告警的复核依据见 [CodeQL 预期数据流复核](codeql-reviewed-flows.md)。这不是查询排除配置，也不豁免后续扩大输入或输出权限的修改。
+
+## 依赖 PR 管理
+
+Dependabot 每周检查依赖。GitHub Actions 按一组提交，确保 CodeQL init/analyze 一起升级；npm 和 Go 的补丁、次版本更新分别分组，主版本升级保留独立 PR 以核对迁移要求。安全更新继续沿用独立处理，不等待普通版本更新的分组周期。分组规则见 `.github/dependabot.yml`，语义参见 [GitHub Dependabot groups](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#groups--)。
+
+已有积压可汇总到一个 PR：保留来源 PR 和更新版本清单，解决组合冲突，核对主版本兼容性，并在当前提交通过全部门禁后合并。原 PR 仅在更新已进入主分支后按已替代关闭，不将原 PR 各自通过视作组合验证通过。不启用依赖更新自动合并，也不放宽现有门禁。
