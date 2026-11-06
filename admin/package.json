@@ -12,10 +12,11 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@vue/devtools-api": "^8.2.1",
     "axios": "^1.16.0",
-    "pinia": "^3.0.4",
+    "pinia": "^4.1.0",
     "tdesign-icons-vue-next": "0.4.4",
-    "tdesign-vue-next": "^1.19.2",
+    "tdesign-vue-next": "^1.20.10",
     "vue": "^3.5.34",
     "vue-i18n": "^11.4.2",
     "vue-router": "^4.5.0"
@@ -23,7 +24,7 @@
   "devDependencies": {
     "@tsconfig/node22": "^22.0.5",
     "@types/node": "^22.14.0",
-    "@vitejs/plugin-vue": "6.0.6",
+    "@vitejs/plugin-vue": "6.0.10",
     "@vitest/coverage-v8": "5.1.0",
     "@vue/test-utils": "2.5.1",
     "@vue/tsconfig": "^0.9.1",
