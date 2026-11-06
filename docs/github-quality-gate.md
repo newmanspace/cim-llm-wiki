@@ -103,3 +103,7 @@ Admin 测试保留 Vue 状态、事件、路由调用及国际化，使用 UI �
 Dependabot 每周检查依赖。GitHub Actions 按一组提交，确保 CodeQL init/analyze 一起升级；npm 和 Go 的补丁、次版本更新分别分组，主版本升级保留独立 PR 以核对迁移要求。安全更新继续沿用独立处理，不等待普通版本更新的分组周期。分组规则见 `.github/dependabot.yml`，语义参见 [GitHub Dependabot groups](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#groups--)。
 
 已有积压可汇总到一个 PR：保留来源 PR 和更新版本清单，解决组合冲突，核对主版本兼容性，并在当前提交通过全部门禁后合并。原 PR 仅在更新已进入主分支后按已替代关闭，不将原 PR 各自通过视作组合验证通过。不启用依赖更新自动合并，也不放宽现有门禁。
+
+当前兼容性约束：Node 运行和 CI 基线为 22，`@types/node` 保留 22 系列；Vue 类型检查链使用 TypeScript 6 的编译器 API，暂不接受 TypeScript 7（PR #20 的 `vue-tsc` 构建已实测 `ERR_PACKAGE_PATH_NOT_EXPORTED`，新版 Volar 的 peer 范围也为 `<7`）。Dependabot 只忽略这两个已知不兼容版本范围，仍接收兼容系列的补丁和安全修复。升级 Node 基线、或 Vue 工具链支持 TypeScript 7 并通过构建后，应相应移除约束；不通过关闭类型检查来迁移。
+
+Admin 使用 Vite 8 的 `rolldownOptions.output.codeSplitting` 保留 TDesign 分包，并显式保留升级前的 Chrome/Edge 107、Firefox 104、Safari 16 构建目标，避免默认浏览器基线悄然提高。Vue Router 5 沿用手工路由，新增真实路由测试覆盖 `/admin/` 基路径、默认重定向、命名路由、中文项目参数与查询参数；不宣称该测试覆盖浏览器完整界面。迁移依据：[Vite 8](https://vite.dev/guide/migration)、[Vue Router 5](https://router.vuejs.org/guide/migration/v4-to-v5.html)。

@@ -22,11 +22,12 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    rollupOptions: {
+    // Preserve the Vite 7 browser baseline when upgrading the bundler.
+    target: ['chrome107', 'edge107', 'firefox104', 'safari16'],
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-          if (id.includes('tdesign')) return 'vendor-tdesign'
+        codeSplitting: {
+          groups: [{ name: 'vendor-tdesign', test: /node_modules[\\/].*tdesign/ }],
         },
       },
     },
