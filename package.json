@@ -19,7 +19,7 @@
     "adm-zip": "^0.6.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "markdown-it": "^14.1.0",
+    "markdown-it": "^15.0.3",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
