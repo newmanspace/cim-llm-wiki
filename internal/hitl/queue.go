@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +77,10 @@ func (q *Queue) load() error {
 	for _, b := range list {
 		if b != nil && b.ID != "" {
 			q.bundles[b.ID] = b
+			// Keep persisted IDs unique after a process restart.
+			if sequence, err := strconv.Atoi(b.ID[strings.LastIndex(b.ID, "-")+1:]); err == nil && sequence > q.seq {
+				q.seq = sequence
+			}
 		}
 	}
 	return nil

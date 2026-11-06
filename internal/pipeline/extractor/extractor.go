@@ -90,93 +90,81 @@ func (e *Extractor) Extract(ctx context.Context, doc *types.ParsedDocument, modu
 var headingRegex = regexp.MustCompile(`(?m)^(#{1,3})\s+(.+)$`)
 var idRegex = regexp.MustCompile(`\b([A-Z]{2,4}-[A-Z0-9]+-\d{2,4})\b`)
 
+type section struct {
+	title string
+	body  []string
+	kind  types.ObjectType
+	id    string
+}
+
+func (s section) node(module string, index int) *types.KnowledgeNode {
+	if strings.TrimSpace(s.title) == "" && len(s.body) == 0 {
+		return nil
+	}
+	body := strings.TrimSpace(strings.Join(s.body, "\n"))
+	if body == "" {
+		body = s.title
+	}
+	id := s.id
+	if id == "" {
+		prefix := map[types.ObjectType]string{types.ObjBusinessRule: "BR", types.ObjAPI: "API", types.ObjRequirement: "REQ", types.ObjScenario: "SC"}[s.kind]
+		if prefix == "" {
+			prefix = "DES"
+		}
+		id = fmt.Sprintf("%s-%s-%03d", prefix, strings.ToUpper(module), index)
+	}
+	return &types.KnowledgeNode{ID: id, Type: s.kind, Title: s.title, Content: body, Domain: "manufacturing-execution", Module: module}
+}
+
+func classifyTitle(title string) types.ObjectType {
+	lower := strings.ToLower(title)
+	rules := []struct {
+		kind  types.ObjectType
+		words []string
+	}{
+		{types.ObjBusinessRule, []string{"rule", "规则"}},
+		{types.ObjAPI, []string{"api", "接口"}},
+		{types.ObjScenario, []string{"scenario", "流程", "场景"}},
+		{types.ObjRequirement, []string{"requirement", "需求"}},
+	}
+	for _, rule := range rules {
+		if rule.kind == types.ObjBusinessRule && strings.Contains(title, "BR-") {
+			return rule.kind
+		}
+		for _, word := range rule.words {
+			if strings.Contains(lower, word) {
+				return rule.kind
+			}
+		}
+	}
+	return types.ObjDesign
+}
+
 func fallbackExtract(doc *types.ParsedDocument, module, content string) []types.KnowledgeNode {
 	var nodes []types.KnowledgeNode
-	lines := strings.Split(content, "\n")
-
-	var currentTitle string
-	var currentBody []string
-	var nodeType types.ObjectType = types.ObjDesign
-	var nodeID string
-
+	current := section{kind: types.ObjDesign}
 	flush := func() {
-		if strings.TrimSpace(currentTitle) == "" && len(currentBody) == 0 {
-			return
+		if node := current.node(module, len(nodes)+1); node != nil {
+			nodes = append(nodes, *node)
 		}
-		bodyText := strings.TrimSpace(strings.Join(currentBody, "\n"))
-		if bodyText == "" {
-			bodyText = currentTitle
-		}
-
-		if nodeID == "" {
-			prefix := "DES"
-			switch nodeType {
-			case types.ObjBusinessRule:
-				prefix = "BR"
-			case types.ObjAPI:
-				prefix = "API"
-			case types.ObjRequirement:
-				prefix = "REQ"
-			case types.ObjScenario:
-				prefix = "SC"
-			}
-			nodeID = fmt.Sprintf("%s-%s-%03d", prefix, strings.ToUpper(module), len(nodes)+1)
-		}
-
-		nodes = append(nodes, types.KnowledgeNode{
-			ID:      nodeID,
-			Type:    nodeType,
-			Title:   currentTitle,
-			Content: bodyText,
-			Domain:  "manufacturing-execution",
-			Module:  module,
-		})
-
-		currentTitle = ""
-		currentBody = nil
-		nodeType = types.ObjDesign
-		nodeID = ""
+		current = section{kind: types.ObjDesign}
 	}
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			flush()
-			currentTitle = strings.TrimLeft(trimmed, "# ")
-
-			// Determine node type based on title keywords
-			lower := strings.ToLower(currentTitle)
-			if strings.Contains(lower, "rule") || strings.Contains(lower, "规则") || strings.Contains(currentTitle, "BR-") {
-				nodeType = types.ObjBusinessRule
-			} else if strings.Contains(lower, "api") || strings.Contains(lower, "接口") {
-				nodeType = types.ObjAPI
-			} else if strings.Contains(lower, "scenario") || strings.Contains(lower, "流程") || strings.Contains(lower, "场景") {
-				nodeType = types.ObjScenario
-			} else if strings.Contains(lower, "requirement") || strings.Contains(lower, "需求") {
-				nodeType = types.ObjRequirement
-			}
-
-			if matches := idRegex.FindStringSubmatch(currentTitle); len(matches) > 1 {
-				nodeID = matches[1]
+			current.title = strings.TrimLeft(strings.TrimSpace(line), "# ")
+			current.kind = classifyTitle(current.title)
+			if match := idRegex.FindStringSubmatch(current.title); len(match) > 1 {
+				current.id = match[1]
 			}
 		} else {
-			currentBody = append(currentBody, line)
+			current.body = append(current.body, line)
 		}
 	}
 	flush()
-
-	// If no headings found, package entire content as a single document node
 	if len(nodes) == 0 && strings.TrimSpace(content) != "" {
-		nodes = append(nodes, types.KnowledgeNode{
-			ID:      fmt.Sprintf("DOC-%s-001", strings.ToUpper(module)),
-			Type:    types.ObjDesign,
-			Title:   "Document Section",
-			Content: strings.TrimSpace(content),
-			Domain:  "manufacturing-execution",
-			Module:  module,
-		})
+		nodes = append(nodes, types.KnowledgeNode{ID: fmt.Sprintf("DOC-%s-001", strings.ToUpper(module)), Type: types.ObjDesign, Title: "Document Section", Content: strings.TrimSpace(content), Domain: "manufacturing-execution", Module: module})
 	}
-
 	return nodes
 }
 

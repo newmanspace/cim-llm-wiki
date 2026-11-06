@@ -1,9 +1,13 @@
 package pipeline_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cim-llm-wiki/internal/config"
@@ -72,6 +76,32 @@ func TestPipelineE2E(t *testing.T) {
 		bundles, err := queue.List(ctx, types.BundlePending)
 		if err != nil || len(bundles) == 0 {
 			t.Errorf("expected pending bundles in HITL, got %v", bundles)
+		}
+	}
+}
+
+func TestPipelineLogsCannotCarryInjectedLineBreaks(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	defer slog.SetDefault(previous)
+	runner, err := pipeline.New(&config.Config{Wiki: config.WikiConfig{OutputDir: t.TempDir()}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run(context.Background(), "missing\nFORGED\r.md", "module\nFORGED\r", "")
+	if err == nil {
+		t.Fatal("missing source should fail")
+	}
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatal("forged log record", err)
+		}
+		for _, key := range []string{"file", "module"} {
+			if value, ok := entry[key].(string); ok && strings.ContainsAny(value, "\r\n") {
+				t.Fatal("decoded log field contains injected line breaks")
+			}
 		}
 	}
 }

@@ -5,8 +5,11 @@
        "engine": "docling", "status": "ok"}
 images 按文档流顺序排列，与 md 中的 `<!-- image -->` 占位一一对应，由客户端落盘并重写引用。
 """
+
 import tempfile
+import logging
 from pathlib import Path
+from typing import Annotated
 
 from docling.document_converter import DocumentConverter
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -14,7 +17,19 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 app = FastAPI(title="cim-wiki docling parser", version="1.0.0")
 converter = DocumentConverter()
 
-SUPPORTED = {".docx", ".pptx", ".xlsx", ".html", ".htm", ".pdf", ".md", ".png", ".jpg", ".jpeg", ".tiff"}
+SUPPORTED = {
+    ".docx",
+    ".pptx",
+    ".xlsx",
+    ".html",
+    ".htm",
+    ".pdf",
+    ".md",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tiff",
+}
 
 
 def collect_images(doc):
@@ -31,7 +46,10 @@ def collect_images(doc):
                 header, b64 = uri.split(",", 1)
                 ext = header.split("/")[1].split(";")[0] or "png"
                 imgs.append({"ext": ext, "data": b64})
-            except Exception:
+            except (ValueError, IndexError):
+                logging.getLogger(__name__).warning(
+                    "Skipping malformed inline image URI"
+                )
                 continue
     return imgs
 
@@ -42,7 +60,7 @@ def healthz():
 
 
 @app.post("/v1/convert/file")
-async def convert_file(file: UploadFile = File(...)):
+async def convert_file(file: Annotated[UploadFile, File()]):
     suffix = Path(file.filename or "upload.bin").suffix.lower()
     if suffix not in SUPPORTED:
         raise HTTPException(status_code=415, detail=f"unsupported file type: {suffix}")
@@ -62,6 +80,8 @@ async def convert_file(file: UploadFile = File(...)):
             "status": "ok",
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"docling convert failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"docling convert failed: {exc}"
+        ) from exc
     finally:
         Path(tmp_path).unlink(missing_ok=True)

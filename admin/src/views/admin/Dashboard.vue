@@ -1,11 +1,18 @@
 <template>
   <div class="dashboard">
-    <PageHeader :title="t('dashboard.title')" :subtitle="t('dashboard.subtitle')" />
+    <PageHeader
+      :title="t('dashboard.title')"
+      :subtitle="t('dashboard.subtitle')"
+    />
 
     <div class="stats-grid">
       <template v-if="loading">
         <div class="stat-card" v-for="n in 6" :key="'sk-' + n">
-          <t-skeleton theme="avatar" :row-col="[[{ type: 'avatar' }, { width: '70%' }]]" animation="gradient" />
+          <t-skeleton
+            theme="avatar"
+            :row-col="[[{ type: 'avatar' }, { width: '70%' }]]"
+            animation="gradient"
+          />
         </div>
       </template>
       <template v-else>
@@ -21,7 +28,11 @@
       </template>
     </div>
 
-    <t-card :title="t('dashboard.recentProjects')" :header-bordered="false" class="section-card">
+    <t-card
+      :title="t('dashboard.recentProjects')"
+      :header-bordered="false"
+      class="section-card"
+    >
       <template #actions>
         <t-link theme="primary" hover="color" @click="router.push('/projects')">
           {{ t('dashboard.goProjects') }}
@@ -37,11 +48,17 @@
         size="medium"
       >
         <template #name="{ row }">
-          <t-link theme="primary" hover="color" @click="router.push(`/projects/${row.id}`)">
+          <t-link
+            theme="primary"
+            hover="color"
+            @click="router.push(`/projects/${row.id}`)"
+          >
             {{ row.name || row.id }}
           </t-link>
         </template>
-        <template #updated_at="{ row }">{{ formatDate(row.updated_at) }}</template>
+        <template #updated_at="{ row }">{{
+          formatDate(row.updated_at)
+        }}</template>
         <template #empty>
           <t-empty :description="t('project.emptyTitle')" />
         </template>
@@ -75,12 +92,48 @@ const projects = ref<ProjectSummary[]>([])
 const totals = ref({ docs: 0, repos: 0, modules: 0, wikiDoc: 0, wikiCode: 0 })
 
 const stats = computed(() => [
-  { key: 'projects', label: t('dashboard.projectCount'), value: projects.value.length, icon: FolderIcon, tone: 'tone-brand' },
-  { key: 'docs', label: t('dashboard.docCount'), value: totals.value.docs, icon: FileIcon, tone: 'tone-success' },
-  { key: 'repos', label: t('dashboard.repoCount'), value: totals.value.repos, icon: ServerIcon, tone: 'tone-warning' },
-  { key: 'modules', label: t('dashboard.moduleCount'), value: totals.value.modules, icon: ViewListIcon, tone: 'tone-brand' },
-  { key: 'wikiDoc', label: t('dashboard.wikiDocNodes'), value: totals.value.wikiDoc, icon: BrowseIcon, tone: 'tone-info' },
-  { key: 'wikiCode', label: t('dashboard.wikiCodeNodes'), value: totals.value.wikiCode, icon: CodeIcon, tone: 'tone-info' },
+  {
+    key: 'projects',
+    label: t('dashboard.projectCount'),
+    value: projects.value.length,
+    icon: FolderIcon,
+    tone: 'tone-brand',
+  },
+  {
+    key: 'docs',
+    label: t('dashboard.docCount'),
+    value: totals.value.docs,
+    icon: FileIcon,
+    tone: 'tone-success',
+  },
+  {
+    key: 'repos',
+    label: t('dashboard.repoCount'),
+    value: totals.value.repos,
+    icon: ServerIcon,
+    tone: 'tone-warning',
+  },
+  {
+    key: 'modules',
+    label: t('dashboard.moduleCount'),
+    value: totals.value.modules,
+    icon: ViewListIcon,
+    tone: 'tone-brand',
+  },
+  {
+    key: 'wikiDoc',
+    label: t('dashboard.wikiDocNodes'),
+    value: totals.value.wikiDoc,
+    icon: BrowseIcon,
+    tone: 'tone-info',
+  },
+  {
+    key: 'wikiCode',
+    label: t('dashboard.wikiCodeNodes'),
+    value: totals.value.wikiCode,
+    icon: CodeIcon,
+    tone: 'tone-info',
+  },
 ])
 
 const recentProjects = computed(() => projects.value.slice(0, 8))
@@ -88,14 +141,41 @@ const recentProjects = computed(() => projects.value.slice(0, 8))
 const columns = computed(() => [
   { colKey: 'id', title: () => t('project.id'), width: 180, ellipsis: true },
   { colKey: 'name', title: () => t('project.name'), width: 180, cell: 'name' },
-  { colKey: 'product', title: () => t('project.product'), width: 160, ellipsis: true },
+  {
+    colKey: 'product',
+    title: () => t('project.product'),
+    width: 160,
+    ellipsis: true,
+  },
   { colKey: 'version', title: () => t('project.version'), width: 120 },
-  { colKey: 'updated_at', title: () => t('project.updatedAt'), width: 180, cell: 'updated_at' },
+  {
+    colKey: 'updated_at',
+    title: () => t('project.updatedAt'),
+    width: 180,
+    cell: 'updated_at',
+  },
 ])
 
 function formatDate(s: string) {
   if (!s) return '-'
-  return new Date(s).toLocaleString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US')
+  return new Date(s).toLocaleString(
+    locale.value === 'zh-CN' ? 'zh-CN' : 'en-US',
+  )
+}
+
+function aggregateProjects(
+  details: Array<Awaited<ReturnType<typeof getProject>> | null>,
+) {
+  const agg = { docs: 0, repos: 0, modules: 0, wikiDoc: 0, wikiCode: 0 }
+  for (const d of details) {
+    if (!d) continue
+    agg.docs += d.docs?.length || 0
+    agg.repos += d.repos?.length || 0
+    agg.modules += d.modules?.length || 0
+    agg.wikiDoc += d.wiki_nodes?.doc?.length || 0
+    agg.wikiCode += d.wiki_nodes?.code?.length || 0
+  }
+  return agg
 }
 
 async function load() {
@@ -105,15 +185,7 @@ async function load() {
     const details = await Promise.all(
       projects.value.map((p) => getProject(p.id).catch(() => null)),
     )
-    const agg = { docs: 0, repos: 0, modules: 0, wikiDoc: 0, wikiCode: 0 }
-    for (const d of details) {
-      if (!d) continue
-      agg.docs += d.docs?.length || 0
-      agg.repos += d.repos?.length || 0
-      agg.modules += d.modules?.length || 0
-      agg.wikiDoc += d.wiki_nodes?.doc?.length || 0
-      agg.wikiCode += d.wiki_nodes?.code?.length || 0
-    }
+    const agg = aggregateProjects(details)
     totals.value = agg
   } catch (e: any) {
     MessagePlugin.error(e.response?.data?.error || t('dashboard.loadError'))
@@ -160,12 +232,26 @@ onMounted(load)
   flex-shrink: 0;
 }
 
-.tone-brand { background: var(--td-brand-color-light); color: var(--td-brand-color); }
-.tone-success { background: var(--td-success-color-light); color: var(--td-success-color); }
-.tone-warning { background: var(--td-warning-color-light); color: var(--td-warning-color); }
-.tone-info { background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-secondary); }
+.tone-brand {
+  background: var(--td-brand-color-light);
+  color: var(--td-brand-color);
+}
+.tone-success {
+  background: var(--td-success-color-light);
+  color: var(--td-success-color);
+}
+.tone-warning {
+  background: var(--td-warning-color-light);
+  color: var(--td-warning-color);
+}
+.tone-info {
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+}
 
-.stat-info { min-width: 0; }
+.stat-info {
+  min-width: 0;
+}
 
 .stat-value {
   font-size: 24px;
@@ -184,9 +270,13 @@ onMounted(load)
 }
 
 @media (max-width: 1200px) {
-  .stats-grid { grid-template-columns: repeat(3, 1fr); }
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 @media (max-width: 767px) {
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 </style>

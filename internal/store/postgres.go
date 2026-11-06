@@ -3,8 +3,8 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -79,19 +79,29 @@ func (s *Store) GetProject(ctx context.Context, id string) (*types.ProjectConfig
 	p.CreatedAt = createdAt.Format(time.RFC3339)
 	p.UpdatedAt = updatedAt.Format(time.RFC3339)
 
+	for _, load := range []func(context.Context, *types.ProjectConfig) error{s.loadProjectDocs, s.loadProjectRepos, s.loadProjectModules, s.loadProjectWikiNodes} {
+		if err := load(ctx, &p); err != nil {
+			return nil, err
+		}
+	}
+
+	return &p, nil
+}
+
+func (s *Store) loadProjectDocs(ctx context.Context, p *types.ProjectConfig) error {
 	// Load docs
 	docRows, err := s.pool.Query(ctx,
 		`SELECT doc_id, path, type, COALESCE(submodule,''), COALESCE(sha256,''), ingested_at
-		 FROM project_docs WHERE project_id = $1 ORDER BY doc_id`, id)
+		 FROM project_docs WHERE project_id = $1 ORDER BY doc_id`, p.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer docRows.Close()
 	for docRows.Next() {
 		var d types.DocSource
 		var ingested *time.Time
 		if err := docRows.Scan(&d.DocID, &d.Path, &d.Type, &d.Submodule, &d.SHA256, &ingested); err != nil {
-			return nil, err
+			return err
 		}
 		if ingested != nil {
 			d.IngestedAt = ingested.Format(time.RFC3339)
@@ -99,12 +109,16 @@ func (s *Store) GetProject(ctx context.Context, id string) (*types.ProjectConfig
 		p.Docs = append(p.Docs, d)
 	}
 
+	return docRows.Err()
+}
+
+func (s *Store) loadProjectRepos(ctx context.Context, p *types.ProjectConfig) error {
 	// Load repos with module mappings
 	repoRows, err := s.pool.Query(ctx,
 		`SELECT id, name, url, branch, COALESCE(submodule,''), COALESCE(last_sync_sha,''), synced_at
-		 FROM project_repos WHERE project_id = $1 ORDER BY name`, id)
+		 FROM project_repos WHERE project_id = $1 ORDER BY name`, p.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer repoRows.Close()
 	for repoRows.Next() {
@@ -112,7 +126,7 @@ func (s *Store) GetProject(ctx context.Context, id string) (*types.ProjectConfig
 		var repoDBID int
 		var synced *time.Time
 		if err := repoRows.Scan(&repoDBID, &r.Name, &r.URL, &r.Branch, &r.Submodule, &r.LastSyncSHA, &synced); err != nil {
-			return nil, err
+			return err
 		}
 		if synced != nil {
 			r.SyncedAt = synced.Format(time.RFC3339)
@@ -121,14 +135,14 @@ func (s *Store) GetProject(ctx context.Context, id string) (*types.ProjectConfig
 		mapRows, err := s.pool.Query(ctx,
 			`SELECT path_prefix, module_id FROM repo_module_mappings WHERE repo_id = $1 ORDER BY path_prefix`, repoDBID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		r.ModuleMapping = make(map[string]string)
 		for mapRows.Next() {
 			var prefix, modID string
 			if err := mapRows.Scan(&prefix, &modID); err != nil {
 				mapRows.Close()
-				return nil, err
+				return err
 			}
 			r.ModuleMapping[prefix] = modID
 		}
@@ -136,34 +150,42 @@ func (s *Store) GetProject(ctx context.Context, id string) (*types.ProjectConfig
 		p.Repos = append(p.Repos, r)
 	}
 
+	return repoRows.Err()
+}
+
+func (s *Store) loadProjectModules(ctx context.Context, p *types.ProjectConfig) error {
 	// Load modules
 	modRows, err := s.pool.Query(ctx,
-		`SELECT module_id FROM project_modules WHERE project_id = $1 ORDER BY module_id`, id)
+		`SELECT module_id FROM project_modules WHERE project_id = $1 ORDER BY module_id`, p.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer modRows.Close()
 	for modRows.Next() {
 		var m string
 		if err := modRows.Scan(&m); err != nil {
-			return nil, err
+			return err
 		}
 		p.Modules = append(p.Modules, m)
 	}
 
+	return modRows.Err()
+}
+
+func (s *Store) loadProjectWikiNodes(ctx context.Context, p *types.ProjectConfig) error {
 	// Load wiki node index (paths grouped by plane) so callers get an accurate
 	// doc/code count without a second round-trip to /wiki-nodes.
 	p.WikiNodes = types.ProjectWikiIndex{Doc: []string{}, Code: []string{}}
 	wnRows, err := s.pool.Query(ctx,
-		`SELECT plane, path FROM project_wiki_nodes WHERE project_id = $1 ORDER BY plane, path`, id)
+		`SELECT plane, path FROM project_wiki_nodes WHERE project_id = $1 ORDER BY plane, path`, p.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer wnRows.Close()
 	for wnRows.Next() {
 		var plane, path string
 		if err := wnRows.Scan(&plane, &path); err != nil {
-			return nil, err
+			return err
 		}
 		switch plane {
 		case "doc":
@@ -173,7 +195,7 @@ func (s *Store) GetProject(ctx context.Context, id string) (*types.ProjectConfig
 		}
 	}
 
-	return &p, nil
+	return wnRows.Err()
 }
 
 func (s *Store) UpsertProject(ctx context.Context, p *types.ProjectConfig) error {

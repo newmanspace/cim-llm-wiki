@@ -9,7 +9,7 @@
 > **一句话**：Skill 驱动的泛半导体 CIM 文档知识工程流水线——原始文档（SDD/IDD/PRD/运维手册）经服务端解析、Agent 抽取与 7 维评分、HITL 聚合审核后，编译为 `data/wiki/` 双平面原子化知识库（`doc/` 领域知识 + `code/` 代码契约），用 VitePress 本地展示，并可经 Admin 管理台登记与知识库 GitOps 独立版本管理。
 
 <p align="center">
-  <a href="#"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=nodedotjs&logoColor=white"></a>
+  <a href="#"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.22.2-339933?style=flat-square&logo=nodedotjs&logoColor=white"></a>
   <a href="#"><img alt="VitePress" src="https://img.shields.io/badge/VitePress-1.x-646cff?style=flat-square"></a>
   <a href="#"><img alt="架构" src="https://img.shields.io/badge/架构-v2.1·Skill驱动·Admin·GitOps-b8863b?style=flat-square"></a>
   <a href="#"><img alt="解析引擎" src="https://img.shields.io/badge/解析引擎-MinerU·Docling·MarkItDown-0a7d6f?style=flat-square"></a>
@@ -44,12 +44,12 @@
 
 ## 快速开始
 
-需要 [Node.js](https://nodejs.org/) ≥ 20、[Docker](https://www.docker.com/) 与 [Docker Compose](https://docs.docker.com/compose/)。
+需要 [Node.js](https://nodejs.org/) ≥ 22.22.2（主项目开发及质量检查；独立 skill 客户端仍可使用 Node.js 20）、[Docker](https://www.docker.com/) 与 [Docker Compose](https://docs.docker.com/compose/)。
 
 ### 1. 安装依赖
 
 ```bash
-npm install          # 仓库根执行
+npm ci               # 仓库根执行，使用已锁定并审计的依赖
 ```
 
 ### 2. 启动解析引擎（首次需拉取镜像）
@@ -66,8 +66,11 @@ docker tag  swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/docling-project/doc
             quay.io/docling-project/docling-serve:latest
 ```
 
+启动网关会话认证前，在仓库根目录 `.env` 配置独立随机的 `AUTH_SESSION_SECRET`（至少 32 字符）及 bcrypt `AUTH_PASSWORD_HASH`；摘要在 `.env` 中使用单引号包围，保留其中的 `$`。旧 `AUTH_PASSWORD_SHA256` 配置必须迁移，默认口令和默认签名密钥已移除。详见 [认证配置迁移](docs/github-quality-gate.md#密码配置迁移)。
+
 ```bash
-cd deploy && docker compose up -d
+# 在仓库根目录执行，显式读取根目录配置
+docker compose --env-file .env -f deploy/docker-compose.yml up -d
 ```
 
 一键拉起核心服务（Wiki 站点 + 流水线 API + 3 解析引擎；检索层为 Phase 3 预留）：
