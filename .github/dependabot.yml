@@ -12,6 +12,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Keep type declarations aligned with the Node 22 CI/runtime baseline.
+      - dependency-name: '@types/node'
+        versions: ['>=23']
+      # vue-tsc/Volar require the TypeScript JS compiler API, absent in TS 7.
+      - dependency-name: typescript
+        versions: ['>=7']
     groups:
       npm-minor-patch:
         patterns: ['*']
