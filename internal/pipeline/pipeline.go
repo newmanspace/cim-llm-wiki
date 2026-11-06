@@ -14,7 +14,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"cim-llm-wiki/internal/config"
@@ -73,10 +72,10 @@ type RunResult struct {
 func (p *Pipeline) Run(ctx context.Context, filePath, module, engine string) (*RunResult, error) {
 	start := time.Now()
 	result := &RunResult{SourceDoc: filePath, Module: module}
-	slog.Info("pipeline.Run started", "file", strconv.Quote(filePath), "module", strconv.Quote(module))
+	slog.Info("pipeline.Run started", "file", fmt.Sprintf("%q", filePath), "module", fmt.Sprintf("%q", module))
 
 	// ── Stage 1: Parse ───────────────────────────────────────────────────────
-	slog.Info("pipeline [1/5] parsing", "file", strconv.Quote(filePath))
+	slog.Info("pipeline [1/5] parsing", "file", fmt.Sprintf("%q", filePath))
 	doc, err := parser.MustParse(ctx, p.cfg, filePath)
 	if err != nil {
 		return result, fmt.Errorf("stage1 parse: %w", err)
@@ -85,7 +84,7 @@ func (p *Pipeline) Run(ctx context.Context, filePath, module, engine string) (*R
 	slog.Info("pipeline [1/5] parsed", "engine", doc.Engine, "chars", len(doc.Content))
 
 	// ── Stage 2: Extract ─────────────────────────────────────────────────────
-	slog.Info("pipeline [2/5] extracting knowledge", "module", strconv.Quote(module))
+	slog.Info("pipeline [2/5] extracting knowledge", "module", fmt.Sprintf("%q", module))
 	nodes, err := p.extract.Extract(ctx, doc, module)
 	if err != nil {
 		return result, fmt.Errorf("stage2 extract: %w", err)

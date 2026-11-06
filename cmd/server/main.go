@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -194,7 +193,7 @@ func requestLogger() gin.HandlerFunc {
 		c.Next()
 		slog.Info("http",
 			"method", c.Request.Method,
-			"path", strconv.Quote(c.Request.URL.Path),
+			"path", fmt.Sprintf("%q", c.Request.URL.Path),
 			"status", c.Writer.Status(),
 			"latency_ms", time.Since(start).Milliseconds(),
 		)

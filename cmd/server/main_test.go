@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"cim-llm-wiki/internal/config"
 	"cim-llm-wiki/internal/store"
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/gin-gonic/gin"
+	"log/slog"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -140,5 +144,23 @@ func TestAdminServerInitializesRoutesInIsolatedSchema(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest("GET", "/api/v1/auth/verify", nil))
 	if response.Code != 401 {
 		t.Fatal("enabled auth allowed anonymous access")
+	}
+}
+
+func TestRequestLogsCannotCarryInjectedLineBreaks(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	defer slog.SetDefault(previous)
+	router := gin.New()
+	router.Use(requestLogger())
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest("GET", "/unknown%0AFORGED%0Dentry", nil))
+	var entry map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &entry); err != nil {
+		t.Fatal("forged log record", err)
+	}
+	if path, ok := entry["path"].(string); !ok || strings.ContainsAny(path, "\r\n") {
+		t.Fatal("decoded log field contains injected line breaks")
 	}
 }
