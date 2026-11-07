@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createKnowledgeServer } from '../../wiki-service/server.mjs'
 import { resolveShared, hashFile, writeSharedFile } from '../sources.mjs'
 import { validateWiki } from '../validate.mjs'
@@ -221,3 +221,54 @@ test('model scores cannot enable automatic publication without server policy opt
   assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve' }, f.reviewToken)).status, 200)
   assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 200)
 })
+
+test('product directory initialization runs through human review, strict compilation and navigation', async t => {
+  const f = await fixture(t, { autoPublish: false })
+  const contract = (await f.api('context?project=demo')).value.delivery_contract
+  assert.equal((await f.api('initialize', { project: 'demo' }, 'wrong')).status, 401)
+  assert.equal((await f.api('initialize', { project: 'demo' }, f.reviewToken)).status, 403)
+  const initialized = await f.api('initialize', { project: 'demo', name: 'CIM Product', version: 'V2.8', modules: ['terms'], delivery_contract: contract })
+  assert.equal(initialized.status, 200, JSON.stringify(initialized.value))
+  assert.equal((await f.api('directories?project=demo')).value.revision, 1)
+  assert.ok((await f.api('context?project=demo')).value.directory.directories.length > 50)
+  assert.ok((await f.api('validate', {})).value.errors.some(e => e.code === 'document_count'), 'Empty directory pages must not satisfy required documents')
+  await ready(f)
+  const bundle = f.bundle('CR-20261107-0001', 'L1_expert')
+  assert.equal((await f.submit(bundle)).value.state, 'pending')
+  assert.equal((await f.api('compile', { bundle_id: bundle.bundle_id })).status, 409)
+  assert.equal((await f.api('review', { bundle_id: bundle.bundle_id, decision: 'approve', reviewer: 'Domain Reviewer', note: 'Verified fixture source' }, f.reviewToken)).status, 200)
+  const compiled = await f.api('compile', { bundle_id: bundle.bundle_id })
+  assert.equal(compiled.status, 200, JSON.stringify(compiled.value))
+  assert.deepEqual((await f.api('validate', {})).value.errors, [])
+  const { directorySidebar } = await import('../product-directory.mjs')
+  assert.match(JSON.stringify(directorySidebar('demo', f.wikiRoot)), /Term requirement/)
+  const directory = (await f.api('directories?project=demo')).value
+  const updated = await f.api('directories', { project: 'demo', expected_revision: directory.revision, directories: directory.directories.map(d => d.path === 'overview' ? { ...d, title: 'Product Overview' } : d) })
+  assert.equal(updated.status, 200)
+  assert.equal((await f.api('directories', { project: 'demo', expected_revision: 1, directories: directory.directories })).status, 409)
+  assert.deepEqual((await f.api('validate', {})).value.errors, [])
+  const site = join(f.root, 'site')
+  const configDir = join(site, '.vitepress')
+  mkdirSync(configDir, { recursive: true })
+  const sidebarPath = join(configDir, 'sidebar-data.mjs')
+  const env = { ...process.env, WIKI_ROOT: f.wikiRoot, CIM_WIKI_WORKSPACE: f.projectRoot,
+    CIM_WIKI_SHARED_ROOTS: JSON.stringify(f.roots), WIKI_SIDEBAR_OUT: sidebarPath }
+  await runChild([join(repo, 'wiki/scripts/gen-sidebar.mjs')], env)
+  const sidebarText = readFileSync(sidebarPath, 'utf8')
+  assert.match(sidebarText, /Product Versions/)
+  assert.match(sidebarText, /Term requirement/)
+  const baseConfig = pathToFileURL(join(repo, 'wiki/.vitepress/config.mjs')).href
+  writeFileSync(join(configDir, 'config.mjs'), `import base from ${JSON.stringify(baseConfig)}\nimport { sidebar, nav } from './sidebar-data.mjs'\nexport default { ...base, srcDir: ${JSON.stringify(f.wikiRoot)}, outDir: ${JSON.stringify(join(site, 'dist'))}, cacheDir: ${JSON.stringify(join(site, 'cache'))}, themeConfig: { ...base.themeConfig, sidebar, nav } }\n`)
+  await runChild([join(repo, 'wiki/node_modules/vitepress/bin/vitepress.js'), 'build', site], env)
+  assert.ok(existsSync(join(site, 'dist/demo/catalog/_index.html')))
+  assert.ok(existsSync(join(site, 'dist/demo/doc/requirements/req-terms-001.html')))
+})
+
+async function runChild(args, env) {
+  const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  let output = ''
+  child.stdout.on('data', chunk => { output += chunk })
+  child.stderr.on('data', chunk => { output += chunk })
+  const [code] = await once(child, 'close')
+  assert.equal(code, 0, output)
+}

@@ -4,6 +4,9 @@
 
 | client 命令 | 方法与端点 | 输入 |
 |---|---|---|
+| initialize | POST /initialize | --json-file，project/name/version/modules/delivery_contract |
+| directories | GET /directories?project=ID | --project |
+| update-directories | POST /directories | --json-file，project/expected_revision/directories |
 | context | GET /context?project=ID | --project |
 | document | GET /document?source=URI | --source |
 | bundle | GET /bundle?id=ID | --id |
@@ -16,6 +19,10 @@
 | validate | POST /validate | 无需请求文件 |
 
 所有写操作请求为 JSON；`--json-file -` 从 stdin 读取。客户端显示服务响应，HTTP 失败或完整校验发现 errors 时以非零状态退出，不自动重复写入请求。
+
+## 可选：初始化产品展示目录
+
+initialize 复用现有 project 命名空间，要求调用者提供真实 delivery_contract，不覆盖不同的既有契约。directories 返回当前 revision 和目录映射，update-directories 提交完整目录数组并检查 expected_revision。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 directory 字段为当前配置，未初始化时为 null。
 
 ## 转换与已有稿件登记
 

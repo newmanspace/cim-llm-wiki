@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs'
 
 try {
   const [command, ...args] = process.argv.slice(2)
-  const routes = { context: ['GET', 'context'], document: ['GET', 'document'], bundle: ['GET', 'bundle'],
+  const routes = { initialize: ['POST', 'initialize'], directories: ['GET', 'directories'], 'update-directories': ['POST', 'directories'], context: ['GET', 'context'], document: ['GET', 'document'], bundle: ['GET', 'bundle'],
     convert: ['POST', 'convert'], register: ['POST', 'register'], state: ['POST', 'state'],
     submit: ['POST', 'bundles'], review: ['POST', 'review'], compile: ['POST', 'compile'], validate: ['POST', 'validate'] }
-  if (!routes[command]) throw new Error('Usage: client.mjs context|document|bundle|convert|register|state|submit|review|compile|validate [--project ID|--source URI|--id ID|--json-file FILE]')
+  if (!routes[command]) throw new Error('Usage: client.mjs initialize|directories|update-directories|context|document|bundle|convert|register|state|submit|review|compile|validate [--project ID|--source URI|--id ID|--json-file FILE]')
   const base = process.env.CIM_WIKI_URL
   const token = command === 'review' ? process.env.CIM_WIKI_REVIEW_TOKEN : process.env.CIM_WIKI_TOKEN
   if (!base || !token) throw new Error(command === 'review' ? 'Human reviewers must set CIM_WIKI_URL and their independent CIM_WIKI_REVIEW_TOKEN' : 'Set CIM_WIKI_URL and CIM_WIKI_TOKEN')

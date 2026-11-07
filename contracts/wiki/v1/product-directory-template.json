@@ -1,0 +1,475 @@
+{
+  "schema_version": "1.0",
+  "directories": [
+    {
+      "path": "overview",
+      "title": "Overview",
+      "description": "产品身份与长期维护信息。"
+    },
+    {
+      "path": "product-management",
+      "title": "Product Management",
+      "description": "管理产品方向、需求储备及研发规划。"
+    },
+    {
+      "path": "product-management/product-strategy",
+      "title": "Product Strategy",
+      "description": "记录产品长期目标与业务依据。"
+    },
+    {
+      "path": "product-management/roadmap",
+      "title": "Roadmap",
+      "description": "展示跨版本演进方向。"
+    },
+    {
+      "path": "product-management/feature-backlog",
+      "title": "Feature Backlog",
+      "description": "维护尚待安排的产品需求与改进。"
+    },
+    {
+      "path": "product-management/product-development-plans",
+      "title": "Product Development Plans",
+      "description": "管理产品研发执行计划。"
+    },
+    {
+      "path": "pre-sales",
+      "title": "Pre-sales",
+      "description": "复用产品通用售前材料。"
+    },
+    {
+      "path": "pre-sales/product-presentations",
+      "title": "Product Presentations",
+      "description": "维护对外产品介绍。"
+    },
+    {
+      "path": "pre-sales/solutions-and-proposals",
+      "title": "Solutions and Proposals",
+      "description": "沉淀可复用的行业方案。"
+    },
+    {
+      "path": "pre-sales/demonstrations",
+      "title": "Demonstrations",
+      "description": "维护可重复使用的演示方案。"
+    },
+    {
+      "path": "pre-sales/product-comparisons",
+      "title": "Product Comparisons",
+      "description": "维护有依据的产品能力对比。"
+    },
+    {
+      "path": "pre-sales/sizing-guidelines",
+      "title": "Sizing Guidelines",
+      "description": "提供容量估算和规格建议。"
+    },
+    {
+      "path": "architecture-and-governance",
+      "title": "Architecture and Governance",
+      "description": "集中维护跨版本架构原则、工程规范和质量流程。"
+    },
+    {
+      "path": "architecture-and-governance/architecture-principles",
+      "title": "Architecture Principles",
+      "description": "明确长期架构约束。"
+    },
+    {
+      "path": "architecture-and-governance/engineering-standards",
+      "title": "Engineering Standards",
+      "description": "维护统一技术实现约束。"
+    },
+    {
+      "path": "architecture-and-governance/engineering-standards/development-standards",
+      "title": "Development Standards",
+      "description": "统一开发实现约定。"
+    },
+    {
+      "path": "architecture-and-governance/engineering-standards/customization-standards",
+      "title": "Customization Standards",
+      "description": "约束产品二次开发。"
+    },
+    {
+      "path": "architecture-and-governance/engineering-standards/integration-and-api-standards",
+      "title": "Integration and API Standards",
+      "description": "统一系统集成与接口设计规则。"
+    },
+    {
+      "path": "architecture-and-governance/engineering-standards/database-standards",
+      "title": "Database Standards",
+      "description": "统一数据结构与数据库变更规则。"
+    },
+    {
+      "path": "architecture-and-governance/engineering-standards/ui-standards",
+      "title": "UI Standards",
+      "description": "统一交互与界面约束。"
+    },
+    {
+      "path": "architecture-and-governance/engineering-standards/security-standards",
+      "title": "Security Standards",
+      "description": "统一安全工程要求。"
+    },
+    {
+      "path": "architecture-and-governance/engineering-standards/documentation-standards",
+      "title": "Documentation Standards",
+      "description": "规定文档如何编写和维护。"
+    },
+    {
+      "path": "architecture-and-governance/quality-management",
+      "title": "Quality Management",
+      "description": "承载团队现有质量管控流程材料。"
+    },
+    {
+      "path": "product-versions",
+      "title": "Product Versions",
+      "description": "组织各产品版本及其完整文档。"
+    },
+    {
+      "path": "product-versions/version-template",
+      "title": "Version Template",
+      "description": "定义一个产品版本的标准结构。"
+    },
+    {
+      "path": "product-versions/version-template/overview",
+      "title": "Overview",
+      "description": "说明本版本的定位与适用范围。"
+    },
+    {
+      "path": "product-versions/version-template/overview/version-summary",
+      "title": "Version Summary",
+      "description": "记录版本身份与发布状态。"
+    },
+    {
+      "path": "product-versions/version-template/overview/feature-scope",
+      "title": "Feature Scope",
+      "description": "列出本版本完整能力范围。"
+    },
+    {
+      "path": "product-versions/version-template/overview/compatibility-matrix",
+      "title": "Compatibility Matrix",
+      "description": "明确版本运行与集成兼容范围。"
+    },
+    {
+      "path": "product-versions/version-template/overview/known-issues-and-limitations",
+      "title": "Known Issues and Limitations",
+      "description": "公开本版本适用的问题和限制。"
+    },
+    {
+      "path": "product-versions/version-template/documentation",
+      "title": "Documentation",
+      "description": "维护面向用户、实施、集成和运维的完整产品文档。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/getting-started",
+      "title": "Getting Started",
+      "description": "帮助首次接触产品的人完成入门。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/application-help",
+      "title": "Application Help",
+      "description": "承载按模块组织的用户操作手册。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/application-help/common-functions",
+      "title": "Common Functions",
+      "description": "说明各模块共用的用户操作。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/application-help/module-template",
+      "title": "Module Template",
+      "description": "定义业务模块用户帮助的组织方式。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/implementation",
+      "title": "Implementation",
+      "description": "说明标准产品如何安装和实施。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/implementation/installation-guide",
+      "title": "Installation Guide",
+      "description": "说明本版本安装过程。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/implementation/configuration-guide",
+      "title": "Configuration Guide",
+      "description": "说明产品实施配置。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/implementation/data-migration-guide",
+      "title": "Data Migration Guide",
+      "description": "说明初始数据导入和迁移。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/implementation/go-live-checklist",
+      "title": "Go-live Checklist",
+      "description": "定义标准上线检查内容。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/administration-and-operations",
+      "title": "Administration and Operations",
+      "description": "维护系统管理与运行支持知识。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/administration-and-operations/system-administration-guide",
+      "title": "System Administration Guide",
+      "description": "说明管理员如何管理产品。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/administration-and-operations/monitoring-and-alerting",
+      "title": "Monitoring and Alerting",
+      "description": "说明如何发现运行异常。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/administration-and-operations/backup-and-recovery",
+      "title": "Backup and Recovery",
+      "description": "说明备份与恢复策略和方法。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/administration-and-operations/data-retention-and-cleanup",
+      "title": "Data Retention and Cleanup",
+      "description": "说明数据保留、归档和清理。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/administration-and-operations/troubleshooting",
+      "title": "Troubleshooting",
+      "description": "提供按现象检索的故障诊断知识。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/administration-and-operations/runbooks",
+      "title": "Runbooks",
+      "description": "提供可直接执行的运维操作手册。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/integration-and-extension",
+      "title": "Integration and Extension",
+      "description": "面向集成及二次开发使用者提供技术说明。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/integration-and-extension/integration-guide",
+      "title": "Integration Guide",
+      "description": "说明端到端系统对接。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/integration-and-extension/api-reference",
+      "title": "API Reference",
+      "description": "提供本版本已发布接口的准确参考。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/integration-and-extension/extension-guide",
+      "title": "Extension Guide",
+      "description": "说明本版本的可扩展能力及使用方法。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/security-guide",
+      "title": "Security Guide",
+      "description": "说明本版本安全配置及使用要求。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/upgrade",
+      "title": "Upgrade",
+      "description": "管理版本间升级与恢复说明。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/upgrade/upgrade-guide",
+      "title": "Upgrade Guide",
+      "description": "说明如何升级到本版本。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/upgrade/rollback-guide",
+      "title": "Rollback Guide",
+      "description": "说明升级失败后的恢复路径。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/training",
+      "title": "Training",
+      "description": "组织本版本通用培训资料。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/training/training-materials",
+      "title": "Training Materials",
+      "description": "维护培训讲义和课程入口。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/training/exercises",
+      "title": "Exercises",
+      "description": "提供可复现的培训实践。"
+    },
+    {
+      "path": "product-versions/version-template/documentation/training/assessments",
+      "title": "Assessments",
+      "description": "维护通用学习考核材料。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation",
+      "title": "Engineering Documentation",
+      "description": "维护内部需求依据、架构、实现设计和验证证据。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/system-architecture",
+      "title": "System Architecture",
+      "description": "说明本版本整体技术结构。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/system-architecture/architecture-overview",
+      "title": "Architecture Overview",
+      "description": "展示版本技术全貌。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/system-architecture/module-boundaries-and-dependencies",
+      "title": "Module Boundaries and Dependencies",
+      "description": "明确模块职责和关系。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/system-architecture/deployment-architecture",
+      "title": "Deployment Architecture",
+      "description": "描述本版本支持的部署结构。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/system-architecture/architecture-decisions",
+      "title": "Architecture Decisions",
+      "description": "保留关键技术决策依据。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/shared-design",
+      "title": "Shared Design",
+      "description": "维护跨模块共用的详细设计。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/shared-design/common-services",
+      "title": "Common Services",
+      "description": "说明公共技术服务设计。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/shared-design/shared-data-model",
+      "title": "Shared Data Model",
+      "description": "维护产品级共用数据模型。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/shared-design/cross-module-interfaces",
+      "title": "Cross-module Interfaces",
+      "description": "说明模块间交互契约。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/modules",
+      "title": "Modules",
+      "description": "按真实业务模块组织工程知识。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/modules/module-template",
+      "title": "Module Template",
+      "description": "定义一个模块的工程目录。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/modules/module-template/overview",
+      "title": "Overview",
+      "description": "描述模块总体职责。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/modules/module-template/features",
+      "title": "Features",
+      "description": "集中维护模块功能的需求、设计和验证关系。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/modules/module-template/features/feature-template",
+      "title": "Feature Template",
+      "description": "提供一份功能工程说明的章节骨架。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/verification-and-validation",
+      "title": "Verification and Validation",
+      "description": "组织版本级、跨模块验证证据。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/verification-and-validation/test-strategy-and-plans",
+      "title": "Test Strategy and Plans",
+      "description": "确定验证范围和方法。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/verification-and-validation/integration-testing",
+      "title": "Integration Testing",
+      "description": "验证模块和外部系统协作。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/verification-and-validation/system-testing",
+      "title": "System Testing",
+      "description": "验证产品整体业务行为。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/verification-and-validation/performance-testing",
+      "title": "Performance Testing",
+      "description": "提供容量与性能验证依据。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/verification-and-validation/security-testing",
+      "title": "Security Testing",
+      "description": "记录本版本安全验证。"
+    },
+    {
+      "path": "product-versions/version-template/engineering-documentation/verification-and-validation/validation-summary",
+      "title": "Validation Summary",
+      "description": "汇总版本发布的质量依据。"
+    },
+    {
+      "path": "product-versions/version-template/release-and-delivery",
+      "title": "Release and Delivery",
+      "description": "汇总版本发布与标准交付信息。"
+    },
+    {
+      "path": "product-versions/version-template/release-and-delivery/release-notes",
+      "title": "Release Notes",
+      "description": "说明本次发布相对前版的变化。"
+    },
+    {
+      "path": "product-versions/version-template/release-and-delivery/release-manifest",
+      "title": "Release Manifest",
+      "description": "标识本次发布的准确软件组成。"
+    },
+    {
+      "path": "product-versions/version-template/release-and-delivery/deliverable-catalog",
+      "title": "Deliverable Catalog",
+      "description": "定义本版本标准交付内容。"
+    },
+    {
+      "path": "product-versions/version-template/release-and-delivery/release-approval",
+      "title": "Release Approval",
+      "description": "保存正式发布决定与依据。"
+    },
+    {
+      "path": "product-versions/version-template/document-baselines",
+      "title": "Document Baselines",
+      "description": "说明版本文档基线的记录要求。"
+    },
+    {
+      "path": "product-versions/version-template/related-projects",
+      "title": "Related Projects",
+      "description": "记录采用本产品版本的项目关系。"
+    },
+    {
+      "path": "templates",
+      "title": "Templates",
+      "description": "在产品根集中提供可复用的空白文档骨架。"
+    },
+    {
+      "path": "templates/requirements",
+      "title": "Requirements Templates",
+      "description": "组织需求文档模板。"
+    },
+    {
+      "path": "templates/design",
+      "title": "Design Templates",
+      "description": "组织设计文档模板。"
+    },
+    {
+      "path": "templates/testing",
+      "title": "Testing Templates",
+      "description": "组织测试文档模板。"
+    },
+    {
+      "path": "templates/release-and-delivery",
+      "title": "Release and Delivery Templates",
+      "description": "组织发布与交付模板。"
+    },
+    {
+      "path": "templates/project-management",
+      "title": "Project Management Templates",
+      "description": "提供可复用的项目管理文档骨架。"
+    }
+  ]
+}
