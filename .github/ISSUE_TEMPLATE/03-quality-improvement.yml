@@ -1,0 +1,57 @@
+name: 质量与技术改进 / Quality
+description: 跟踪测试缺口、性能、依赖兼容、技术债或质量门禁改进。
+title: '[Quality] '
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        此表单适用于尚未形成用户可见缺陷的技术改进；已发生的功能错误请用“缺陷报告”。此仓库公开，请只提供脱敏证据与合成数据。安全漏洞的敏感细节应通过团队已有的私密渠道处理。
+  - type: dropdown
+    id: category
+    attributes:
+      label: 改进类别
+      options:
+        - 测试与覆盖缺口
+        - 依赖兼容与升级
+        - 性能与资源消耗
+        - 质量门禁与工程工具
+        - 可维护性与技术债
+        - 文档与可观测性
+    validations:
+      required: true
+  - type: textarea
+    id: baseline
+    attributes:
+      label: 当前情况与证据
+      description: 描述缺口、影响及涉及组件。已有扫描、性能或覆盖率数据时附版本和运行链接；未测量请明确写明。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 目标与验收方式
+      description: 说明要验证的真实行为或指标、测试范围和完成条件；不以降低现有门槛或隐藏告警作为整改。
+      placeholder: |
+        - [ ] 使用合成输入验证……
+        - [ ] 在……环境运行……，达到……
+        - [ ] 保留报告链接与已知限制。
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: 兼容性、迁移与实施建议（可选）
+      description: 可说明运行时最低版本、API 行为保持、分阶段实施或恢复方式；尚未确认的内容标为待核实。
+  - type: textarea
+    id: related
+    attributes:
+      label: 关联记录（可选）
+      description: 填写相关 Issue、PR、公开扫描告警或文档链接。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 提交确认
+      options:
+        - label: 我已检查正文与附件，不包含凭证、真实业务文档或未脱敏的敏感信息。
+          required: true
