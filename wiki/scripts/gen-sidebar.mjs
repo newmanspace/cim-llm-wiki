@@ -1,3 +1,4 @@
+import { directorySidebar, directoryPageKey, readDirectory } from '../../packages/wiki-core/product-directory.mjs'
 // 扫描 data/wiki 生成 VitePress 侧边栏/导航数据与首页 index.md
 // 目录按 project 分树：data/wiki/<project>/{doc,code}/...
 // 页面链接以 /<project>/ 为前缀（VitePress base=/wiki/ 会自动补全 → /wiki/<project>/...）
@@ -11,7 +12,7 @@ import { NODE_TYPES } from '../../packages/wiki-core/contracts.mjs'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const WEB_ROOT = join(__dirname, '..')
 const WIKI_ROOT = process.env.WIKI_ROOT || (existsSync(join(WEB_ROOT, '../data/wiki')) ? join(WEB_ROOT, '../data/wiki') : existsSync('/data/wiki') ? '/data/wiki' : join(WEB_ROOT, 'data/wiki'))
-const OUT = join(WEB_ROOT, '.vitepress', 'sidebar-data.mjs')
+const OUT = process.env.WIKI_SIDEBAR_OUT || join(WEB_ROOT, '.vitepress', 'sidebar-data.mjs')
 
 assertValidWiki({ wikiRoot: WIKI_ROOT })
 
@@ -99,7 +100,7 @@ function discoverProjects() {
   return readdirSync(WIKI_ROOT, { withFileTypes: true })
     .filter(e => e.isDirectory())
     .map(e => e.name)
-    .filter(name => existsSync(join(WIKI_ROOT, name, 'doc')) || existsSync(join(WIKI_ROOT, name, 'code')))
+    .filter(name => existsSync(join(WIKI_ROOT, name, 'doc')) || existsSync(join(WIKI_ROOT, name, 'code')) || existsSync(join(WIKI_ROOT, name, 'directory.json')))
     .sort()
 }
 
@@ -110,7 +111,7 @@ let total = 0
 
 // 为单个项目构建其 sidebar 分组（linkPrefix 含项目段）
 function buildProjectGroups(proj) {
-  const groups = []
+  const groups = directorySidebar(proj, WIKI_ROOT)
   const linkBase = `/${proj}`
   // 手册视图层
   const mdir = join(WIKI_ROOT, proj, 'doc', 'manuals')
@@ -157,7 +158,8 @@ for (const proj of projects) {
   } else {
     sidebar.push(...groups)
   }
-  nav.push({ text: proj, link: `/${proj}/` })
+  const directory = readDirectory(proj, { wikiRoot: WIKI_ROOT })
+  nav.push({ text: directory?.name || proj, link: directory ? '/' + directoryPageKey(proj).replace(/\.md$/, '') : `/${proj}/` })
 }
 
 // 首页 index.md
@@ -176,7 +178,7 @@ title: CIM 知识库
 
 > 共 ${total} 个原子知识节点 · 项目：${projects.join(', ') || '（空）'} · 由 cim-wiki skill 流水线生成 · 侧边栏数据更新于 ${now}
 
-${total ? homeLinks : '_知识库为空。使用 cim-wiki skill 摄取第一份文档。_'}
+${homeLinks || '_知识库为空。使用 cim-wiki skill 摄取第一份文档。_'}
 `,
   'utf-8'
 )

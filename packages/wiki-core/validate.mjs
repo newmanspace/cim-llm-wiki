@@ -23,6 +23,7 @@ import {
   pageLinks,
   renderingErrors,
 } from './markdown.mjs'
+import { validateDirectories } from './product-directory.mjs'
 import { validateDocumentSets } from './document-set.mjs'
 
 const vocabulary = JSON.parse(
@@ -94,6 +95,7 @@ export function validateWiki({
     add('template_contract_error', wikiRoot, e.message)
   }
 
+  errors.push(...validateDirectories(wikiRoot))
   validatePages()
 
   function resolveLink(target, key, wiki = true) {
@@ -154,6 +156,8 @@ export function validateWiki({
   function validatePages() {
     for (const key of files) {
       if (!key.endsWith('.md')) continue
+      // Catalog pages are deterministic navigation, validated separately above.
+      if (/^[^/]+\/catalog\//.test(key)) continue
       let page
       try {
         page = parsePage(readFileSync(join(wikiRoot, key), 'utf8'))

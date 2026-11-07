@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { initializeDirectory, readDirectory, updateDirectory } from '../wiki-core/product-directory.mjs'
 import { createServer } from 'node:http'
 import {
   readFileSync,
@@ -184,6 +185,7 @@ export function createKnowledgeServer({
       schema_version: '1.0',
       project,
       delivery_contract: contract,
+      directory: readDirectory(project, { wikiRoot }),
       node_types: NODE_TYPES,
       node_schema: json(join(CONTRACT_ROOT, 'node.schema.json')),
       vocabulary: json(join(CONTRACT_ROOT, 'vocabulary.json')),
@@ -539,6 +541,7 @@ export function createKnowledgeServer({
   }
 
   const getRoutes = {
+    '/directories': (url) => readDirectory(url.searchParams.get('project'), { wikiRoot }),
     '/context': (url) => context(url.searchParams.get('project')),
     '/document': (url) => {
       const rec = getDoc(url.searchParams.get('source'))
@@ -550,6 +553,8 @@ export function createKnowledgeServer({
     '/bundle': (url) => getBundle(url.searchParams.get('id')),
   }
   const postRoutes = {
+    '/initialize': (data) => initializeDirectory(data, { wikiRoot }),
+    '/directories': (data) => updateDirectory(data, { wikiRoot }),
     '/convert': (data) => register(data, true),
     '/register': (data) => register(data, false),
     '/state': changeSourceState,
