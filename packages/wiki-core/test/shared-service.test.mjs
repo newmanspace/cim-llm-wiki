@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { createKnowledgeServer } from '../../wiki-service/server.mjs'
 import { resolveShared, hashFile, writeSharedFile } from '../sources.mjs'
 import { validateWiki } from '../validate.mjs'
@@ -257,8 +258,15 @@ test('product directory initialization runs through human review, strict compila
   const sidebarText = readFileSync(sidebarPath, 'utf8')
   assert.match(sidebarText, /Product Versions/)
   assert.match(sidebarText, /Term requirement/)
-  const baseConfig = pathToFileURL(join(repo, 'wiki/.vitepress/config.mjs')).href
-  writeFileSync(join(configDir, 'config.mjs'), `import base from ${JSON.stringify(baseConfig)}\nimport { sidebar, nav } from './sidebar-data.mjs'\nexport default { ...base, srcDir: ${JSON.stringify(f.wikiRoot)}, outDir: ${JSON.stringify(join(site, 'dist'))}, cacheDir: ${JSON.stringify(join(site, 'cache'))}, themeConfig: { ...base.themeConfig, sidebar, nav } }\n`)
+  const baseConfigPath = join(repo, 'wiki/.vitepress/config.mjs')
+  const baseConfigUrl = pathToFileURL(baseConfigPath).href
+  const wikiRequire = createRequire(baseConfigUrl)
+  const isolatedConfig = readFileSync(baseConfigPath, 'utf8')
+    .replace("from 'vitepress'", `from ${JSON.stringify(pathToFileURL(wikiRequire.resolve('vitepress')).href)}`)
+    .replace("from '../../packages/wiki-core/validate.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/validate.mjs')).href)}`)
+    .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(baseConfigUrl)})`)
+    .replace('export default defineConfig({', `export default defineConfig({\n  outDir: ${JSON.stringify(join(site, 'dist'))},\n  cacheDir: ${JSON.stringify(join(site, 'cache'))},`)
+  writeFileSync(join(configDir, 'config.mjs'), isolatedConfig)
   await runChild([join(repo, 'wiki/node_modules/vitepress/bin/vitepress.js'), 'build', site], env)
   assert.ok(existsSync(join(site, 'dist/demo/catalog/_index.html')))
   assert.ok(existsSync(join(site, 'dist/demo/doc/requirements/req-terms-001.html')))
