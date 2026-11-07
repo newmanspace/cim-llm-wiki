@@ -1,12 +1,12 @@
 # cim-llm-wiki
 
-> **共享目录工作流**：Skill 已改为轻量 HTTP 客户端，本地 Agent/LLM 负责抽取与评分；转换、审核记录、校验和编译由 `/api/v2/knowledge` 服务执行。原件与转换稿可保留在任意共享目录，节点保留原件路径、版本和 SHA-256。使用方法见 [共享目录工作流](docs/shared-directory-workflow.md)。旧本地维护脚本已移至 `packages/wiki-tools/`。
+> **共享目录工作流**：Skill 已改为轻量 HTTP 客户端，本地 Agent/LLM 负责抽取与评分；转换、审核记录、校验和编译由 `/api/v2/knowledge` 服务执行。原件与转换稿可保留在任意共享目录，节点保留原件路径、版本和 SHA-256。使用方法见 [共享目录工作流](docs/product-versions/unreleased/documentation/getting-started/shared-directory-workflow.md)。旧本地维护脚本已移至 `packages/wiki-tools/`。
 
-> **产品标准目录**：可复用现有 project 命名空间，初始化产品目录、维护目录映射，并让编译页面进入标准 Wiki 导航；见 [产品目录与流水线](docs/product-directory-workflow.md)。
+> **产品标准目录**：可复用现有 project 命名空间，初始化产品目录、维护目录映射，并让编译页面进入标准 Wiki 导航；见 [产品目录与流水线](docs/product-versions/unreleased/documentation/application-help/product-directory-pipeline/product-directory-workflow.md)。
 
-> **项目文档集契约**：所有项目必须配置 `data/wiki/<project>/document-contract.json`，声明必交文档、项目/模块数量、附加结构和关联要求；缺失即阻断。参见 [配置说明](docs/document-set-contract.md) 和 [MES 示例](contracts/wiki/examples/mes-document-contract.json)。
+> **项目文档集契约**：所有项目必须配置 `data/wiki/<project>/document-contract.json`，声明必交文档、项目/模块数量、附加结构和关联要求；缺失即阻断。参见 [配置说明](docs/architecture-governance/engineering-standards/documentation-standards/document-set-contract.md) 和 [MES 示例](contracts/wiki/examples/mes-document-contract.json)。
 
-> **结构一致性更新（2026-10-28）**：统一契约位于 `contracts/wiki/v1/`，核心运行逻辑位于 `packages/wiki-core/`。所有现有和新增 Wiki 页面必须严格校验；编译先验证候选树，导航、构建和 GitOps 也执行门禁。Go 旧摄取/审核写入接口已停用，返回 410。首次在根目录执行 `npm ci`，详细规则与现有数据迁移要求见 [Wiki 结构一致性修正](docs/wiki-schema-enforcement.md)。
+> **结构一致性更新（2026-10-28）**：统一契约位于 `contracts/wiki/v1/`，核心运行逻辑位于 `packages/wiki-core/`。所有现有和新增 Wiki 页面必须严格校验；编译先验证候选树，导航、构建和 GitOps 也执行门禁。Go 旧摄取/审核写入接口已停用，返回 410。首次在根目录执行 `npm ci`，详细规则与现有数据迁移要求见 [Wiki 结构一致性修正](docs/architecture-governance/engineering-standards/documentation-standards/wiki-schema-enforcement.md)。
 
 > **一句话**：Skill 驱动的泛半导体 CIM 文档知识工程流水线——原始文档（SDD/IDD/PRD/运维手册）经服务端解析、Agent 抽取与 7 维评分、HITL 聚合审核后，编译为 `data/wiki/` 双平面原子化知识库（`doc/` 领域知识 + `code/` 代码契约），用 VitePress 本地展示，并可经 Admin 管理台登记与知识库 GitOps 独立版本管理。
 
@@ -40,7 +40,7 @@
 - **skill 脚本统一 Node.js**：parse / compile / validate 均为 `.mjs`，与站点同栈。
 - **本地不做任何文档解析**：所有版面解析引擎均为独立 Docker HTTP server（MinerU / IBM Docling / MarkItDown，对齐方案 §4.2），**无任何本地降级**——服务不可用即摄取失败。纯文本族（.md/.txt/.json/.yaml）由 Node 原生直读，属文件读取而非版面解析。
 
-> 技术选型对比与 Phase 3 检索层建议见 [docs/TECH-STACK.md](docs/TECH-STACK.md)；v1→v2 架构转型全貌见 [docs/HANDOFF.md](docs/HANDOFF.md)。
+> 技术选型对比与 Phase 3 检索层建议见 [docs/product-versions/unreleased/engineering-documentation/system-architecture/architecture-overview/tech-stack.md](docs/product-versions/unreleased/engineering-documentation/system-architecture/architecture-overview/tech-stack.md)；v1→v2 架构转型全貌见 [docs/product-versions/unreleased/overview/version-summary/handoff.md](docs/product-versions/unreleased/overview/version-summary/handoff.md)。
 
 ---
 
@@ -68,7 +68,7 @@ docker tag  swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/docling-project/doc
             quay.io/docling-project/docling-serve:latest
 ```
 
-启动网关会话认证前，在仓库根目录 `.env` 配置独立随机的 `AUTH_SESSION_SECRET`（至少 32 字符）及 bcrypt `AUTH_PASSWORD_HASH`；摘要在 `.env` 中使用单引号包围，保留其中的 `$`。旧 `AUTH_PASSWORD_SHA256` 配置必须迁移，默认口令和默认签名密钥已移除。详见 [认证配置迁移](docs/github-quality-gate.md#密码配置迁移)。
+启动网关会话认证前，在仓库根目录 `.env` 配置独立随机的 `AUTH_SESSION_SECRET`（至少 32 字符）及 bcrypt `AUTH_PASSWORD_HASH`；摘要在 `.env` 中使用单引号包围，保留其中的 `$`。旧 `AUTH_PASSWORD_SHA256` 配置必须迁移，默认口令和默认签名密钥已移除。详见 [认证配置迁移](docs/architecture-governance/quality-management/github-quality-gate.md#密码配置迁移)。
 
 ```bash
 # 在仓库根目录执行，显式读取根目录配置
@@ -120,7 +120,7 @@ npm run docs:preview # 预览静态构建产物
       ▼ Wiki 页面：原始路径、共享 URI、版本、SHA-256 与文档内位置
 ```
 
-Skill 仅使用 `scripts/client.mjs` 访问服务；所有 LLM 抽取与语义评分在当前 Agent 完成。服务端源码为 `packages/wiki-service/`，严格编译与校验复用 `packages/wiki-core/`。独立共享目录无需复制到项目下，详细配置见 [共享目录工作流](docs/shared-directory-workflow.md)。
+Skill 仅使用 `scripts/client.mjs` 访问服务；所有 LLM 抽取与语义评分在当前 Agent 完成。服务端源码为 `packages/wiki-service/`，严格编译与校验复用 `packages/wiki-core/`。独立共享目录无需复制到项目下，详细配置见 [共享目录工作流](docs/product-versions/unreleased/documentation/getting-started/shared-directory-workflow.md)。
 
 服务器维护人员仍可使用 `packages/wiki-tools/` 的本地工具；这些工具不是远程 Agent 的运行依赖。Admin 回写和 GitOps 目前保留在维护 CLI，新服务更新本地来源与 Wiki 索引。
 
@@ -236,10 +236,10 @@ cim-llm-wiki/
 │   ├── scripts/gen-sidebar.mjs   ← 扫描 data/wiki 自动生成侧边栏与首页
 │   └── package.json              ← npm run gen / docs:dev / docs:build / docs:preview
 ├── .env.example                  ← 解析服务端点、Admin URL/Token、GitOps 开关等环境变量样例
-├── docs/                         ← 本项目自身的工程文档
-│   ├── HANDOFF.md                ← 项目交接与工程交付文档（v1→v2 架构转型）
-│   ├── TECH-STACK.md             ← 技术框架选型建议
-│   └── 泛半导体CIM…落地方案.md   ← 方案原文
+├── docs -> ../cim-llm-wiki-knowledge/cim-llm-wiki/  ← 产品标准文档
+│   ├── architecture-governance/ ← 公共工程规范与质量流程
+│   ├── product-versions/unreleased/ ← 当前版本文档与工程资料
+│   └── templates/                 ← 可复用文档与目录模板
 ├── data/                         ← 运行时数据（.gitignore）
 │   ├── raw/<module>/             ← 历史本地维护流程产物；新流程使用外部共享目录
 │   ├── work/<bundle_id>/         ← 历史本地批次；新流程 nodes.json 可位于共享目录
@@ -255,13 +255,15 @@ cim-llm-wiki/
 └── cmd/ internal/ bin/ go.mod    ← [遗留 v1] Go 服务；parser/mineru.go、docling.go 为 HTTP 契约参考，不再演进
 ```
 
-> **目录语义辨析**：`docs/` 是本项目自身的工程文档；`data/wiki/` 才是 LLM 流水线产出的知识库。
+> **文档维护约定**：新文档按 `docs/README.md` 的产品标准目录归档。功能材料放在实际模块／功能目录，未来方案放在 Feature Backlog；`docs/development/` 不再作为默认归档位置。
+
+> **目录语义辨析**：`docs/` 是指向同级知识仓中本产品标准目录的软链接；`data/wiki/` 是流水线发布使用的独立运行检出。
 
 ---
 
 ## 开发指南
 
-问题反馈请从 [Issue 模板](https://github.com/newmanspace/cim-llm-wiki/issues/new/choose) 选择缺陷、功能需求或质量改进；分类、脱敏、验收和关闭建议见 [Issue 提交与处理](docs/issue-management.md)。
+问题反馈请从 [Issue 模板](https://github.com/newmanspace/cim-llm-wiki/issues/new/choose) 选择缺陷、功能需求或质量改进；分类、脱敏、验收和关闭建议见 [Issue 提交与处理](docs/architecture-governance/quality-management/issue-management.md)。
 
 流水线由 `cim-wiki` skill 驱动，工作流入口在 Agent 会话中调用该 skill（`.agents/skills/cim-wiki/SKILL.md`），各阶段规则全部在 skill 的 `references/*.md` 内定义——调整行为即编辑规范文件，无需改代码。
 
@@ -299,13 +301,13 @@ cd wiki && npm run docs:dev
 - **评分权重校准**：编辑 `references/evaluation.md`（Golden Dataset 标定后调整）。
 - **新增节点类型/目录**：更新 `references/frontmatter.md` 与 `scripts/gen-sidebar.mjs` 的 `DIR_META`。
 - **扫描件 OCR**：`deploy/` 增加 PaddleOCR 服务（镜像即服务端引擎），`parse.mjs` 接入 `--engine ocr`。
-- **Phase 3 混合检索**：Qdrant(:6333) + Meilisearch(:7700) 已在 compose 编排，见 [docs/TECH-STACK.md](docs/TECH-STACK.md) §4。
-- **Web 端 HITL 审核控制台 / 知识仓 submodule 指针**：Admin 管理台与 GitOps 自动提交已落地（见「已落地内容」），团队共享可进一步以 `git submodule` 挂载知识仓，见 [docs/HANDOFF.md](docs/HANDOFF.md) §6。
+- **Phase 3 混合检索**：Qdrant(:6333) + Meilisearch(:7700) 已在 compose 编排，见 [docs/product-versions/unreleased/engineering-documentation/system-architecture/architecture-overview/tech-stack.md](docs/product-versions/unreleased/engineering-documentation/system-architecture/architecture-overview/tech-stack.md) §4。
+- **Web 端 HITL 审核控制台 / 知识仓 submodule 指针**：Admin 管理台与 GitOps 自动提交已落地（见「已落地内容」），团队共享可进一步以 `git submodule` 挂载知识仓，见 [docs/product-versions/unreleased/overview/version-summary/handoff.md](docs/product-versions/unreleased/overview/version-summary/handoff.md) §6。
 
 ## 文档
 
 | 从这里开始 | 说明 |
 |------------|------|
-| [docs/HANDOFF.md](docs/HANDOFF.md) | 项目交接、v1→v2 架构转型、核心机制与遗留 API |
-| [docs/TECH-STACK.md](docs/TECH-STACK.md) | 技术选型对比、引擎/站点备选、Phase 3 检索层建议 |
-| [泛半导体CIM…落地方案.md](docs/泛半导体CIM软件产品全生命周期文档%20Wiki%20化与%20AI%20知识工程落地方案.md) | 方案原文（§4.2 引擎路由、§8.1 存储与检索） |
+| [docs/product-versions/unreleased/overview/version-summary/handoff.md](docs/product-versions/unreleased/overview/version-summary/handoff.md) | 项目交接、v1→v2 架构转型、核心机制与遗留 API |
+| [docs/product-versions/unreleased/engineering-documentation/system-architecture/architecture-overview/tech-stack.md](docs/product-versions/unreleased/engineering-documentation/system-architecture/architecture-overview/tech-stack.md) | 技术选型对比、引擎/站点备选、Phase 3 检索层建议 |
+| [泛半导体CIM…落地方案.md](docs/product-management/product-strategy/knowledge-engineering-plan.md) | 方案原文（§4.2 引擎路由、§8.1 存储与检索） |

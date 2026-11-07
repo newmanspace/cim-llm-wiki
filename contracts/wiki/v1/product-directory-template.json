@@ -62,57 +62,57 @@
       "description": "提供容量估算和规格建议。"
     },
     {
-      "path": "architecture-and-governance",
+      "path": "architecture-governance",
       "title": "Architecture and Governance",
       "description": "集中维护跨版本架构原则、工程规范和质量流程。"
     },
     {
-      "path": "architecture-and-governance/architecture-principles",
+      "path": "architecture-governance/architecture-principles",
       "title": "Architecture Principles",
       "description": "明确长期架构约束。"
     },
     {
-      "path": "architecture-and-governance/engineering-standards",
+      "path": "architecture-governance/engineering-standards",
       "title": "Engineering Standards",
       "description": "维护统一技术实现约束。"
     },
     {
-      "path": "architecture-and-governance/engineering-standards/development-standards",
+      "path": "architecture-governance/engineering-standards/development-standards",
       "title": "Development Standards",
       "description": "统一开发实现约定。"
     },
     {
-      "path": "architecture-and-governance/engineering-standards/customization-standards",
+      "path": "architecture-governance/engineering-standards/customization-standards",
       "title": "Customization Standards",
       "description": "约束产品二次开发。"
     },
     {
-      "path": "architecture-and-governance/engineering-standards/integration-and-api-standards",
+      "path": "architecture-governance/engineering-standards/integration-and-api-standards",
       "title": "Integration and API Standards",
       "description": "统一系统集成与接口设计规则。"
     },
     {
-      "path": "architecture-and-governance/engineering-standards/database-standards",
+      "path": "architecture-governance/engineering-standards/database-standards",
       "title": "Database Standards",
       "description": "统一数据结构与数据库变更规则。"
     },
     {
-      "path": "architecture-and-governance/engineering-standards/ui-standards",
+      "path": "architecture-governance/engineering-standards/ui-standards",
       "title": "UI Standards",
       "description": "统一交互与界面约束。"
     },
     {
-      "path": "architecture-and-governance/engineering-standards/security-standards",
+      "path": "architecture-governance/engineering-standards/security-standards",
       "title": "Security Standards",
       "description": "统一安全工程要求。"
     },
     {
-      "path": "architecture-and-governance/engineering-standards/documentation-standards",
+      "path": "architecture-governance/engineering-standards/documentation-standards",
       "title": "Documentation Standards",
       "description": "规定文档如何编写和维护。"
     },
     {
-      "path": "architecture-and-governance/quality-management",
+      "path": "architecture-governance/quality-management",
       "title": "Quality Management",
       "description": "承载团队现有质量管控流程材料。"
     },
