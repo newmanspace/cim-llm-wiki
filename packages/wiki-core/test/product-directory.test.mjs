@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
@@ -65,4 +67,28 @@ test('unsafe paths, orphan directories, altered contracts and symlink targets ar
   const external = join(f.root, 'outside'); mkdirSync(external)
   symlinkSync(external, join(f.options.wikiRoot, 'escape'))
   assert.throws(() => initializeDirectory({ ...f.input, project: 'escape', delivery_contract: { ...f.input.delivery_contract, project: 'escape' } }, f.options), /[Ss]ymbolic/)
+})
+
+test('a failed directory configuration replacement restores the previous tree and revision', t => {
+  const f = fixture(t)
+  const original = initializeDirectory(f.input, f.options)
+  const rename = fs.renameSync
+  let failed = false
+  t.mock.method(fs, 'renameSync', (source, target) => {
+    if (target.endsWith('/directory.json') && !failed) {
+      failed = true
+      throw new Error('Simulated configuration replacement failure')
+    }
+    return rename(source, target)
+  })
+  syncBuiltinESMExports()
+  try {
+    assert.throws(() => updateDirectory({ project: 'spc', expected_revision: 1, directories: original.directories.map(d => ({ ...d, title: 'Changed' })) }, f.options), /Simulated/)
+    assert.equal(failed, true)
+    assert.deepEqual(readDirectory('spc', f.options), original)
+    assert.deepEqual(validateDirectories(f.options.wikiRoot), [])
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
 })

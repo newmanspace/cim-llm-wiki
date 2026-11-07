@@ -31,6 +31,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Install Wiki dependencies for integration tests
+        run: npm ci --prefix wiki --no-audit --no-fund
       - run: mkdir -p reports
       - run: npm run quality:lint
       - if: ${{ !cancelled() }}

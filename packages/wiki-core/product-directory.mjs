@@ -81,10 +81,20 @@ function generatedPages(config) {
   return new Map([null, ...config.directories].map(d => [directoryPageKey(config.project, d?.path), page(config, d)]))
 }
 
+function replaceConfig(path, content) {
+  const temporary = path + '.' + randomUUID() + '.tmp'
+  try {
+    writeFileSync(temporary, content, { flag: 'wx' })
+    renameSync(temporary, path)
+  } finally {
+    rmSync(temporary, { force: true })
+  }
+}
+
 function saveDirectory(config, wikiRoot, contract) {
   const base = projectPath(config.project, wikiRoot)
   const stage = join(base, `.directory-${randomUUID()}`), backup = stage + '-backup'
-  const configPath = join(base, 'directory.json'), catalog = join(base, 'catalog'), temp = configPath + '.' + randomUUID() + '.tmp'
+  const configPath = join(base, 'directory.json'), catalog = join(base, 'catalog')
   const before = existsSync(configPath) ? readFileSync(configPath) : null
   mkdirSync(stage, { recursive: true })
   let moved = false, installed = false
@@ -92,16 +102,16 @@ function saveDirectory(config, wikiRoot, contract) {
     for (const [key, text] of generatedPages(config)) writeFileSync(join(stage, key.split('/').at(-1)), text)
     if (existsSync(catalog)) { renameSync(catalog, backup); moved = true }
     renameSync(stage, catalog); installed = true
-    writeFileSync(temp, encode(config), { flag: 'wx' }); renameSync(temp, configPath)
+    replaceConfig(configPath, encode(config))
     if (contract) writeFileSync(join(base, 'document-contract.json'), encode(contract), { flag: 'wx' })
   } catch (e) {
     if (installed) rmSync(catalog, { recursive: true, force: true })
     if (moved) renameSync(backup, catalog)
-    if (before) writeFileSync(configPath, before)
+    if (before) replaceConfig(configPath, before)
     else rmSync(configPath, { force: true })
     throw e
   } finally {
-    rmSync(stage, { recursive: true, force: true }); rmSync(backup, { recursive: true, force: true }); rmSync(temp, { force: true })
+    rmSync(stage, { recursive: true, force: true }); rmSync(backup, { recursive: true, force: true })
   }
   return config
 }
