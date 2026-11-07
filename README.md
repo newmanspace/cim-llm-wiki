@@ -259,6 +259,8 @@ cim-llm-wiki/
 
 ## 开发指南
 
+问题反馈请从 [Issue 模板](https://github.com/newmanspace/cim-llm-wiki/issues/new/choose) 选择缺陷、功能需求或质量改进；分类、脱敏、验收和关闭建议见 [Issue 提交与处理](docs/issue-management.md)。
+
 流水线由 `cim-wiki` skill 驱动，工作流入口在 Agent 会话中调用该 skill（`.agents/skills/cim-wiki/SKILL.md`），各阶段规则全部在 skill 的 `references/*.md` 内定义——调整行为即编辑规范文件，无需改代码。
 
 单阶段脚本可独立运行：
