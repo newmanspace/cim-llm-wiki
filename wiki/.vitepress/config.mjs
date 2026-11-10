@@ -32,7 +32,11 @@ export default defineConfig({
         { find: /^vue\/server-renderer$/, replacement: require.resolve('vue/server-renderer') }
       ]
     },
+    preview: {
+      allowedHosts: true
+    },
     server: {
+      allowedHosts: true,
       fs: {
         allow: ['..', '/app']
       }
