@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-import { initializeDirectory, readDirectory, updateDirectory } from '../wiki-core/product-directory.mjs'
+import { createDocumentQuality } from './document-quality.mjs'
+import {
+  initializeDirectory,
+  readDirectory,
+  updateDirectory,
+} from '../wiki-core/product-directory.mjs'
 import { createServer } from 'node:http'
 import {
   readFileSync,
@@ -129,6 +134,9 @@ export function createKnowledgeServer({
   token = process.env.CIM_WIKI_API_TOKEN,
   reviewerTokens = JSON.parse(process.env.CIM_WIKI_REVIEW_TOKENS || '{}'),
   parser = convertInput,
+  ledgerURL = process.env.CIM_WIKI_LEDGER_URL,
+  ledgerToken = process.env.CIM_WIKI_LEDGER_TOKEN,
+  organizedRoot = process.env.CIM_WIKI_ORGANIZED_ROOT,
 } = {}) {
   validateCredentials(token, reviewerTokens)
   projectRoot = resolve(projectRoot)
@@ -148,6 +156,15 @@ export function createKnowledgeServer({
     existsSync(bundlePath(id))
       ? json(bundlePath(id))
       : fail('Bundle not found', 404)
+  const quality = createDocumentQuality({
+    ledgerURL,
+    ledgerToken,
+    organizedRoot,
+    projectRoot,
+    roots,
+    registeredDocument: getDoc,
+    wikiRoot,
+  })
   let queue = Promise.resolve()
 
   function context(project) {
@@ -397,7 +414,7 @@ export function createKnowledgeServer({
     node.updated_at ??= now()
   }
 
-  function submittedBundle(data) {
+  async function submittedBundle(data) {
     const value = readContractJson(resolveShared(data.uri, roots))
     identifier(value.bundle_id, bundlePattern)
     identifier(value.project)
@@ -436,7 +453,18 @@ export function createKnowledgeServer({
             : null,
         }
       })
+    const sources = value.nodes.flatMap((node) =>
+      Array.isArray(node.source) ? node.source : [node.source],
+    )
+    const documentArtifacts = await quality.bindings(
+      value.project,
+      sources,
+      data.artifact_ids,
+    )
     const record = {
+      ...(documentArtifacts.length
+        ? { document_artifacts: documentArtifacts }
+        : {}),
       targets,
       bundle: value,
       submitted_uri: data.uri,
@@ -524,14 +552,16 @@ export function createKnowledgeServer({
       (record.state === 'approved' && record.review?.digest !== record.digest)
     )
       fail('Bundle changed after review', 409)
+    if (record.publication_pending) return recoverQualityPublication(record)
     verifyPublishedBaseline(record)
     const bundle = structuredClone(record.bundle)
     if (record.review?.decision === 'approve')
       for (const node of bundle.nodes) node.reviewer = record.review.reviewer
-    const result = await compileBundle(bundle, {
-      ...options,
-      preview: data.preview === true,
-    })
+    const result = await compileQualityBundle(
+      bundle,
+      record,
+      data.preview === true,
+    )
     if (!data.preview) {
       record.state = 'published'
       record.compiled_at = now()
@@ -540,9 +570,98 @@ export function createKnowledgeServer({
     return result
   }
 
+  async function compileQualityBundle(bundle, record, preview) {
+    if (!record.document_artifacts?.length)
+      await quality.bindings(
+        bundle.project,
+        bundle.nodes.flatMap((n) =>
+          Array.isArray(n.source) ? n.source : [n.source],
+        ),
+        [],
+      )
+    if (record.document_artifacts?.length && !quality.enabled)
+      fail('Document ledger is required for this quality-linked bundle', 503)
+    await quality.gate(bundle.project, record.document_artifacts)
+    const publicationKey = `bundle-${bundle.bundle_id}-${randomUUID()}`
+    const publications = preview
+      ? []
+      : await quality.gate(
+          bundle.project,
+          record.document_artifacts,
+          'start',
+          publicationKey,
+        )
+    let result
+    try {
+      result = await compileBundle(bundle, {
+        ...options,
+        preview: preview === true,
+      })
+    } catch (error) {
+      if (publications.length)
+        await quality.finish(
+          bundle.project,
+          publications,
+          'failed',
+          publicationKey,
+        )
+      throw error
+    }
+    if (publications.length) {
+      record.publication_pending = {
+        publications,
+        key: publicationKey,
+        result,
+        files: result.written.map((path) => ({
+          path,
+          sha256: hashFile(join(wikiRoot, path)),
+        })),
+      }
+      writeJson(bundlePath(bundle.bundle_id), record)
+      await quality.finish(
+        bundle.project,
+        publications,
+        'published',
+        publicationKey,
+      )
+      delete record.publication_pending
+    }
+    return result
+  }
+
+  async function recoverQualityPublication(record) {
+    const pending = record.publication_pending
+    for (const file of pending.files) {
+      if (
+        !existsSync(join(wikiRoot, file.path)) ||
+        hashFile(join(wikiRoot, file.path)) !== file.sha256
+      )
+        fail(
+          'Pending publication files changed; operator reconciliation required',
+          409,
+        )
+    }
+    await quality.gate(record.bundle.project, record.document_artifacts)
+    await quality.finish(
+      record.bundle.project,
+      pending.publications,
+      'published',
+      pending.key,
+    )
+    delete record.publication_pending
+    record.state = 'published'
+    record.compiled_at = now()
+    writeJson(bundlePath(record.bundle.bundle_id), record)
+    return pending.result
+  }
+
   const getRoutes = {
-    '/directories': (url) => readDirectory(url.searchParams.get('project'), { wikiRoot }),
-    '/context': (url) => context(url.searchParams.get('project')),
+    '/directories': (url) =>
+      readDirectory(url.searchParams.get('project'), { wikiRoot }),
+    '/context': async (url) => {
+      const project = url.searchParams.get('project')
+      return { ...context(project), ...(await quality.context(project)) }
+    },
     '/document': (url) => {
       const rec = getDoc(url.searchParams.get('source'))
       return {
@@ -564,8 +683,86 @@ export function createKnowledgeServer({
     '/validate': () => validateWiki(options),
   }
 
+  async function qualityRoute(req, url, data, reviewerIdentity, path) {
+    const reads = [
+      'data-sources',
+      'source-revisions',
+      'ingest-runs',
+      'source-observations',
+      'ingest-source-links',
+      'ingest-artifact-links',
+      'document-results',
+      'quality-policies',
+      'quality-policy-effective',
+      'document-evaluations',
+      'quality-issues',
+      'document-review-tasks',
+      'document-review-events',
+      'publications',
+    ]
+    const writes = [
+      'ingest-runs',
+      'source-observations',
+      'artifacts',
+      'document-evaluations',
+      'document-review-decisions',
+    ]
+    if (
+      req.method === 'GET' &&
+      ['/document-result-preview', '/document-result-original'].includes(path)
+    ) {
+      const project = url.searchParams.get('project')
+      context(project)
+      return {
+        data: await quality.preview(
+          project,
+          url.searchParams.get('id'),
+          path.endsWith('-original'),
+        ),
+      }
+    }
+    if (req.method === 'GET' && reads.includes(path.slice(1))) {
+      const project = url.searchParams.get('project')
+      context(project)
+      return {
+        data: await quality.call(project, path.slice(1), {
+          query: Object.fromEntries(
+            [...url.searchParams].filter(([key]) => key !== 'project'),
+          ),
+        }),
+      }
+    }
+    if (req.method === 'POST' && writes.includes(path.slice(1))) {
+      context(data.project)
+      if (path === '/document-review-decisions' && !reviewerIdentity)
+        fail('Independent human reviewer authentication required', 403)
+      return {
+        data: await quality.mutate(
+          path.slice(1),
+          data,
+          req.headers['idempotency-key'],
+          reviewerIdentity ? req.headers.authorization.slice(7) : undefined,
+        ),
+      }
+    }
+    if (req.method === 'POST' && path === '/publish-document') {
+      context(data.project)
+      return {
+        data: await quality.publish(data, req.headers['idempotency-key']),
+      }
+    }
+  }
+
   async function route(req, url, data, reviewerIdentity) {
     const path = url.pathname.slice(PREFIX.length)
+    const qualityResult = await qualityRoute(
+      req,
+      url,
+      data,
+      reviewerIdentity,
+      path,
+    )
+    if (qualityResult !== undefined) return qualityResult
     if (req.method === 'GET' && Object.hasOwn(getRoutes, path))
       return getRoutes[path](url)
     if (req.method === 'POST' && Object.hasOwn(postRoutes, path))
@@ -597,7 +794,9 @@ export function createKnowledgeServer({
       if (
         reviewerIdentity &&
         req.method !== 'GET' &&
-        url.pathname !== PREFIX + '/review'
+        ![PREFIX + '/review', PREFIX + '/document-review-decisions'].includes(
+          url.pathname,
+        )
       )
         fail('Reviewer credentials may only submit review decisions', 403)
       if (!url.pathname.startsWith(PREFIX + '/'))

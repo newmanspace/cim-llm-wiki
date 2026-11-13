@@ -11,6 +11,12 @@ export interface DocSource {
 }
 
 export interface RepoBinding {
+  type?: 'git' | 'svn'
+  subpath?: string
+  revision_selector?: string
+  enabled?: boolean
+  config_revision?: number
+  auth?: string
   name: string
   url: string
   branch: string

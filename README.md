@@ -2,6 +2,8 @@
 
 > **共享目录工作流**：Skill 已改为轻量 HTTP 客户端，本地 Agent/LLM 负责抽取与评分；转换、审核记录、校验和编译由 `/api/v2/knowledge` 服务执行。原件与转换稿可保留在任意共享目录，节点保留原件路径、版本和 SHA-256。使用方法见 [共享目录工作流](docs/doc/90-guides/shared-directory-workflow.md)。旧本地维护脚本已移至 `packages/wiki-tools/`。
 
+> **SVN / Git 文档整理与质量审核**：支持项目 SVN 与 Git 数据源、本机已有凭据采集、归类目录评分继承、来源及审核历史落表。配置与流程见 [操作指南](docs/doc/90-guides/svn-document-quality-workflow.md)。
+
 > **产品标准目录**：可复用现有 project 命名空间，初始化产品目录、维护目录映射，并让编译页面进入标准 Wiki 导航；见 [产品目录与流水线](docs/doc/90-guides/product-directory-workflow.md)。
 
 > **项目文档集契约**：所有项目必须配置 `data/wiki/<project>/document-contract.json`，声明必交文档、项目/模块数量、附加结构和关联要求；缺失即阻断。参见 [配置说明](docs/doc/30-standards/document-set-contract.md) 和 [MES 示例](contracts/wiki/examples/mes-document-contract.json)。
@@ -120,7 +122,7 @@ npm run docs:preview # 预览静态构建产物
       ▼ Wiki 页面：原始路径、共享 URI、版本、SHA-256 与文档内位置
 ```
 
-Skill 仅使用 `scripts/client.mjs` 访问服务；所有 LLM 抽取与语义评分在当前 Agent 完成。服务端源码为 `packages/wiki-service/`，严格编译与校验复用 `packages/wiki-core/`。独立共享目录无需复制到项目下，详细配置见 [共享目录工作流](docs/doc/90-guides/shared-directory-workflow.md)。
+Skill 使用 `scripts/client.mjs` 访问服务，SVN / Git 数据源分别由 `scripts/svn-source.mjs`、`scripts/git-source.mjs` 按绑定项目拉取；所有 LLM 抽取与语义评分在当前 Agent 完成。服务端源码为 `packages/wiki-service/`，严格编译与校验复用 `packages/wiki-core/`。独立共享目录无需复制到项目下，详细配置见 [共享目录工作流](docs/doc/90-guides/shared-directory-workflow.md)。
 
 服务器维护人员仍可使用 `packages/wiki-tools/` 的本地工具；这些工具不是远程 Agent 的运行依赖。Admin 回写和 GitOps 目前保留在维护 CLI，新服务更新本地来源与 Wiki 索引。
 

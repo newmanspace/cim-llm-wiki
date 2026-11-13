@@ -11,7 +11,7 @@ import App from '../src/App.vue'
 import PageHeader from '../src/components/PageHeader.vue'
 
 const state = vi.hoisted(() => ({
-  route: { path: '/projects/mes', params: { id: 'mes' } },
+  route: { path: '/projects/mes', query: {}, params: { id: 'mes' } },
   push: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
@@ -38,7 +38,8 @@ vi.mock('../src/api/projects', () => ({
   getSyncLogs: state.logs,
   getWikiNodes: state.nodes,
 }))
-vi.mock('tdesign-vue-next', () => ({
+vi.mock('tdesign-vue-next', async (original) => ({
+  ...(await original<typeof import('tdesign-vue-next')>()),
   MessagePlugin: {
     error: state.error,
     success: state.success,
@@ -252,8 +253,8 @@ test('detail view publishes source links and displays tokens once, then revokes 
       .some((node) => node.attributes('href') === '/wiki/mes/doc/a'),
   ).toBe(true)
   const mapping = wrapper
-    .findAll('a')
-    .find((node) => node.text().includes('1') && !node.attributes('href'))
+    .findAll('button')
+    .find((node) => node.text()==='模块映射')
   expect(mapping).toBeDefined()
   await mapping!.trigger('click')
   await flushPromises()

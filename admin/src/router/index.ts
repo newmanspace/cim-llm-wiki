@@ -8,6 +8,8 @@ const routes: RouteRecordRaw[] = [
     component: AdminLayout,
     redirect: '/dashboard',
     children: [
+      { path: 'document-directories', name: 'adminDocumentDirectories', component: () => import('@/views/admin/ProjectDocuments.vue'), props: { mode: 'directories' }, meta: { title: '文档目录与评分' } },
+      { path: 'document-results', name: 'adminDocumentResults', component: () => import('@/views/admin/ProjectDocuments.vue'), props: { mode: 'results' }, meta: { title: '文档结果' } },
       {
         path: 'dashboard',
         name: 'adminDashboard',

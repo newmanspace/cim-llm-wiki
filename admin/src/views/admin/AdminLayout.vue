@@ -17,7 +17,7 @@
       <div class="menu_top">
         <div class="menu_box" v-for="item in menuItems" :key="item.path">
           <t-tooltip :content="item.label" placement="right" :disabled="!collapsed">
-            <router-link :to="item.path" class="menu_item" :class="{ menu_item_active: isActive(item.path) }">
+            <router-link :to="{ path: item.path, query: route.query.project || route.params.id ? { project: String(route.query.project || route.params.id) } : {} }" class="menu_item" :class="{ menu_item_active: isActive(item.path) }">
               <div class="menu_item-box">
                 <div class="menu_icon"><component :is="item.icon" class="icon" /></div>
                 <span v-if="!collapsed" class="menu_title" :title="item.label">{{ item.label }}</span>
@@ -66,7 +66,7 @@
         </div>
         <div class="menu_top">
           <div class="menu_box" v-for="item in menuItems" :key="item.path">
-            <router-link :to="item.path" class="menu_item" :class="{ menu_item_active: isActive(item.path) }" @click="drawerOpen = false">
+            <router-link :to="{ path: item.path, query: route.query.project || route.params.id ? { project: String(route.query.project || route.params.id) } : {} }" class="menu_item" :class="{ menu_item_active: isActive(item.path) }" @click="drawerOpen = false">
               <div class="menu_item-box">
                 <div class="menu_icon"><component :is="item.icon" class="icon" /></div>
                 <span class="menu_title">{{ item.label }}</span>
@@ -108,6 +108,8 @@ const drawerOpen = ref(false)
 const menuItems = computed(() => [
   { path: '/dashboard', label: t('menu.dashboard'), icon: DashboardIcon },
   { path: '/projects', label: t('menu.projects'), icon: FolderIcon },
+  { path: '/document-directories', label: '文档目录与评分', icon: FolderIcon },
+  { path: '/document-results', label: '文档结果', icon: FolderIcon },
 ])
 
 function isActive(path: string) {
@@ -115,6 +117,8 @@ function isActive(path: string) {
 }
 
 const currentTitle = computed(() => {
+  if (route.path === '/document-directories') return '文档目录与评分'
+  if (route.path === '/document-results') return '文档结果'
   if (route.path.startsWith('/projects')) return t('menu.projects')
   if (route.path === '/dashboard') return t('menu.dashboard')
   return ''
@@ -294,6 +298,12 @@ onMounted(() => applyTheme(window.matchMedia('(prefers-color-scheme: dark)').mat
 }
 
 @media (max-width: 767px) {
+  .admin-topbar { padding: 0 12px; gap: 8px; }
+  .topbar-left { flex: 1; min-width: 0; overflow: hidden; gap: 8px; }
+  .topbar-left .hamburger { flex-shrink: 0; }
+  .topbar-left :deep(.t-breadcrumb) { min-width: 0; overflow: hidden; white-space: nowrap; }
+  .topbar-right { flex-shrink: 0; gap: 8px; }
+  .lang-select { width: 100px; }
   .admin-content {
     padding: 12px;
   }

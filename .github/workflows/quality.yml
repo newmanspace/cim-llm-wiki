@@ -24,12 +24,31 @@ jobs:
     name: JavaScript checks
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cim_quality_node
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cim_quality_node"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/cim_quality_node?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install SVN CLI for collection tests
+        run: sudo apt-get update && sudo apt-get install -y subversion
       - run: npm ci --no-audit --no-fund
       - name: Install Wiki dependencies for integration tests
         run: npm ci --prefix wiki --no-audit --no-fund
@@ -74,6 +93,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
       - run: mkdir -p reports
       - run: go vet ./internal/... ./cmd/...
       - if: ${{ !cancelled() }}

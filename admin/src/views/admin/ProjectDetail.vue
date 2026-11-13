@@ -74,17 +74,8 @@
         </t-tab-panel>
 
         <!-- Repos -->
-        <t-tab-panel :value="'repos'" :label="`${t('detail.repos')} (${project.repos?.length || 0})`">
-          <t-table :data="project.repos || []" :columns="repoColumns" row-key="name" bordered>
-            <template #mappings="{ row }">
-              <t-link theme="primary" @click="openMappings(row)">
-                {{ t('detail.mappingCount', { count: Object.keys(row.module_mapping || {}).length }) }}
-              </t-link>
-            </template>
-            <template #empty>
-              <t-empty :description="t('detail.reposEmpty')" />
-            </template>
-          </t-table>
+        <t-tab-panel value="repos" :label="`代码数据源 (${project.repos?.length || 0})`">
+          <CodeSourceSettings :project-id="project.id" :repos="project.repos || []" @saved="loadProject" @mappings="openMappings" />
         </t-tab-panel>
 
         <!-- Modules -->
@@ -153,6 +144,9 @@
               <t-empty :description="t('detail.wikiEmpty')" />
             </template>
           </t-table>
+        </t-tab-panel>
+        <t-tab-panel value="document-quality" label="文档数据源">
+          <DocumentQualityPanel v-if="activeTab === 'document-quality'" :project-id="project.id" mode="sources" />
         </t-tab-panel>
       </t-tabs>
 
@@ -237,6 +231,8 @@
 </template>
 
 <script setup lang="ts">
+import DocumentQualityPanel from '@/components/DocumentQualityPanel.vue'
+import CodeSourceSettings from '@/components/CodeSourceSettings.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -327,14 +323,7 @@ const docColumns = computed<PrimaryTableCol[]>(() => [
   { colKey: 'bundles', title: t('detail.docBundles'), cell: 'bundles' },
 ])
 
-const repoColumns = computed<PrimaryTableCol[]>(() => [
-  { colKey: 'name', title: t('detail.repoName'), width: 140, ellipsis: true },
-  { colKey: 'branch', title: t('detail.repoBranch'), width: 160, ellipsis: true },
-  { colKey: 'url', title: t('detail.repoUrl'), ellipsis: true },
-  { colKey: 'last_sync_sha', title: t('detail.repoLastSyncSHA'), width: 130, ellipsis: true },
-  { colKey: 'synced_at', title: t('detail.repoSyncedAt'), width: 170, cell: (_h, { row }) => formatDate(row.synced_at) },
-  { colKey: 'mappings', title: t('detail.repoMappings'), width: 130, cell: 'mappings' },
-])
+
 
 const syncColumns = computed<PrimaryTableCol[]>(() => [
   { colKey: 'repo_name', title: t('detail.logRepo'), width: 130, ellipsis: true },

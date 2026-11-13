@@ -96,6 +96,12 @@ func (h *AdminHandler) UpsertProject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "project id is required"})
 		return
 	}
+	for i := range p.Repos {
+		if err := store.NormalizeCodeRepository(&p.Repos[i]); err != nil {
+			qualityReply(c, nil, err)
+			return
+		}
+	}
 	if err := h.store.UpsertProject(c.Request.Context(), &p); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -282,4 +288,22 @@ func (h *AdminHandler) GetWikiNodes(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"project_id": id, "nodes": nodes, "count": len(nodes)})
+}
+
+// SaveCodeSource configures a code repository without replacing module mappings.
+func (h *AdminHandler) SaveCodeSource(c *gin.Context) {
+	var input struct {
+		types.RepoBinding
+		ExpectedRevision int `json:"expected_revision"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(422, gin.H{"error": "Code source JSON object required"})
+		return
+	}
+	if err := h.store.SaveCodeSource(c.Request.Context(), c.Param("id"), input.RepoBinding, input.ExpectedRevision); err != nil {
+		qualityReply(c, nil, err)
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
 }

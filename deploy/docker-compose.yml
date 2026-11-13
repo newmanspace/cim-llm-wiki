@@ -34,6 +34,8 @@ services:
       - ADMIN_ENABLED=${ADMIN_ENABLED:-true}
       - ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-cimwiki}:${POSTGRES_PASSWORD:-cimwiki_dev_2026}@postgres:5432/${POSTGRES_DB:-cim_wiki_admin}?sslmode=disable
       - ADMIN_MIGRATION_DIR=/app/deploy/postgres
+      - CIM_WIKI_LEDGER_TOKEN=${CIM_WIKI_LEDGER_TOKEN:-}
+      - CIM_WIKI_REVIEW_TOKENS=${CIM_WIKI_REVIEW_TOKENS:-}
       # ── 访问鉴权（网关会话登录，保护 /wiki/ 与 /admin/）────────────────
       #    凭证来源暂用 env（机制先行），启动前配置独立随机 SECRET 与 bcrypt 摘要；旧 SHA256 配置会被拒绝。
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
@@ -66,8 +68,12 @@ services:
     volumes:
       - ../data:/app/data
       - ${CIM_WIKI_SHARED_DIR:-../data/shared}:/shared
+      - ${CIM_WIKI_ORGANIZED_DIR:-../data/organized}:/organized
     environment:
       - CIM_WIKI_WORKSPACE=/app
+      - CIM_WIKI_LEDGER_URL=${CIM_WIKI_LEDGER_URL:-}
+      - CIM_WIKI_LEDGER_TOKEN=${CIM_WIKI_LEDGER_TOKEN:-}
+      - CIM_WIKI_ORGANIZED_ROOT=/organized
       - WIKI_ROOT=/app/data/wiki
       - CIM_WIKI_SHARED_ROOTS={"team":"/shared"}
       - CIM_WIKI_AUTO_PUBLISH=${CIM_WIKI_AUTO_PUBLISH:-false}
@@ -94,7 +100,8 @@ services:
     volumes:
       - ../data/wiki:/data/wiki
       - ../data:/app/data:ro
-      - ${CIM_WIKI_SHARED_DIR:-../data/shared}:/shared:ro
+      - ${CIM_WIKI_SHARED_DIR:-../data/shared}:/shared
+      - ${CIM_WIKI_ORGANIZED_DIR:-../data/organized}:/organized:ro
     environment:
       - PORT=5174
       - WIKI_ROOT=/data/wiki

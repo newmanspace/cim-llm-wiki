@@ -54,6 +54,13 @@ func isolatedAdminStore(t *testing.T) *store.Store {
 	if err := s.Migrate(ctx, string(migration)); err != nil {
 		t.Fatal(err)
 	}
+	codeSourceSQL, e := os.ReadFile("../../deploy/postgres/007_code_repository_sources.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Migrate(ctx, string(codeSourceSQL)); e != nil {
+		t.Fatal(e)
+	}
 	return s
 }
 

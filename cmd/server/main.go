@@ -139,11 +139,22 @@ func buildHandler(cfg *config.Config) (http.Handler, func(), error) {
 		// Admin API (Project Registry management, requires PostgreSQL)
 		if adminStore != nil {
 			admin := handler.NewAdminHandler(adminStore)
+			quality := handler.NewDocumentQualityHandler(adminStore)
+			if quality.Ready() {
+				internal := r.Group("/internal/v1/projects/:id/document-quality", quality.InternalAuth())
+				internal.GET("/:resource", quality.List)
+				internal.POST("/:operation", quality.Command)
+				management := v1.Group("/admin/projects/:id/document-quality", auth.RequireSession())
+				management.GET("/:resource", quality.List)
+				management.POST("/:operation", quality.Command)
+			}
+
 			adminGroup := v1.Group("/admin")
 			{
 				// Public endpoints (no token required)
 				adminGroup.GET("/projects", admin.ListProjects)
-				adminGroup.POST("/projects", admin.UpsertProject)
+				adminGroup.POST("/projects", auth.RequireSession(), admin.UpsertProject)
+				adminGroup.POST("/projects/:id/code-sources", auth.RequireSession(), admin.SaveCodeSource)
 				adminGroup.GET("/projects/:id", admin.GetProject)
 				adminGroup.DELETE("/projects/:id", admin.DeleteProject)
 				adminGroup.POST("/projects/:id/token", admin.IssueToken)
@@ -177,13 +188,11 @@ func openAdminStore(cfg *config.Config) (*store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if migration, err := loadMigrations(cfg.Admin.MigrationDir); err == nil && migration != "" {
-		if err := adminStore.Migrate(ctx, migration); err != nil {
-			slog.Warn("migration failed (may already be applied)", "err", err)
-		} else {
-			slog.Info("migrations applied")
-		}
+	if err := applyAdminMigrations(ctx, adminStore, cfg.Admin.MigrationDir); err != nil {
+		adminStore.Close()
+		return nil, err
 	}
+
 	return adminStore, nil
 }
 
@@ -221,4 +230,24 @@ func loadMigrations(dir string) (string, error) {
 		sql += string(data) + "\n"
 	}
 	return sql, nil
+}
+
+func applyAdminMigrations(ctx context.Context, db *store.Store, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read migration directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return err
+		}
+		if err = db.ApplyMigration(ctx, entry.Name(), string(content)); err != nil {
+			return err
+		}
+	}
+	return nil
 }

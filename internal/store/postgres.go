@@ -115,7 +115,7 @@ func (s *Store) loadProjectDocs(ctx context.Context, p *types.ProjectConfig) err
 func (s *Store) loadProjectRepos(ctx context.Context, p *types.ProjectConfig) error {
 	// Load repos with module mappings
 	repoRows, err := s.pool.Query(ctx,
-		`SELECT id, name, url, branch, COALESCE(submodule,''), COALESCE(last_sync_sha,''), synced_at
+		`SELECT id, name, url, branch, COALESCE(submodule,''), COALESCE(last_sync_sha,''), synced_at,source_type,source_subpath,revision_selector,enabled,config_revision
 		 FROM project_repos WHERE project_id = $1 ORDER BY name`, p.ID)
 	if err != nil {
 		return err
@@ -125,11 +125,15 @@ func (s *Store) loadProjectRepos(ctx context.Context, p *types.ProjectConfig) er
 		var r types.RepoBinding
 		var repoDBID int
 		var synced *time.Time
-		if err := repoRows.Scan(&repoDBID, &r.Name, &r.URL, &r.Branch, &r.Submodule, &r.LastSyncSHA, &synced); err != nil {
+		if err := repoRows.Scan(&repoDBID, &r.Name, &r.URL, &r.Branch, &r.Submodule, &r.LastSyncSHA, &synced, &r.Type, &r.Subpath, &r.RevisionSelector, &r.Enabled, &r.ConfigRevision); err != nil {
 			return err
 		}
 		if synced != nil {
 			r.SyncedAt = synced.Format(time.RFC3339)
+		}
+		r.Auth = "git_local"
+		if r.Type == "svn" {
+			r.Auth = "svn_cache"
 		}
 		// Load module mappings for this repo
 		mapRows, err := s.pool.Query(ctx,
@@ -245,6 +249,9 @@ func (s *Store) UpsertProject(ctx context.Context, p *types.ProjectConfig) error
 
 	// Upsert repos
 	for _, r := range p.Repos {
+		if err = NormalizeCodeRepository(&r); err != nil {
+			return err
+		}
 		var synced *time.Time
 		if r.SyncedAt != "" {
 			t, _ := time.Parse(time.RFC3339, r.SyncedAt)
@@ -252,12 +259,16 @@ func (s *Store) UpsertProject(ctx context.Context, p *types.ProjectConfig) error
 		}
 		var repoID int
 		err = tx.QueryRow(ctx,
-			`INSERT INTO project_repos (project_id, name, url, branch, submodule, last_sync_sha, synced_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+			`INSERT INTO project_repos (project_id, name, url, branch, submodule, last_sync_sha, synced_at,source_type,source_subpath,revision_selector,enabled)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9,$10,$11)
 			 ON CONFLICT (project_id, name) DO UPDATE SET
-			   url=$3, branch=$4, submodule=$5, last_sync_sha=$6, synced_at=$7
+			   url=$3, branch=$4, submodule=$5,
+               last_sync_sha=CASE WHEN project_repos.url<>$3 OR project_repos.source_subpath<>$9 OR project_repos.revision_selector<>$10 THEN NULL ELSE $6 END,
+               synced_at=CASE WHEN project_repos.url<>$3 OR project_repos.source_subpath<>$9 OR project_repos.revision_selector<>$10 THEN NULL ELSE $7 END,
+               source_subpath=$9,revision_selector=$10,enabled=$11,config_revision=project_repos.config_revision+1
+             WHERE project_repos.source_type=$8
 			 RETURNING id`,
-			p.ID, r.Name, r.URL, r.Branch, r.Submodule, r.LastSyncSHA, synced).Scan(&repoID)
+			p.ID, r.Name, r.URL, r.Branch, r.Submodule, r.LastSyncSHA, synced, r.Type, r.Subpath, r.RevisionSelector, r.Enabled).Scan(&repoID)
 		if err != nil {
 			return fmt.Errorf("upsert repo %s: %w", r.Name, err)
 		}
