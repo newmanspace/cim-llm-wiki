@@ -1,3 +1,4 @@
+import { builtinDefaults } from '../document-defaults.mjs'
 import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import { test } from 'node:test'
@@ -12,7 +13,7 @@ function fixture(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const options = { wikiRoot: join(root, 'wiki') }
   mkdirSync(options.wikiRoot)
-  const input = { project: 'spc', name: 'SPC', version: '4.0', modules: ['control-chart'], delivery_contract: {
+  const input = { directories:builtinDefaults().directories.map(({node_types,...d})=>({...d,...(node_types.length?{match:{types:node_types}}:{})})), project: 'spc', name: 'SPC', version: '4.0', modules: ['control-chart'], delivery_contract: {
     schema_version: '1.0', project: 'spc', documents: [{ id: 'req', type: 'requirement', scope: 'project', min: 1 }],
   } }
   return { root, options, input }
@@ -22,15 +23,15 @@ test('initialization creates the standard tree and protects existing contracts a
   const f = fixture(t)
   const config = initializeDirectory(f.input, f.options)
   assert.equal(config.revision, 1)
-  assert.ok(config.directories.some(d => d.path === 'templates'))
-  assert.ok(config.directories.some(d => d.path.includes('/4.0/')))
-  assert.ok(config.directories.some(d => d.path.endsWith('/modules/control-chart/features')))
-  assert.ok(!config.directories.some(d => /-template/.test(d.path)))
+  assert.ok(config.directories.some(d => d.path === 'doc/99-templates'))
+  assert.ok(config.directories.some(d => d.path === 'doc/40-requirements'))
+  assert.ok(config.directories.some(d => d.path === 'code/apis'))
+  assert.ok(!config.directories.some(d => /(version|module|feature)-template/.test(d.path)))
   assert.deepEqual(validateDirectories(f.options.wikiRoot), [])
   const contract = readFileSync(join(f.options.wikiRoot, 'spc/document-contract.json'), 'utf8')
   assert.throws(() => initializeDirectory(f.input, f.options), /already initialized/)
   assert.equal(readFileSync(join(f.options.wikiRoot, 'spc/document-contract.json'), 'utf8'), contract)
-  writeFileSync(join(f.options.wikiRoot, directoryPageKey('spc', 'templates')), '# Unreviewed page')
+  writeFileSync(join(f.options.wikiRoot, directoryPageKey('spc', 'doc/99-templates')), '# Unreviewed page')
   assert.ok(validateDirectories(f.options.wikiRoot).some(e => e.code === 'directory_page_drift'))
 })
 

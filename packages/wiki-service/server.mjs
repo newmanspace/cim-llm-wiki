@@ -1,7 +1,12 @@
-#!/usr/bin/env node
+import { createDocumentDefaults } from './document-defaults.mjs'
+import {
+  checkDocument,
+  templateFor,
+  definitionSchema,
+  templateVariables,
+} from '../wiki-core/document-defaults.mjs'
 import { createDocumentQuality } from './document-quality.mjs'
 import {
-  initializeDirectory,
   readDirectory,
   updateDirectory,
 } from '../wiki-core/product-directory.mjs'
@@ -25,7 +30,6 @@ import {
   CONTRACT_ROOT,
   NODE_TYPES,
   schemaErrors,
-  loadTemplateContracts,
   readContractJson,
   nodeLocation,
   slugify,
@@ -50,7 +54,6 @@ import { convertInput, embedImages } from './parsers.mjs'
 const PREFIX = '/api/v2/knowledge'
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
 const bundlePattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
-const assetRoot = join(PROJECT_ROOT, '.agents/skills/cim-wiki/assets')
 const fail = (message, status = 400) => {
   throw Object.assign(new Error(message), { status })
 }
@@ -103,7 +106,12 @@ function sameToken(actual, expected) {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-function validateCredentials(token, reviewerTokens) {
+function validateCredentials(token, reviewerTokens, ledgerToken) {
+  if (ledgerToken && Object.values(reviewerTokens).includes(ledgerToken))
+    throw new Error(
+      'Settings service and reviewer credentials must be independent',
+    )
+
   if (!token) throw new Error('CIM_WIKI_API_TOKEN is required')
   if (
     !reviewerTokens ||
@@ -138,7 +146,7 @@ export function createKnowledgeServer({
   ledgerToken = process.env.CIM_WIKI_LEDGER_TOKEN,
   organizedRoot = process.env.CIM_WIKI_ORGANIZED_ROOT,
 } = {}) {
-  validateCredentials(token, reviewerTokens)
+  validateCredentials(token, reviewerTokens, ledgerToken)
   projectRoot = resolve(projectRoot)
   wikiRoot = resolve(wikiRoot)
   const options = { projectRoot, wikiRoot, roots }
@@ -165,6 +173,7 @@ export function createKnowledgeServer({
     registeredDocument: getDoc,
     wikiRoot,
   })
+  const defaults = createDocumentDefaults(projectRoot, wikiRoot)
   let queue = Promise.resolve()
 
   function context(project) {
@@ -176,30 +185,34 @@ export function createKnowledgeServer({
     const errors = schemaErrors('documentSet', contract)
     if (errors.length || contract.project !== project)
       fail(`Invalid delivery contract: ${errors.join('; ')}`, 409)
-    const contracts = loadTemplateContracts(wikiRoot)(project)
-    const templates = {}
-    for (const [type, entry] of Object.entries(contracts)) {
-      // Template filenames are constrained by the versioned template schema.
-      const manifests = [
-        join(wikiRoot, project, 'templates/manifest.json'),
-        join(wikiRoot, 'templates/manifest.json'),
-      ]
-      const file =
-        manifests
-          .filter(existsSync)
-          .map((p) => readContractJson(p).templates?.[type]?.file)
-          .find(Boolean) || entry.template
-      if (file) {
-        const path = [
-          join(wikiRoot, project, 'templates', file),
-          join(wikiRoot, 'templates', file),
-          join(assetRoot, file),
-        ].find(existsSync)
-        if (path) templates[type] = readFileSync(path, 'utf8')
+    const effective = defaults.store.effective(project)
+    const contracts = {},
+      templates = {}
+    for (const entry of effective.definition.templates) {
+      if (templates[entry.node_type]) continue
+      templates[entry.node_type] = entry.body
+      contracts[entry.node_type] = {
+        ...NODE_TYPES[entry.node_type],
+        requiredSections: [
+          ...new Set([
+            ...(NODE_TYPES[entry.node_type].requiredSections || []),
+            ...entry.contract.sections.map((s) => '## ' + s),
+          ]),
+        ],
+        tables: [
+          ...(NODE_TYPES[entry.node_type].tables || []),
+          ...entry.contract.tables.map((t) => ({
+            section: '## ' + t.section,
+            columns: t.columns,
+          })),
+        ],
       }
     }
     return {
       schema_version: '1.0',
+      document_defaults: effective,
+      document_defaults_schema: definitionSchema,
+      template_variables: templateVariables,
       project,
       delivery_contract: contract,
       directory: readDirectory(project, { wikiRoot }),
@@ -421,8 +434,16 @@ export function createKnowledgeServer({
     context(value.project)
     if (!Array.isArray(value.nodes) || !value.nodes.length)
       fail('A versioned bundle with nodes is required')
+    const effective = defaults.store.effective(value.project)
     const manifest = docs()
     for (const node of value.nodes) {
+      const diagnostics = checkDocument(
+        templateFor(effective.definition, node),
+        '# ' + node.title + '\n\n' + node.content,
+        { terms: effective.definition.terms, phase: 'review' },
+      )
+      if (diagnostics.some((e) => e.severity === 'error'))
+        fail('Document contract failed: ' + JSON.stringify(diagnostics))
       prepareSubmittedNode(node, value, manifest)
     }
     const errors = schemaErrors('bundle', value)
@@ -469,6 +490,7 @@ export function createKnowledgeServer({
       bundle: value,
       submitted_uri: data.uri,
       digest: hashValue(value),
+      document_defaults_digest: effective.digest,
       state: needsReview ? 'pending' : 'auto',
       submitted_at: now(),
     }
@@ -541,6 +563,40 @@ export function createKnowledgeServer({
       }
   }
 
+  function checkedPublicationBundle(record) {
+    const effective = defaults.store.effective(record.bundle.project)
+    if (record.document_defaults_digest !== effective.digest)
+      fail(
+        'Document contract changed after submission; submit a new bundle',
+        409,
+      )
+    const bundle = structuredClone(record.bundle)
+    const reviewer =
+      record.review?.reviewer ||
+      (autoPublish &&
+      record.bundle.nodes.every((n) => n.review_level === 'L0_auto')
+        ? 'auto'
+        : undefined)
+    for (const node of bundle.nodes) {
+      if (reviewer)
+        node.content = node.content.replace(
+          /^(\|\s*审核者\s*\|)[^\n|]*(\|)\s*$/m,
+          (_, start, end) => start + ' ' + reviewer + ' ' + end,
+        )
+      const diagnostics = checkDocument(
+        templateFor(effective.definition, node),
+        '# ' + node.title + '\n\n' + node.content,
+        { terms: effective.definition.terms, phase: 'publish', reviewer },
+      )
+      if (diagnostics.some((e) => e.severity === 'error'))
+        fail(
+          'Document publication contract failed: ' +
+            JSON.stringify(diagnostics),
+        )
+    }
+    return bundle
+  }
+
   async function compileSubmittedBundle(data) {
     if (data.preview !== undefined && typeof data.preview !== 'boolean')
       fail('preview must be a boolean')
@@ -554,7 +610,7 @@ export function createKnowledgeServer({
       fail('Bundle changed after review', 409)
     if (record.publication_pending) return recoverQualityPublication(record)
     verifyPublishedBaseline(record)
-    const bundle = structuredClone(record.bundle)
+    const bundle = checkedPublicationBundle(record)
     if (record.review?.decision === 'approve')
       for (const node of bundle.nodes) node.reviewer = record.review.reviewer
     const result = await compileQualityBundle(
@@ -672,7 +728,17 @@ export function createKnowledgeServer({
     '/bundle': (url) => getBundle(url.searchParams.get('id')),
   }
   const postRoutes = {
-    '/initialize': (data) => initializeDirectory(data, { wikiRoot }),
+    '/initialize': (data) => {
+      if (
+        Object.keys(data).some(
+          (k) => !['project', 'name', 'product_version', 'modules'].includes(k),
+        )
+      )
+        fail('Unsupported initialization field')
+      return defaults.initialize(data)
+    },
+    '/check-document': (data) => defaults.check(data),
+    '/render-document': (data) => defaults.render(data),
     '/directories': (data) => updateDirectory(data, { wikiRoot }),
     '/convert': (data) => register(data, true),
     '/register': (data) => register(data, false),
@@ -770,6 +836,72 @@ export function createKnowledgeServer({
     fail('Endpoint not found', 404)
   }
 
+  async function internalSettings(req, url) {
+    const action = url.pathname.slice('/internal/document-defaults'.length)
+    const data = req.method === 'POST' ? await body(req) : null
+    const actor = req.headers['x-settings-actor']
+    if (typeof actor !== 'string' || !actor.trim())
+      fail('Authenticated administrator identity required', 403)
+    const actions = {
+      'GET ': () => defaults.store.state(),
+      'GET /project': () =>
+        defaults.store.preview(url.searchParams.get('project')),
+      'POST /save': () =>
+        defaults.store.save(data.definition, data.expected_revision, actor),
+      'POST /publish': () =>
+        defaults.store.publish(data.expected_revision, actor),
+      'POST /check': () => defaults.check(data),
+      'POST /preview': () =>
+        defaults.store.preview(data.project, data.overrides || {}),
+      'POST /render': () => defaults.render(data),
+      'POST /bind': () =>
+        defaults.initialize({ ...data, actor }, data.upgrade === true),
+    }
+    const execute = actions[req.method + ' ' + action]
+    if (!execute) fail('Settings endpoint not found', 404)
+    return req.method === 'POST' ? mutate(execute) : execute()
+  }
+
+  async function mutate(operation) {
+    const work = queue.then(async () => {
+      // One service mutation at a time, including across processes using the same state directory.
+      mkdirSync(join(projectRoot, 'data'), { recursive: true })
+      const lockPath = join(projectRoot, 'data/.knowledge-service.lock')
+      let lock
+      try {
+        lock = openSync(lockPath, 'wx')
+      } catch {
+        fail('Another service mutation is running', 409)
+      }
+      try {
+        return await operation()
+      } finally {
+        closeSync(lock)
+        rmSync(lockPath, { force: true })
+      }
+    })
+    queue = work.catch(() => {})
+    return work
+  }
+
+  function authenticateAgent(req, url) {
+    const reviewerIdentity = Object.entries(reviewerTokens).find(
+      ([, credential]) => sameToken(req.headers.authorization, credential),
+    )?.[0]
+    if (!sameToken(req.headers.authorization, token) && !reviewerIdentity) {
+      fail('Bearer token required', 401)
+    }
+    if (
+      reviewerIdentity &&
+      req.method !== 'GET' &&
+      ![PREFIX + '/review', PREFIX + '/document-review-decisions'].includes(
+        url.pathname,
+      )
+    )
+      fail('Reviewer credentials may only submit review decisions', 403)
+    return reviewerIdentity
+  }
+
   return createServer(async (req, res) => {
     const send = (status, value) => {
       res.writeHead(status, {
@@ -784,44 +916,23 @@ export function createKnowledgeServer({
         send(200, { status: 'ok' })
         return
       }
-      const reviewerIdentity = Object.entries(reviewerTokens).find(
-        ([, credential]) => sameToken(req.headers.authorization, credential),
-      )?.[0]
-      if (!sameToken(req.headers.authorization, token) && !reviewerIdentity) {
-        send(401, { error: 'Bearer token required' })
+      if (url.pathname.startsWith('/internal/document-defaults')) {
+        if (
+          !ledgerToken ||
+          ledgerToken.length < 32 ||
+          ledgerToken === token ||
+          !sameToken(req.headers.authorization, ledgerToken)
+        )
+          fail('Administrator service authentication required', 403)
+        send(200, await internalSettings(req, url))
         return
       }
-      if (
-        reviewerIdentity &&
-        req.method !== 'GET' &&
-        ![PREFIX + '/review', PREFIX + '/document-review-decisions'].includes(
-          url.pathname,
-        )
-      )
-        fail('Reviewer credentials may only submit review decisions', 403)
+      const reviewerIdentity = authenticateAgent(req, url)
       if (!url.pathname.startsWith(PREFIX + '/'))
         fail('Endpoint not found', 404)
       const data = req.method === 'POST' ? await body(req) : null
       if (req.method === 'POST') {
-        const work = queue.then(async () => {
-          // One service mutation at a time, including across processes using the same state directory.
-          mkdirSync(join(projectRoot, 'data'), { recursive: true })
-          const lockPath = join(projectRoot, 'data/.knowledge-service.lock')
-          let lock
-          try {
-            lock = openSync(lockPath, 'wx')
-          } catch {
-            fail('Another service mutation is running', 409)
-          }
-          try {
-            return await route(req, url, data, reviewerIdentity)
-          } finally {
-            closeSync(lock)
-            rmSync(lockPath, { force: true })
-          }
-        })
-        queue = work.catch(() => {})
-        send(200, await work)
+        send(200, await mutate(() => route(req, url, data, reviewerIdentity)))
       } else send(200, await route(req, url))
     } catch (e) {
       send(e.status || (e instanceof SyntaxError ? 400 : 422), {

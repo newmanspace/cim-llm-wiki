@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -65,6 +66,14 @@ func isolatedAdminStore(t *testing.T) *store.Store {
 }
 
 func TestAdminRegistryAndTokenLifecycle(t *testing.T) {
+	templateService := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"directories":[]}`))
+	}))
+	defer templateService.Close()
+	t.Setenv("CIM_WIKI_KNOWLEDGE_URL", templateService.URL)
+	t.Setenv("CIM_WIKI_LEDGER_TOKEN", strings.Repeat("s", 40))
+
 	gin.SetMode(gin.TestMode)
 	s := isolatedAdminStore(t)
 	h := NewAdminHandler(s)

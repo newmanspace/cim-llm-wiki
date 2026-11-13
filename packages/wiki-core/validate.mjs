@@ -1,3 +1,4 @@
+import { createDefaultsStore, templateFor, checkDocument } from './document-defaults.mjs'
 import {
   sharedRoots,
   resolveSource,
@@ -37,6 +38,7 @@ export function validateWiki({
   roots = sharedRoots(),
 } = {}) {
   wikiRoot = resolve(wikiRoot)
+  const bindingCache = new Map()
   const errors = [],
     warnings = [],
     pages = new Map(),
@@ -97,6 +99,18 @@ export function validateWiki({
 
   errors.push(...validateDirectories(wikiRoot))
   validatePages()
+
+  function checkBoundDocument(page,key,project) {
+    try {
+      if(!bindingCache.has(project))bindingCache.set(project,createDefaultsStore(projectRoot).effective(project))
+      const binding=bindingCache.get(project)
+      const diagnostics=checkDocument(templateFor(binding.definition,page.fm),page.body,{terms:binding.definition.terms,documentPath:key,phase:'publish',reviewer:page.fm.reviewer})
+      for(const d of diagnostics) {
+        const target=d.severity==='error'?errors:warnings
+        target.push({code:d.rule_id,path:key,message:d.message,line:d.line})
+      }
+    }catch(e){add('document_template_binding',key,e.message)}
+  }
 
   function resolveLink(target, key, wiki = true) {
     if (typeof target !== 'string') return null
@@ -192,6 +206,7 @@ export function validateWiki({
       checkPublication(fm, key)
       checkVocabulary(fm, key)
       checkApiPreconditions(page, key)
+      checkBoundDocument(page,key,project)
       if (
         fm.created_at &&
         fm.updated_at &&

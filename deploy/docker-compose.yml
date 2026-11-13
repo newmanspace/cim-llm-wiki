@@ -34,6 +34,7 @@ services:
       - ADMIN_ENABLED=${ADMIN_ENABLED:-true}
       - ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-cimwiki}:${POSTGRES_PASSWORD:-cimwiki_dev_2026}@postgres:5432/${POSTGRES_DB:-cim_wiki_admin}?sslmode=disable
       - ADMIN_MIGRATION_DIR=/app/deploy/postgres
+      - CIM_WIKI_KNOWLEDGE_URL=http://knowledge:8090
       - CIM_WIKI_LEDGER_TOKEN=${CIM_WIKI_LEDGER_TOKEN:-}
       - CIM_WIKI_REVIEW_TOKENS=${CIM_WIKI_REVIEW_TOKENS:-}
       # ── 访问鉴权（网关会话登录，保护 /wiki/ 与 /admin/）────────────────

@@ -1,5 +1,6 @@
 import { parseDocument, stringify } from 'yaml'
 import MarkdownIt from 'markdown-it'
+import { unnumberedTitle } from './document-format.mjs'
 
 const markdown = new MarkdownIt({ html: true })
 
@@ -60,6 +61,8 @@ function sectionMatch(heading, selector) {
   const m = selector.match(/^(#{1,6})\s+(.+)$/)
   if (!m) return false
   const title = m[2].trim()
+  if (heading.level >= m[1].length && unnumberedTitle(heading.title) === title)
+    return true
   if (
     heading.level >= m[1].length &&
     /^\d+(?:\.\d+)+\s/.test(heading.title) &&

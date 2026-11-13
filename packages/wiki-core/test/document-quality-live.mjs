@@ -1,3 +1,4 @@
+import { createDefaultsStore,builtinDefaults } from '../document-defaults.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync } from 'node:fs'
@@ -13,6 +14,10 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  const save=(path,value)=>{mkdirSync(join(path,'..'),{recursive:true});writeFileSync(path,typeof value==='string'?value:JSON.stringify(value))}
  save(join(wikiRoot,'demo/document-contract.json'),{schema_version:'1.0',project:'demo',documents:[{id:'req',type:'requirement',scope:'project',min:1}]})
  save(join(shared,'original.docx'),'source fixture');save(join(shared,'info.xml'),'<info><entry revision="42"><repository><uuid>repo</uuid></repository></entry></info>')
+ const defaults=createDefaultsStore(projectRoot),definition=builtinDefaults()
+ definition.delivery=[{id:'req',type:'requirement',scope:'project',min:1}]
+ defaults.save(definition,0,'Test Administrator');defaults.publish(1,'Test Administrator');defaults.bind('demo',['docs'])
+ const artifactDoc=definition.templates[0].example.replace('待指定','Reviewer').replaceAll('URD 用户需求定义','Source requirement')
  const ledgerURL=process.env.QUALITY_TEST_LEDGER_URL,ledgerToken=process.env.QUALITY_TEST_LEDGER_TOKEN,human=process.env.QUALITY_TEST_REVIEW_TOKEN
  const server=createKnowledgeServer({projectRoot,wikiRoot,roots:{team:shared},token:'automation',reviewerTokens:{Reviewer:human},ledgerURL,ledgerToken,organizedRoot,parser:async()=>({md:'# Source\n\nSource-backed text.\n',images:[]})})
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve)}))
@@ -52,9 +57,9 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  const original=await ok('source-observations',{project:'demo',run_id:run.id,repository_path:'original.docx',original_uri:'shared://team/original.docx',original_sha256:sha('source fixture'),svn_info_uri:'shared://team/info.xml'})
  const registration={project:'demo',system:'CIM',version:'v1',category:'design',source:'shared://team/original.docx',parsed:'shared://team/parsed.md'}
  await ok('convert',registration);await ok('state',{source:registration.parsed,action:'freeze',by:'skill'})
- save(join(shared,'classified.md'),'# Design\n\nSource-backed text.\n')
+ save(join(shared,'classified.md'),artifactDoc)
  assert.equal((await ok('ingest-source-links?project=demo')).items.length,1)
- const artifact=await ok('artifacts',{project:'demo',run_id:run.id,logical_key:'design',target_path:'doc/50-designs/design.md',content_uri:'shared://team/classified.md',parsed_uri:registration.parsed,recipe_version:'test-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
+ const artifact=await ok('artifacts',{project:'demo',run_id:run.id,logical_key:'design',template_id:'urd',target_path:'doc/50-designs/design.md',content_uri:'shared://team/classified.md',parsed_uri:registration.parsed,recipe_version:'test-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
  assert.equal((await ok('ingest-artifact-links?project=demo')).items.length,1)
  let policy=await ok('quality-policy-effective?project=demo&path=doc%2F50-designs')
  const dimensions=Object.fromEntries(['fidelity','completeness','traceability','consistency','structure','usability','validity'].map(k=>[k,{score:75,reason:'Source compared',evidence:[{section:'1'}]}]))
@@ -65,9 +70,9 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  assert.equal((await api('document-review-decisions',decision)).status,403)
  const review=await ok('document-review-decisions',decision,human);assert.equal(review.actor_id,'Reviewer')
  const published=await ok('publish-document',{project:'demo',artifact_id:artifact.id,evaluation_id:evaluation.id})
- assert.equal(readFileSync(published.path,'utf8'),'# Design\n\nSource-backed text.\n')
+ assert.equal(readFileSync(published.path,'utf8'),artifactDoc)
  const history=await ok('document-review-events?project=demo');assert.equal(history.items.length,1)
- const node = {schema_version:'1.0',id:'REQ-SOURCE-001',type:'requirement',plane:'doc',product:'CIM',version:'v1',domain:'cim',module:'docs',source:registration.parsed,source_location:{section:'1'},title:'Source requirement',content:'A concrete source-backed document requirement.',status:'published',confidence:.99,review_level:'L0_auto',reviewer:'auto',created_at:'2026-11-12T00:00:00Z',updated_at:'2026-11-12T00:00:00Z',qscore:{auth:1,comp:1,rel:1,fresh:1,struct:1,reuse:1,risk:.1,total:.99}}
+ const node = {schema_version:'1.0',id:'REQ-SOURCE-001',type:'requirement',plane:'doc',product:'CIM',version:'v1',domain:'cim',module:'docs',source:registration.parsed,source_location:{section:'1'},title:'Source requirement',content:artifactDoc.replace(/^# [^\n]+\n/,''),status:'published',confidence:.99,review_level:'L0_auto',reviewer:'auto',created_at:'2026-11-12T00:00:00Z',updated_at:'2026-11-12T00:00:00Z',qscore:{auth:1,comp:1,rel:1,fresh:1,struct:1,reuse:1,risk:.1,total:.99}}
  save(join(shared,'nodes.json'),{schema_version:'1.0',bundle_id:'CR-QUALITY-001',project:'demo',nodes:[node]})
  assert.equal((await api('bundles',{uri:'shared://team/nodes.json'})).status,409,'configured projects require document quality bindings')
  await ok('bundles',{uri:'shared://team/nodes.json',artifact_ids:[artifact.id]})
@@ -96,8 +101,8 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  assert.equal(gitOriginal.source_type,'git');assert.equal(gitOriginal.commit_sha,commit)
  const gitRegistration={...registration,source:'shared://team/git-original.docx',parsed:'shared://team/git-parsed.md'}
  await ok('convert',gitRegistration);await ok('state',{source:gitRegistration.parsed,action:'freeze',by:'skill'})
- save(join(shared,'git-classified.md'),'# Git design\n\nGit-backed content.\n')
- const gitArtifact=await ok('artifacts',{project:'demo',run_id:gitRun.id,logical_key:'git-design',target_path:'doc/50-designs/git-design.md',content_uri:'shared://team/git-classified.md',parsed_uri:gitRegistration.parsed,recipe_version:'git-skill-v1',source_links:[{source_version_id:gitOriginal.id,location:{section:'1'}}]})
+ save(join(shared,'git-classified.md'),artifactDoc.replace('## 1. 背景与目标','## 1. 背景与目标\n\nGit-backed content.'))
+ const gitArtifact=await ok('artifacts',{project:'demo',run_id:gitRun.id,logical_key:'git-design',template_id:'urd',target_path:'doc/50-designs/git-design.md',content_uri:'shared://team/git-classified.md',parsed_uri:gitRegistration.parsed,recipe_version:'git-skill-v1',source_links:[{source_version_id:gitOriginal.id,location:{section:'1'}}]})
  const gitPolicy=await ok('quality-policy-effective?project=demo&path=doc%2F50-designs')
  const gitEvaluation=await ok('document-evaluations',{project:'demo',artifact_id:gitArtifact.id,artifact_sha256:gitArtifact.content_sha256,policy_digest:gitPolicy.digest,dimensions,issues:[],evaluator_version:'git-test-v1'})
  await ok('document-review-decisions',{project:'demo',task_id:gitEvaluation.review_task_id,expected_revision:1,decision:'approve',note:'Git original checked'},human)

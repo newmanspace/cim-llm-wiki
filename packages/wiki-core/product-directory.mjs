@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync, renameSync, rmSync, lstatSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { CONTRACT_ROOT, NODE_TYPES, readContractJson, schemaErrors } from './contracts.mjs'
+import { NODE_TYPES, readContractJson, schemaErrors } from './contracts.mjs'
 import { parsePage } from './markdown.mjs'
 
 const identifierPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
@@ -117,18 +117,6 @@ function saveDirectory(config, wikiRoot, contract) {
 }
 
 const versionPath = version => version.toLowerCase().replace(/[^a-z0-9.-]+/g, '-').replace(/^-|-$/g, '')
-function mapping(path, version, module) {
-  let types
-  if (module && path.endsWith('/features')) types = ['requirement', 'frd', 'design', 'test_case', 'api', 'data_dictionary', 'data_schema', 'business_rule', 'business_object', 'scenario', 'interaction', 'code_index', 'module']
-  else if (path.endsWith('/application-help/common-functions')) types = ['user-manual', 'faq']
-  else if (path.endsWith('/system-administration-guide')) types = ['admin-manual']
-  else if (path.endsWith('/runbooks')) types = ['runbook', 'incident']
-  else if (path.endsWith('/installation-guide')) types = ['deployment']
-  else if (path.endsWith('/solutions-and-proposals')) types = ['solution']
-  else if (path.endsWith('/release-notes')) types = ['release']
-  else if (path.endsWith('/system-testing')) types = ['test_case']
-  if (types) return { types, ...(path.startsWith('product-versions/') ? { version } : {}), ...(module ? { module } : {}) }
-}
 
 function initializationInput(input) {
   const contract = input.delivery_contract
@@ -140,27 +128,14 @@ function initializationInput(input) {
   return { contract, modules }
 }
 
-function standardDirectories(input, modules) {
-  const template = readContractJson(join(CONTRACT_ROOT, 'product-directory-template.json'))
-  return template.directories.flatMap(entry => {
-    if (entry.path.includes('feature-template')) return []
-    const candidates = entry.path.includes('module-template') ? modules : [null]
-    return candidates.map(module => {
-      const path = entry.path.replace('version-template', versionPath(input.version)).replace('module-template', module)
-      const title = entry.title === 'Version Template' ? input.version : entry.title === 'Module Template' ? module : entry.title
-      const match = mapping(path, input.version, module)
-      return { ...entry, path, title, ...(match ? { match } : {}) }
-    })
-  })
-}
 
 export function initializeDirectory(input, { wikiRoot }) {
   const base = projectPath(input.project, wikiRoot)
   if (existsSync(join(base, 'directory.json')) || existsSync(join(base, 'catalog'))) error('Product directory is already initialized', 409)
-  const { contract, modules } = initializationInput(input)
+  const { contract } = initializationInput(input)
   const contractPath = join(base, 'document-contract.json')
   if (existsSync(contractPath) && encode(readContractJson(contractPath)) !== encode(contract)) error('Existing delivery contract differs; it will not be overwritten', 409)
-  const config = validateConfig({ schema_version: '1.0', project: input.project, name: input.name, version: input.version, revision: 1, directories: standardDirectories(input, modules) }, input.project)
+  const config = validateConfig({ schema_version: '1.0', project: input.project, name: input.name, version: input.version, revision: 1, directories: input.directories }, input.project)
   return saveDirectory(config, wikiRoot, existsSync(contractPath) ? null : contract)
 }
 

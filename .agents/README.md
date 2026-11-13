@@ -2,6 +2,8 @@
 
 > 本目录为 **cim-llm-wiki** 的工作区 Customization 根目录（`.agents/`），提供完整的 CIM 知识工程流水线及现代软件工程全生命周期技能套件。
 
+项目工程执行以 [AI 开发规范](../docs/doc/30-standards/ai-development-standard.md)、[Coding Standard](../docs/doc/30-standards/coding-standard.md) 和 [Testing Standard](../docs/doc/30-standards/testing-standard.md) 为共同依据。下述技能及完整工作流按任务需要采用；常规修改不强制创建完整文档链或逐级审批，用户已有授权不重复确认，提交和部署仍按具体授权执行。
+
 ---
 
 ## 目录结构

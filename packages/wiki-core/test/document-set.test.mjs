@@ -1,3 +1,4 @@
+import { bindFixture, managedBody } from './support/document-fixture.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
@@ -19,6 +20,7 @@ function fixture(t) {
   return { projectRoot, wikiRoot }
 }
 function save(f, value = contract(), project = 'demo') {
+  bindFixture(f.projectRoot,project)
   const dest = join(f.wikiRoot, project, 'document-contract.json')
   mkdirSync(join(dest, '..'), { recursive: true })
   writeFileSync(dest, typeof value === 'string' ? value : JSON.stringify(value))
@@ -31,6 +33,7 @@ function node(id = 'REQ-WIP-001', module = 'wip') {
     created_at: '2026-10-28T00:00:00Z', updated_at: '2026-10-28T00:00:00Z' }
 }
 function page(f, fm = node(), body = '# Requirement\n\nConcrete behavior.') {
+  body=managedBody(body,fm.reviewer)
   const path = join(f.wikiRoot, 'demo/doc/requirements', `${fm.id.toLowerCase()}.md`)
   mkdirSync(join(path, '..'), { recursive: true })
   writeFileSync(path, `---\n${stringify(fm)}---\n${body}\n`)
@@ -164,7 +167,7 @@ test('compilation enforces collection counts before changing published content',
   const f = fixture(t); const dest = page(f); const before = readFileSync(dest, 'utf8')
   const c = contract(); c.documents[0].max = 1; save(f, c)
   const b = { schema_version: '1.0', bundle_id: 'add-requirement', project: 'demo', nodes: [
-    { ...node('REQ-WIP-002'), title: 'New requirement', content: 'Concrete new behavior.' },
+    { ...node('REQ-WIP-002'), title: 'New requirement', content: managedBody('# New requirement\n\nConcrete new behavior.').replace(/^# [^\n]+\n/,'') },
   ] }
   await assert.rejects(compileBundle(b, f), /document_count/)
   assert.equal(readFileSync(dest, 'utf8'), before)

@@ -1,3 +1,5 @@
+import { createDefaultsStore } from '../document-defaults.mjs'
+import { bindFixture, managedBody } from './support/document-fixture.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -24,6 +26,7 @@ function fixture(t) {
   t.after(() => rmSync(projectRoot, { recursive: true, force: true }))
   const wikiRoot = join(projectRoot, 'data/wiki')
   mkdirSync(wikiRoot, { recursive: true })
+  bindFixture(projectRoot,'a')
   defaultDocumentContract(wikiRoot, 'a')
   return { projectRoot, wikiRoot }
 }
@@ -74,6 +77,8 @@ function page(
 ) {
   if (path.includes('/'))
     defaultDocumentContract(f.wikiRoot, path.split('/')[0])
+  if(path.includes('/'))bindFixture(f.projectRoot,path.split('/')[0])
+  body=managedBody(body,fm.reviewer)
   const dest = join(f.wikiRoot, path)
   mkdirSync(join(dest, '..'), { recursive: true })
   writeFileSync(dest, `---\n${stringify(fm)}---\n\n${body}`)
@@ -90,6 +95,17 @@ function manifest(f, value, project = '') {
 }
 
 const codes = (r) => r.errors.map((e) => e.code)
+
+function requireAcceptance(f,table=false) {
+  const store=createDefaultsStore(f.projectRoot),state=store.state()
+  const template=state.draft.templates.find(t=>t.id==='urd')
+  template.contract.sections.splice(1,0,'Acceptance')
+  if(table)template.contract.tables.unshift({section:'Acceptance',columns:['Case','Expected'],min_rows:1,repeat:false})
+  template.example=managedBody('# Requirement\n\n## Acceptance\n\n'+(table?'| Case | Expected |\n|---|---|\n| 1 | pass |':'Specific expected behavior.'))
+  template.body=template.example
+  store.save(state.draft,state.revision,'Test Administrator');store.publish(state.revision+1,'Test Administrator')
+  store.bind('a',['test'],{},store.state().published_version,true)
+}
 
 test('a valid node passes; unknown types, malformed values and missing version fail', (t) => {
   const f = fixture(t)
@@ -131,17 +147,14 @@ test('duplicate YAML keys and invalid YAML fail closed', (t) => {
 
 test('required sections cannot be faked with fenced code, comments or inline text', (t) => {
   const f = fixture(t)
-  manifest(f, {
-    version: 1,
-    templates: { requirement: { requiredSections: ['## Acceptance'] } },
-  })
+  requireAcceptance(f)
   for (const body of [
     '# Test\n\n```md\n## Acceptance\ntext\n```',
     '# Test\n\n<!--\n## Acceptance\ntext\n-->',
     '# Test\n\nMention ## Acceptance here.',
   ]) {
     page(f, metadata(), body)
-    assert.ok(codes(validateWiki(f)).includes('section_missing'))
+    assert.ok(codes(validateWiki(f)).includes('section_required'))
   }
   page(f, metadata(), '# Test\n\n## Acceptance\n\nSpecific expected behavior.')
   assert.deepEqual(validateWiki(f).errors, [])
@@ -149,10 +162,7 @@ test('required sections cannot be faked with fenced code, comments or inline tex
 
 test('empty and duplicated sections and malformed heading levels fail', (t) => {
   const f = fixture(t)
-  manifest(f, {
-    version: 1,
-    templates: { requirement: { requiredSections: ['## Acceptance'] } },
-  })
+  requireAcceptance(f)
   page(f, metadata(), '# Test\n\n## Acceptance\n')
   assert.ok(codes(validateWiki(f)).includes('section_empty'))
   page(f, metadata(), '# Test\n\n## Acceptance\nA\n\n## Acceptance\nB')
@@ -167,30 +177,16 @@ test('a document containing only its title cannot publish', (t) => {
   assert.ok(codes(validateWiki(f)).includes('document_empty'))
 })
 
-test('corrupt template manifests fail; project overrides cannot relax global or builtin rules', (t) => {
-  const f = fixture(t)
-  page(f)
-  manifest(f, '{broken JSON')
+test('legacy template manifests are rejected and project contracts cannot weaken published rules',t=>{
+  const f=fixture(t);page(f)
+  manifest(f,'{broken JSON')
   assert.ok(codes(validateWiki(f)).includes('template_contract_error'))
-  manifest(f, {
-    version: 1,
-    templates: { requirement: { requiredSections: ['## Acceptance'] } },
-  })
-  manifest(
-    f,
-    { version: 1, templates: { requirement: { requiredSections: [] } } },
-    'a',
-  )
-  assert.ok(codes(validateWiki(f)).includes('section_missing'))
-  manifest(
-    f,
-    {
-      version: 1,
-      templates: { requirement: { plane: 'code', dir: 'code/apis' } },
-    },
-    'a',
-  )
-  assert.ok(codes(validateWiki(f)).includes('template_contract_error'))
+  rmSync(join(f.wikiRoot,'templates'),{recursive:true})
+  requireAcceptance(f)
+  assert.ok(codes(validateWiki(f)).includes('section_required'))
+  const store=createDefaultsStore(f.projectRoot),replacement=store.effective('a').definition.templates[0]
+  replacement.contract.sections=replacement.contract.sections.filter(x=>x!=='Acceptance')
+  assert.throws(()=>store.bind('a',['test'],{templates:[replacement]},undefined,true),/weaken/)
 })
 
 test('builtin API structure is mandatory without a custom manifest', (t) => {
@@ -212,15 +208,7 @@ test('builtin API structure is mandatory without a custom manifest', (t) => {
 
 test('required table columns are checked structurally', (t) => {
   const f = fixture(t)
-  manifest(f, {
-    version: 1,
-    templates: {
-      requirement: {
-        requiredSections: ['## Acceptance'],
-        tables: [{ section: '## Acceptance', columns: ['Case', 'Expected'] }],
-      },
-    },
-  })
+  requireAcceptance(f,true)
   page(
     f,
     metadata(),
@@ -232,7 +220,7 @@ test('required table columns are checked structurally', (t) => {
     metadata(),
     '# Test\n\n## Acceptance\n\n| Case | Expected |\n|---|---|',
   )
-  assert.ok(codes(validateWiki(f)).includes('table_columns'))
+  assert.ok(codes(validateWiki(f)).includes('table_rows'))
   page(
     f,
     metadata(),
@@ -267,7 +255,7 @@ const bundle = () => ({
   bundle_id: 'test-bundle',
   project: 'a',
   nodes: [
-    { ...metadata(), title: 'Requirement', content: 'A concrete requirement.' },
+    { ...metadata(), title: 'Requirement', content: managedBody('# Requirement\n\nA concrete requirement.') .replace(/^# [^\n]+\n/,'') },
   ],
 })
 

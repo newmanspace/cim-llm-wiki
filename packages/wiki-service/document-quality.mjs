@@ -1,3 +1,4 @@
+import { createDefaultsStore, checkDocument } from '../wiki-core/document-defaults.mjs'
 import { verifyGitEvidence } from './source-evidence.mjs'
 import {
   readFileSync,
@@ -291,8 +292,20 @@ export function createDocumentQuality({
       hashFile(resolveShared(registered.path, roots)) !== registered.sha256
     )
       fail('Parsed document is not frozen at its registered version', 409)
+    if(!artifact.document_contract_digest)fail('Artifact contract binding is missing',409)
+    checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'))
     return artifact
   }
+  function checkArtifactContract(project,artifact,text,phase='review',reviewer) {
+    const binding=createDefaultsStore(projectRoot).effective(project)
+    if(artifact.document_contract_digest && artifact.document_contract_digest!==binding.digest)fail('Artifact document contract changed; register a new artifact',409)
+    const template=binding.definition.templates.find(t=>t.id===artifact.template_id)
+    if(!template)fail('Artifact requires a bound template_id',422)
+    const diagnostics=checkDocument(template,text,{phase,reviewer,terms:binding.definition.terms,documentPath:artifact.target_path})
+    if(diagnostics.some(d=>d.severity==='error'))fail('Artifact document contract failed: '+JSON.stringify(diagnostics),422)
+    artifact.document_contract_digest=binding.digest
+  }
+
   async function prepareArtifact(project, data) {
     validateTarget(data.target_path)
     const doc = registeredDocument(data.parsed_uri)
@@ -304,6 +317,7 @@ export function createDocumentQuality({
     if (data.content_sha256 && data.content_sha256 !== content.sha256)
       fail('Artifact hash mismatch', 409)
     validateMarkdown(readFileSync(content.path, 'utf8'))
+    checkArtifactContract(project,data,readFileSync(content.path,'utf8'))
     const links = data.source_links
     if (!Array.isArray(links) || !links.length)
       fail('Source links are required')
@@ -515,6 +529,10 @@ export function createDocumentQuality({
       evaluation_id: input.evaluation_id,
     }
     await gate(project, [binding])
+    const tasks=await all(project,'document-review-tasks'),events=await all(project,'document-review-events')
+    const task=tasks.find(t=>t.evaluation_id===input.evaluation_id&&t.status==='approved')
+    const reviewer=events.find(e=>e.task_id===task?.id&&e.decision==='approve')?.actor_id
+    checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'),'publish',reviewer)
     const dest = outputPath(project, artifact, input)
     if (existsSync(dest) && hashFile(dest) === artifact.content_sha256) {
       const completed = (await all(project, 'publications')).filter(

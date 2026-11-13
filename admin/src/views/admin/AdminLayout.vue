@@ -25,6 +25,7 @@
             </router-link>
           </t-tooltip>
         </div>
+        <SystemSettingsMenu :collapsed="collapsed" @expand="collapsed = false" />
       </div>
     </div>
 
@@ -35,6 +36,7 @@
           <div v-if="isMobile" class="hamburger" @click="drawerOpen = true"><MenuIcon class="icon" /></div>
           <t-breadcrumb max-item-width="160">
             <t-breadcrumb-item :to="{ path: '/dashboard' }">{{ t('common.appName') }}</t-breadcrumb-item>
+            <t-breadcrumb-item v-if="route.path.startsWith('/settings/')">系统设置</t-breadcrumb-item>
             <t-breadcrumb-item v-if="currentTitle">{{ currentTitle }}</t-breadcrumb-item>
           </t-breadcrumb>
         </div>
@@ -73,6 +75,7 @@
               </div>
             </router-link>
           </div>
+          <SystemSettingsMenu @navigate="drawerOpen = false" />
         </div>
       </div>
     </div>
@@ -95,6 +98,7 @@ import {
 } from 'tdesign-icons-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useBreakpoint } from '@/composables/useBreakpoint'
+import SystemSettingsMenu from '@/components/SystemSettingsMenu.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -119,6 +123,7 @@ function isActive(path: string) {
 const currentTitle = computed(() => {
   if (route.path === '/document-directories') return '文档目录与评分'
   if (route.path === '/document-results') return '文档结果'
+  if (route.path === '/settings/document-templates') return '全局项目文档模板定义'
   if (route.path.startsWith('/projects')) return t('menu.projects')
   if (route.path === '/dashboard') return t('menu.dashboard')
   return ''

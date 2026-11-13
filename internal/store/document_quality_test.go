@@ -124,7 +124,7 @@ func TestDocumentQualityLifecycle(t *testing.T) {
 	source := call("data-sources", documentquality.Record{"name": "Documents", "type": "svn", "url": "https://example.test/svn", "revision_selector": "HEAD"})
 	run := call("ingest-runs", documentquality.Record{"source_id": source["id"], "source_config_id": source["config_id"], "operative_revision": "42", "repository_uuid": "repo", "recipe_version": "v1"})
 	observed := call("source-observations", documentquality.Record{"run_id": run["id"], "repository_path": "design.docx", "original_uri": "shared://team/source.docx", "original_sha256": strings.Repeat("a", 64), "svn_info_uri": "shared://team/info.xml"})
-	artifact := call("artifacts", documentquality.Record{"run_id": run["id"], "target_path": "doc/50-designs/design.md", "logical_key": "design", "content_uri": "shared://team/design.md", "content_sha256": strings.Repeat("b", 64), "parsed_uri": "shared://team/parsed.md", "source_links": []any{map[string]any{"source_version_id": observed["id"], "location": map[string]any{"section": "1"}}}, "recipe_version": "v1"})
+	artifact := call("artifacts", documentquality.Record{"run_id": run["id"], "target_path": "doc/50-designs/design.md", "logical_key": "design", "template_id": "sdd", "document_contract_digest": "test-contract", "content_uri": "shared://team/design.md", "content_sha256": strings.Repeat("b", 64), "parsed_uri": "shared://team/parsed.md", "source_links": []any{map[string]any{"source_version_id": observed["id"], "location": map[string]any{"section": "1"}}}, "recipe_version": "v1"})
 	p, e := service.Policy(ctx, "demo", "reader", "doc/50-designs")
 	if e != nil {
 		t.Fatal(e)
@@ -161,6 +161,21 @@ func TestDocumentQualityLifecycle(t *testing.T) {
 	if e != nil || len(rows) != 1 {
 		t.Fatal("history was lost", e)
 	}
+	migration, err := os.ReadFile("../../deploy/postgres/008_document_template_defaults.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Migrate(ctx, string(migration)); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.UpsertProject(ctx, &types.ProjectConfig{ID: "template-project", Name: "Template project"}, []map[string]string{{"path": "doc", "title": "Docs"}, {"path": "doc/custom-default", "title": "Custom default"}}); err != nil {
+		t.Fatal(err)
+	}
+	assertFolders("template-project", 2)
+	if err = s.EnsureDocumentDirectories(ctx, "template-project", []map[string]string{{"path": "doc/custom-default", "title": "Custom default"}}); err != nil {
+		t.Fatal(err)
+	}
+	assertFolders("template-project", 2)
 }
 
 func TestQualityMigrationAdoptionAndChecksums(t *testing.T) {

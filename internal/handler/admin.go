@@ -102,7 +102,12 @@ func (h *AdminHandler) UpsertProject(c *gin.Context) {
 			return
 		}
 	}
-	if err := h.store.UpsertProject(c.Request.Context(), &p); err != nil {
+	directories, err := NewDocumentDefaultsHandler().InitializeProject(c, p.ID, p.Name, p.Version, p.Modules)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Project document initialization failed", "detail": err.Error()})
+		return
+	}
+	if err := h.store.UpsertProject(c.Request.Context(), &p, directories); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

@@ -4,7 +4,9 @@
 
 | client 命令 | 方法与端点 | 输入 |
 |---|---|---|
-| initialize | POST /initialize | --json-file，project/name/version/modules/delivery_contract |
+| initialize | POST /initialize | --json-file，project/name/product_version/modules |
+| render-document | POST /render-document | --json-file，project/template_id/values |
+| check-document | POST /check-document | --json-file，project/template_id/document/phase |
 | directories | GET /directories?project=ID | --project |
 | update-directories | POST /directories | --json-file，project/expected_revision/directories |
 | context | GET /context?project=ID | --project |
@@ -38,7 +40,9 @@
 
 ## 可选：初始化产品展示目录
 
-initialize 复用现有 project 命名空间，要求调用者提供真实 delivery_contract，不覆盖不同的既有契约。directories 返回当前 revision 和目录映射，update-directories 提交完整目录数组并检查 expected_revision。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 directory 字段为当前配置，未初始化时为 null。
+initialize 复用现有 project 命名空间，只接受 project、name、product_version、modules，采用系统已发布的模板、文档契约及默认目录。不接受旧 version/delivery_contract 参数或自动化配置覆盖。系统模板需先由管理员登录后台“系统设置 · 文档模板”检查并发布。directories 返回当前 revision 和目录映射，update-directories 提交完整目录数组并检查 expected_revision。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 document_defaults 返回项目绑定版本、有效模板及契约摘要，document_defaults_schema 返回定义的机器结构。未绑定有效版本时返回409，必须由管理员明确绑定，不根据已有页面生成标准。
+
+生成前读取 document_defaults.definition.templates，按模板正文和 contract 填充；check-document 可提前检查，服务提交与发布仍独立重验。术语全称从有效 definition.terms 读取，受控节点枚举仍来自 vocabulary。归类产物登记须指定 template_id，document_contract_digest 由服务计算。
 
 ## 转换与已有稿件登记
 
@@ -117,3 +121,7 @@ Bundle 须符合 context 返回的节点 Schema。字段和完整正文由本地
 - 400/422：请求、评分、来源、解析或编译契约有误，依据返回信息修正；不得假定本地降级可解决。
 
 无共享目录访问权限时，先建立双方可见的挂载与路径映射，不要求把业务文件复制进服务端代码目录。
+
+## 模板文档生成
+
+render-document 使用已绑定模板的正文骨架和显式 values 生成 Markdown。允许变量从 context.template_variables 读取；缺失值、未知变量或非法 UTC 时间拒绝生成，不把模板样例中的产品、人员或日期当成真实项目信息。返回 document 和检查诊断，不自动登记、审核或发布。

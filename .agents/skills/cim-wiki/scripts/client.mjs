@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 try {
   const [command, ...args] = process.argv.slice(2)
   const routes = { initialize: ['POST', 'initialize'], directories: ['GET', 'directories'], 'update-directories': ['POST', 'directories'], context: ['GET', 'context'], document: ['GET', 'document'], bundle: ['GET', 'bundle'],
-    convert: ['POST', 'convert'], register: ['POST', 'register'], state: ['POST', 'state'],
+    'render-document':['POST','render-document'], 'check-document': ['POST','check-document'], convert: ['POST', 'convert'], register: ['POST', 'register'], state: ['POST', 'state'],
     submit: ['POST', 'bundles'], review: ['POST', 'review'], compile: ['POST', 'compile'], validate: ['POST', 'validate'] }
   for (const resource of ['data-sources','source-revisions','ingest-runs','source-observations','ingest-source-links','ingest-artifact-links','document-results','quality-policies','quality-policy-effective','document-evaluations','quality-issues','document-review-tasks','document-review-events','publications']) routes['list-'+resource] = ['GET',resource]
   for (const resource of ['ingest-runs','source-observations','artifacts','document-evaluations','document-review-decisions','publish-document']) routes[resource] = ['POST',resource]

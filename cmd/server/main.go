@@ -139,6 +139,11 @@ func buildHandler(cfg *config.Config) (http.Handler, func(), error) {
 		// Admin API (Project Registry management, requires PostgreSQL)
 		if adminStore != nil {
 			admin := handler.NewAdminHandler(adminStore)
+			documentDefaults := handler.NewDocumentDefaultsHandler(adminStore)
+			settings := v1.Group("/admin/system/document-templates", auth.RequireSession())
+			settings.GET("", documentDefaults.Handle)
+			settings.POST("/:action", documentDefaults.Handle)
+			settings.GET("/:action", documentDefaults.Handle)
 			quality := handler.NewDocumentQualityHandler(adminStore)
 			if quality.Ready() {
 				internal := r.Group("/internal/v1/projects/:id/document-quality", quality.InternalAuth())

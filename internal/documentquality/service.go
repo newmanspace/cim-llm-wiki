@@ -419,7 +419,7 @@ func saveObservation(tx Tx, r Record) (Record, error) {
 
 }
 func saveArtifact(tx Tx, r Record) (Record, error) {
-	if e := required(r, "run_id", "target_path", "content_uri", "content_sha256", "logical_key", "recipe_version", "parsed_uri"); e != nil {
+	if e := required(r, "run_id", "target_path", "content_uri", "content_sha256", "logical_key", "recipe_version", "parsed_uri", "template_id", "document_contract_digest"); e != nil {
 		return nil, e
 	}
 	if !ValidPath(Text(r, "target_path"), true) {
@@ -461,7 +461,7 @@ func saveArtifact(tx Tx, r Record) (Record, error) {
 				version = int(number(old, "version")) + 1
 				parent = id(old)
 			}
-			if Text(old, "content_sha256") == Text(r, "content_sha256") && Text(old, "target_path") == Text(r, "target_path") && Text(old, "recipe_version") == Text(r, "recipe_version") && Digest(old["source_links"]) == Digest(r["source_links"]) {
+			if Text(old, "content_sha256") == Text(r, "content_sha256") && Text(old, "target_path") == Text(r, "target_path") && Text(old, "recipe_version") == Text(r, "recipe_version") && Text(old, "template_id") == Text(r, "template_id") && Text(old, "document_contract_digest") == Text(r, "document_contract_digest") && Digest(old["source_links"]) == Digest(r["source_links"]) {
 				if e := linkRun(tx, "ingest_artifacts", "artifact_id", run, old); e != nil {
 					return nil, e
 				}
@@ -470,7 +470,7 @@ func saveArtifact(tx Tx, r Record) (Record, error) {
 		}
 	}
 	out := Record{}
-	for _, field := range []string{"run_id", "logical_key", "target_path", "content_uri", "content_sha256", "snapshot_path", "parsed_uri", "recipe_version", "source_links"} {
+	for _, field := range []string{"run_id", "logical_key", "target_path", "content_uri", "content_sha256", "snapshot_path", "parsed_uri", "recipe_version", "source_links", "template_id", "document_contract_digest"} {
 		out[field] = r[field]
 	}
 	out["version"] = version

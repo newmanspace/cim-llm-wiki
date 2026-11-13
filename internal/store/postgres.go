@@ -6,9 +6,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"cim-llm-wiki/internal/types"
@@ -202,7 +204,7 @@ func (s *Store) loadProjectWikiNodes(ctx context.Context, p *types.ProjectConfig
 	return wnRows.Err()
 }
 
-func (s *Store) UpsertProject(ctx context.Context, p *types.ProjectConfig) error {
+func (s *Store) UpsertProject(ctx context.Context, p *types.ProjectConfig, directories ...[]map[string]string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -281,6 +283,12 @@ func (s *Store) UpsertProject(ctx context.Context, p *types.ProjectConfig) error
 			if err != nil {
 				return fmt.Errorf("insert mapping %s→%s: %w", prefix, modID, err)
 			}
+		}
+	}
+
+	for _, entries := range directories {
+		if err := insertDocumentDirectories(ctx, tx, p.ID, entries); err != nil {
+			return err
 		}
 	}
 
@@ -452,4 +460,29 @@ func (s *Store) GetWikiNodes(ctx context.Context, projectID string) ([]WikiNodeE
 		out = append(out, n)
 	}
 	return out, rows.Err()
+}
+
+func insertDocumentDirectories(ctx context.Context, tx pgx.Tx, project string, entries []map[string]string) error {
+	for _, directory := range entries {
+		payload, err := json.Marshal(map[string]string{"path": directory["path"], "display_name": directory["title"]})
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO dq_directories(project_id,payload,created_by) VALUES($1,$2,'system:document-template') ON CONFLICT DO NOTHING`, project, payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) EnsureDocumentDirectories(ctx context.Context, project string, entries []map[string]string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = insertDocumentDirectories(ctx, tx, project, entries); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

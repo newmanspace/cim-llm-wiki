@@ -142,7 +142,7 @@ func TestRevisionReviewAndSourceTransitions(t *testing.T) {
 	changed := copyRecord(originalInput)
 	changed["original_sha256"] = fmt.Sprintf("%064d", 2)
 	reject("source-observations", changed)
-	artifactInput := Record{"run_id": run["id"], "logical_key": "design", "target_path": "doc/50-designs/design.md", "content_uri": "shared://team/design.md", "parsed_uri": "shared://team/parsed.md", "content_sha256": fmt.Sprintf("%064d", 2), "recipe_version": "v1", "source_links": []any{map[string]any{"source_version_id": id(original)}}}
+	artifactInput := Record{"run_id": run["id"], "logical_key": "design", "template_id": "sdd", "document_contract_digest": "test-contract", "target_path": "doc/50-designs/design.md", "content_uri": "shared://team/design.md", "parsed_uri": "shared://team/parsed.md", "content_sha256": fmt.Sprintf("%064d", 2), "recipe_version": "v1", "source_links": []any{map[string]any{"source_version_id": id(original)}}}
 	artifact := must("artifacts", artifactInput)
 	retry = must("artifacts", artifactInput)
 	if id(artifact) != id(retry) {
@@ -177,7 +177,7 @@ func TestRevisionReviewAndSourceTransitions(t *testing.T) {
 
 func TestReassessmentSupersedesPendingTaskWithHistory(t *testing.T) {
 	repo := &memoryRepository{rows: map[string][]Record{}}
-	artifact, _ := repo.Insert("artifact_versions", Record{"target_path": "doc/50-designs/design.md", "content_sha256": "hash", "logical_key": "design", "version": 1.0})
+	artifact, _ := repo.Insert("artifact_versions", Record{"target_path": "doc/50-designs/design.md", "content_sha256": "hash", "logical_key": "design", "template_id": "sdd", "document_contract_digest": "test-contract", "version": 1.0})
 	service := Service{Repository: repo}
 	ctx := context.Background()
 	p, _ := Resolve(nil, "doc/50-designs")

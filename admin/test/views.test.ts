@@ -331,6 +331,41 @@ test('detail reload and token errors retain recoverable UI state', async () => {
   expect(state.notify).toHaveBeenCalled()
 })
 
+test('settings submenu expands from collapsed navigation and closes the mobile drawer on selection', async () => {
+  const wrapper = view(AdminLayout)
+  await flushPromises()
+  expect(wrapper.find('.settings-child').exists()).toBe(false)
+  await wrapper.find('.sidebar-toggle').trigger('click')
+  await wrapper.find('.settings-toggle').trigger('click')
+  expect(wrapper.find('.admin-sidebar').classes()).not.toContain('admin-sidebar--collapsed')
+  expect(wrapper.find('.settings-child').text()).toBe('文档模板')
+  expect(wrapper.findComponent({ name: 'SystemSettingsMenu' }).findComponent({ name: 'RouterLink' }).vm.$attrs.to).toEqual({
+    path: '/settings/document-templates',
+    query: { project: 'mes' },
+  })
+  await wrapper.find('.settings-toggle').trigger('click')
+  expect(wrapper.find('.settings-child').exists()).toBe(false)
+
+  window.innerWidth = 500
+  window.dispatchEvent(new Event('resize'))
+  await flushPromises()
+  await wrapper.find('.hamburger').trigger('click')
+  await wrapper.find('.settings-toggle').trigger('click')
+  expect(wrapper.find('.admin-drawer').exists()).toBe(true)
+  await wrapper.find('.settings-child').trigger('click')
+  expect(wrapper.find('.admin-drawer').exists()).toBe(false)
+})
+
+test('direct document template visits expand the parent and mark the child as current', async () => {
+  state.route.path = '/settings/document-templates'
+  const wrapper = view(AdminLayout)
+  await flushPromises()
+  expect(wrapper.find('.settings-toggle').attributes('aria-expanded')).toBe('true')
+  expect(wrapper.find('.settings-child').attributes('aria-current')).toBe('page')
+  expect(wrapper.find('.settings-child').classes()).toContain('settings-child-active')
+  expect(wrapper.find('.topbar-left').text()).toContain('系统设置')
+})
+
 test('layout supports desktop and mobile navigation, language and theme preferences', async () => {
   const wrapper = view(AdminLayout)
   await flushPromises()
