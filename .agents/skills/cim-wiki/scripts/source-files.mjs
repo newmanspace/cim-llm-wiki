@@ -1,5 +1,5 @@
 import { mkdirSync, lstatSync, realpathSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 export const extensions = /\.(pdf|docx?|xlsx?|pptx?|md|txt|html?)$/i
 export function validateBinding(project, mount) {
@@ -9,7 +9,7 @@ export function validateBinding(project, mount) {
     throw new Error('Invalid shared mount')
 }
 export const sharedURI = (root, mount, path) =>
-  'shared://' + mount + '/' + relative(root, path).split('/').join('/')
+  'shared://' + mount + '/' + relative(root, path).split(sep).join('/')
 export function safeRepositoryFile(name) {
   return (
     Boolean(name) &&

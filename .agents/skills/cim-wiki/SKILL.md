@@ -68,7 +68,7 @@ node "$SKILL/scripts/client.mjs" context --project <project-id>
 
 按[项目数据源执行约定](references/project-sources.md)获取文件。正常情况下直接使用本机已有认证；只有认证缺失或失效时，才协助用户通过可信本机客户端处理 Git HTTPS/SSH 或 SVN 凭据缓存，再按同一项目配置重试。认证交互不更改采集范围，账密不写入 Skill、项目配置或服务请求。
 
-文档采集后的转换、归类、目录评分及独立人工审核见[文档结果处理](references/document-quality.md)。代码来源与分析边界见[项目代码数据源](references/code-sources.md)。
+文档采集后的转换、归类、目录评分及自动／人工审核见[文档结果处理](references/document-quality.md)。代码来源与分析边界见[项目代码数据源](references/code-sources.md)。
 
 ## 2. 转换或登记现有转换稿
 

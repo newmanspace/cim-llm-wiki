@@ -23,6 +23,8 @@
 
 ## 文档源执行
 
+SVN 数据源支持 HTTP 和 HTTPS URL；地址不得包含用户名、密码、查询参数或片段，认证使用执行采集的机器上的 SVN 缓存。
+
 先取得项目 context，确认交付契约可读且 `document_quality.enabled` 为 true。按已配置源的 `type` 调用对应采集器；`source-id` 必须取自该项目返回值：
 
 ```bash

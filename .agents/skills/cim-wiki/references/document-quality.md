@@ -20,13 +20,13 @@
 
 ## 3. 审核、归类写入及运行时发布
 
-通过 list-document-review-tasks 查看 pending 任务，向用户展示原件、转换稿、归类文件、评分依据和历史。首期所有文档质量任务都需要独立人工裁决，低分审核必须有意见；阻断问题须修复后生成新产物/评估，不能直接批准。
+提交评估后查询 document-review-tasks 和 document-review-events。七维评分、证据与理由完整，未舍入总分达到目录 review_threshold，且无阻断问题、require_human=false 时，服务自动创建 approved 任务（approval_mode=auto）和 system:quality-policy 的 approve 事件；记录分数、阈值及策略/产物摘要，不使用人工审核令牌。其他情况创建 pending 任务并向用户展示原件、转换稿、归类文件、评分依据和历史。低分人工审核须有意见；阻断问题须修复后重新评估，不能直接批准。
 
 人工端使用独立 CIM_WIKI_REVIEW_TOKEN 调用 document-review-decisions，输入 project、task_id、expected_revision、decision=approve/reject/changes_requested、note。审核身份从凭据绑定，Agent 不持有审核令牌。管理页面也提供原件下载、正文对照和历史。修订生成新版本，历史不覆盖。
 
-审核通过后，Skill 可调用 publish-document，输入 project、artifact_id、evaluation_id，服务写入 CIM_WIKI_ORGANIZED_ROOT/<project>/<target_path>。替换已存在且内容不同的文件须附 expected_sha256；先查询实际当前文件摘要，再按用户授权更新。归类导出是资料文件写入，运行时 Wiki 仍必须走现有 Bundle、节点审核、compile preview 和全库校验。
+系统自动批准或独立人工审核通过后，Skill 可调用 publish-document，输入 project、artifact_id、evaluation_id，服务写入 CIM_WIKI_ORGANIZED_ROOT/<project>/<target_path>。替换已存在且内容不同的文件须附 expected_sha256；先查询实际当前文件摘要，再按用户授权更新。归类导出是资料文件写入，运行时 Wiki 仍必须走现有 Bundle、节点审核、compile preview 和全库校验。
 
-项目配置了数据源后，submit 请求除 uri 还必须附 artifact_ids，每个节点来源必须有匹配归类产物。服务将文档评估关联到 Bundle，编译时再次核验当前目录策略、来源哈希及独立人工结论。父目录规则或文件变化会使资格失效，须重新评估，不能复用旧批准。
+项目配置了数据源后，submit 请求除 uri 还必须附 artifact_ids，每个节点来源必须有匹配归类产物。服务将文档评估关联到 Bundle，编译时再次核验当前目录策略、来源哈希及有效审批结论。父目录规则或文件变化会使自动或人工批准资格失效，须重新评估，不能复用旧批准。新规则不追溯改写旧任务；对旧待审结果重新提交真实评估，旧 pending 任务会保留历史并被 superseded。文档自动批准不代表节点 Bundle 自动批准，运行时 Wiki 的节点审核配置保持独立。
 
 ## 4. 查询、重试与恢复
 

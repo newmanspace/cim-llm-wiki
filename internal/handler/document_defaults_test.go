@@ -44,3 +44,27 @@ func TestDocumentDefaultsRequiresSessionAndForwardsIdentity(t *testing.T) {
 		t.Fatalf("authenticated write: %d %s", result.Code, result.Body.String())
 	}
 }
+
+func TestInitializeProjectAcceptsDirectoryNodeTypes(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/document-defaults/bind" {
+			t.Error("unexpected target")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"directories":[{"path":"doc/40-requirements","title":"需求","node_types":["requirement"],"description":"Requirements"}]}`))
+	}))
+	defer upstream.Close()
+	h := &DocumentDefaultsHandler{URL: upstream.URL, Token: strings.Repeat("s", 40), Client: upstream.Client()}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/projects", strings.NewReader(`{}`))
+	entries, err := h.InitializeProject(c, "mycim-mes4", "myCIM MES 4.0", "4.0", []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0]["path"] != "doc/40-requirements" || entries[0]["title"] != "需求" {
+		t.Fatalf("directory mapping: %+v", entries)
+	}
+	if _, err := bindingDirectories([]byte(`{"directories":[{"path":[],"title":"bad"}]}`)); err == nil {
+		t.Fatal("accepted invalid directory path type")
+	}
+}

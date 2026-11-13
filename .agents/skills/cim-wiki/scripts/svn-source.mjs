@@ -46,13 +46,14 @@ function validateCollection(source, project, mount, allowFile) {
   validateBinding(project, mount)
   const url = new URL(source.url)
   if (
-    (url.protocol !== 'https:' && !(allowFile && url.protocol === 'file:')) ||
+    (!['http:', 'https:'].includes(url.protocol) && !(allowFile && url.protocol === 'file:')) ||
+    (!url.hostname && url.protocol !== 'file:') ||
     url.username ||
     url.password ||
     url.search ||
     url.hash
   )
-    throw new Error('SVN requires an HTTPS URL without credentials')
+    throw new Error('SVN requires an HTTP or HTTPS URL without credentials, query or fragment')
   const parts = validateSubpath(source.subpath)
   const selected = source.revision_selector || 'HEAD'
   if (!/^(HEAD|[0-9]+)$/.test(selected))

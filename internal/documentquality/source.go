@@ -81,8 +81,8 @@ func NormalizeSourceConfig(r Record) (Record, error) {
 		auth = "git_local"
 	} else {
 		u, err := url.Parse(remote)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return nil, problem(422, "SVN URL must be HTTPS without credentials, query or fragment")
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return nil, problem(422, "SVN URL must be HTTP or HTTPS without credentials, query or fragment")
 		}
 	}
 	if e != nil {

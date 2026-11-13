@@ -345,6 +345,7 @@ export function checkDocument(
     documentPath = '',
     root,
     reviewer,
+    approvalMode = 'manual',
   } = {},
 ) {
   const errors = []
@@ -389,7 +390,7 @@ export function checkDocument(
     add('document_title', 'Exactly one document title is required')
   checkSections(template, hs, add)
   checkSectionGroups(template.contract, hs, add, checkSections)
-  const values = checkFields(template, hs, add, phase, reviewer)
+  const values = checkFields(template, hs, add, phase, reviewer, approvalMode)
   checkDocumentFormat(sections, values, add, tablesOf)
   checkTables(template, hs, add)
   checkTableRelations(template.contract, hs, add)
@@ -702,7 +703,7 @@ function checkSections(template, hs, add) {
   }
 }
 
-function checkFields(template, hs, add, phase, reviewer) {
+function checkFields(template, hs, add, phase, reviewer, approvalMode) {
   const info = hs.find((s) => s.title === '文档信息')
   const values = new Map(
     (info ? tablesOf(info.tokens) : [])
@@ -726,7 +727,10 @@ function checkFields(template, hs, add, phase, reviewer) {
     )
       add('field_datetime', 'Time must be UTC ISO8601', info, field, value)
   }
-  if (phase === 'publish' && (!reviewer || values.get('审核者') !== reviewer))
+  const validReviewer = approvalMode === 'auto'
+    ? reviewer === 'system:quality-policy'
+    : reviewer && values.get('审核者') === reviewer
+  if (phase === 'publish' && !validReviewer)
     add(
       'reviewer_mismatch',
       'Document reviewer must match authenticated review evidence',

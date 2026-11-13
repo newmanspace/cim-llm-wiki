@@ -225,7 +225,8 @@ export function createDocumentQuality({
           'validity',
         ],
         organized_export_enabled: Boolean(organizedRoot),
-        requires_human: true,
+        requires_human: false,
+        approval_policy: 'directory-quality-policy',
       },
     }
   }
@@ -296,12 +297,12 @@ export function createDocumentQuality({
     checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'))
     return artifact
   }
-  function checkArtifactContract(project,artifact,text,phase='review',reviewer) {
+  function checkArtifactContract(project,artifact,text,phase='review',reviewer,approvalMode='manual') {
     const binding=createDefaultsStore(projectRoot).effective(project)
     if(artifact.document_contract_digest && artifact.document_contract_digest!==binding.digest)fail('Artifact document contract changed; register a new artifact',409)
     const template=binding.definition.templates.find(t=>t.id===artifact.template_id)
     if(!template)fail('Artifact requires a bound template_id',422)
-    const diagnostics=checkDocument(template,text,{phase,reviewer,terms:binding.definition.terms,documentPath:artifact.target_path})
+    const diagnostics=checkDocument(template,text,{phase,reviewer,approvalMode,terms:binding.definition.terms,documentPath:artifact.target_path})
     if(diagnostics.some(d=>d.severity==='error'))fail('Artifact document contract failed: '+JSON.stringify(diagnostics),422)
     artifact.document_contract_digest=binding.digest
   }
@@ -463,12 +464,8 @@ export function createDocumentQuality({
         )
           fail('A newer artifact or evaluation supersedes this approval', 409)
         const tasks = await all(project, 'document-review-tasks')
-        if (
-          !tasks.some(
-            (t) => t.evaluation_id === evaluation.id && t.status === 'approved',
-          )
-        )
-          fail('Independent document review is required', 409)
+        if (!approvedReview(tasks, evaluation, policy))
+          fail('Document review approval is required', 409)
         if (phase === 'start')
           publications.push(
             await call(project, 'publication-start', {
@@ -484,12 +481,22 @@ export function createDocumentQuality({
     }
     return publications
   }
+  function approvedReview(tasks, evaluation, policy) {
+    return tasks.find((task) => {
+      if (task.evaluation_id !== evaluation.id || task.status !== 'approved') return false
+      if (task.approval_mode !== 'auto') return true
+      return !policy.require_human && !evaluation.needs_review &&
+        typeof evaluation.total === 'number' && evaluation.total >= policy.review_threshold
+    })
+  }
   async function finish(project, publications, status, key) {
+    const completed = []
     for (const p of publications)
-      await call(project, 'publication-finish', {
+      completed.push(await call(project, 'publication-finish', {
         body: { id: p.id, status },
         key: key + '-' + p.id + '-' + status,
-      })
+      }))
+    return completed
   }
   function outputPath(project, artifact, input) {
     mkdirSync(organizedRoot, { recursive: true })
@@ -531,8 +538,10 @@ export function createDocumentQuality({
     await gate(project, [binding])
     const tasks=await all(project,'document-review-tasks'),events=await all(project,'document-review-events')
     const task=tasks.find(t=>t.evaluation_id===input.evaluation_id&&t.status==='approved')
-    const reviewer=events.find(e=>e.task_id===task?.id&&e.decision==='approve')?.actor_id
-    checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'),'publish',reviewer)
+    const decision=events.find(e=>e.task_id===task?.id&&e.decision==='approve')
+    const reviewer=decision?.actor_id
+    if(task?.approval_mode==='auto' && (reviewer!=='system:quality-policy' || decision.approval_mode!=='auto' || decision.policy_digest!==task.policy_digest))fail('Automatic approval evidence is missing or stale',409)
+    checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'),'publish',reviewer,task?.approval_mode)
     const dest = outputPath(project, artifact, input)
     if (existsSync(dest) && hashFile(dest) === artifact.content_sha256) {
       const completed = (await all(project, 'publications')).filter(
@@ -567,8 +576,8 @@ export function createDocumentQuality({
       } finally {
         rmSync(temp, { force: true })
       }
-      await finish(project, publications, 'published', key)
-      return { path: dest, sha256: artifact.content_sha256, publications }
+      const completed = await finish(project, publications, 'published', key)
+      return { path: dest, sha256: artifact.content_sha256, publications: completed }
     } catch (e) {
       if (!wrote) await finish(project, publications, 'failed', key)
       throw e

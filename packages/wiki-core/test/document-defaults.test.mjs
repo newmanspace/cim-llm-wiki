@@ -224,3 +224,13 @@ test('copied glossary templates retain terminology checks', () => {
     ),
   )
 })
+
+test('automatic publication uses system approval evidence while manual reviewer matching remains strict', () => {
+  const template = builtinDefaults().templates.find(t => t.id === 'glossary')
+  const check = options => checkDocument(template, template.example, { phase: 'publish', ...options })
+  assert.deepEqual(check({ approvalMode: 'auto', reviewer: 'system:quality-policy' }).filter(d => d.severity === 'error'), [])
+  for (const options of [{ approvalMode: 'auto' }, { approvalMode: 'auto', reviewer: 'Claimed Human' }, { reviewer: 'system:quality-policy' }]) {
+    assert.ok(check(options).some(d => d.rule_id === 'reviewer_mismatch'))
+  }
+  assert.ok(checkDocument(template, template.invalid_example, {phase:'publish', approvalMode:'auto', reviewer:'system:quality-policy'}).some(d=>d.severity==='error'))
+})

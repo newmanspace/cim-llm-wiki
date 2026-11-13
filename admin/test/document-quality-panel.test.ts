@@ -121,3 +121,16 @@ test('new directory form opens before the tree with focus and the selected paren
  expect(form.compareDocumentPosition(tree)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
  await plus.trigger('click');expect(wrapper.find('form.create-directory').exists()).toBe(false)
 })
+
+test('automatic approvals are labelled separately and retain the approved filter status',async()=>{
+ const pending=dataset['document-review-tasks']
+ dataset['document-review-tasks']=[{...pending[0],status:'approved',approval_mode:'auto'}]
+ wrapper.unmount()
+ wrapper=mount(DocumentQualityPanel,{props:{projectId:'demo',mode:'results'},global:{components}})
+ try {
+  await flushPromises()
+  expect(wrapper.find('[data-status="approved"]').text()).toBe('自动批准')
+  await click('查看')
+  expect(wrapper.findAll('button').find(b=>b.text()==='通过')!.attributes('disabled')).toBeDefined()
+ } finally {dataset['document-review-tasks']=pending}
+})

@@ -307,7 +307,7 @@
                     <span
                       class="status-badge"
                       :data-status="taskFor(item.id)?.status"
-                      >{{ reviewStatusLabel(taskFor(item.id)?.status) }}</span
+                      >{{ reviewStatusLabel(taskFor(item.id)?.status, taskFor(item.id)?.approval_mode) }}</span
                     >
                   </td>
                   <td>
@@ -489,7 +489,8 @@ function directoryCount(path: string) {
     item.target_path.startsWith(path + '/'),
   ).length
 }
-function reviewStatusLabel(status?: string) {
+function reviewStatusLabel(status?: string, approvalMode?: string) {
+  if (status === 'approved' && approvalMode === 'auto') return '自动批准'
   return (
     (
       {

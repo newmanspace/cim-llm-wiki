@@ -98,14 +98,12 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 		return
 	}
 	if status == 200 && action == "/bind" && h.Store != nil {
-		var binding struct {
-			Directories []map[string]string `json:"directories"`
-		}
-		if err := json.Unmarshal(data, &binding); err != nil {
+		directories, err := bindingDirectories(data)
+		if err != nil {
 			c.JSON(503, gin.H{"error": "Invalid template service response"})
 			return
 		}
-		if err := h.Store.EnsureDocumentDirectories(c.Request.Context(), bindingRequest.Project, binding.Directories); err != nil {
+		if err := h.Store.EnsureDocumentDirectories(c.Request.Context(), bindingRequest.Project, directories); err != nil {
 			c.JSON(503, gin.H{"error": "Project directories could not be synchronized; retry the binding"})
 			return
 		}
@@ -130,13 +128,25 @@ func (h *DocumentDefaultsHandler) InitializeProject(c *gin.Context, projectID, n
 	if status != 200 {
 		return nil, &url.Error{Op: "initialize document templates", URL: projectID, Err: templateError(string(data))}
 	}
+	return bindingDirectories(data)
+}
+
+// The ledger stores directory names; node type arrays remain in the template service.
+func bindingDirectories(data []byte) ([]map[string]string, error) {
 	var binding struct {
-		Directories []map[string]string `json:"directories"`
+		Directories []struct {
+			Path  string `json:"path"`
+			Title string `json:"title"`
+		} `json:"directories"`
 	}
 	if err := json.Unmarshal(data, &binding); err != nil {
 		return nil, err
 	}
-	return binding.Directories, nil
+	entries := make([]map[string]string, 0, len(binding.Directories))
+	for _, directory := range binding.Directories {
+		entries = append(entries, map[string]string{"path": directory.Path, "title": directory.Title})
+	}
+	return entries, nil
 }
 
 type templateError string

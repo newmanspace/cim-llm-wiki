@@ -51,6 +51,8 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  assert.ok(previewImpact.changed_paths.includes('doc/50-designs'))
  await setup('data-sources',{name:'SVN docs',type:'svn',url:'https://example.test/repo',revision_selector:'HEAD'})
  const context=await ok('context?project=demo');assert.ok(context.document_directories.some(item=>item.path==='doc/50-designs/empty'));assert.equal(context.data_sources[0].url,'https://example.test/repo');assert.equal(context.data_sources[0].auth,'svn_cache')
+ assert.equal(context.document_quality.requires_human,false)
+ assert.equal(context.document_quality.approval_policy,'directory-quality-policy')
  const source=context.data_sources[0]
  const run=await ok('ingest-runs',{project:'demo',source_id:source.id,source_config_id:source.config_id,operative_revision:'42',repository_uuid:'repo',recipe_version:'test-v1'})
  const sha=value=>createHash('sha256').update(value).digest('hex')
@@ -86,10 +88,31 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  save(join(shared,'unsafe.md'),'# Unsafe\n\n<script>bad()</script>')
  assert.equal((await api('artifacts',{project:'demo',run_id:run.id,logical_key:'unsafe',target_path:'doc/50-designs/unsafe.md',content_uri:'shared://team/unsafe.md',parsed_uri:registration.parsed,recipe_version:'v1',source_links:[{source_version_id:original.id}]})).status,422)
 
+
+ // A second real artifact with complete, above-threshold scores is approved by policy.
+ const autoDoc=artifactDoc.replace('Reviewer','待指定')
+ save(join(shared,'automatic.md'),autoDoc)
+ const autoArtifact=await ok('artifacts',{project:'demo',run_id:run.id,logical_key:'automatic',template_id:'urd',target_path:'doc/50-designs/automatic.md',content_uri:'shared://team/automatic.md',parsed_uri:registration.parsed,recipe_version:'auto-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
+ const autoDimensions=Object.fromEntries(Object.entries(dimensions).map(([k,v])=>[k,{...v,score:85}]))
+ const autoInput={project:'demo',artifact_id:autoArtifact.id,artifact_sha256:autoArtifact.content_sha256,policy_digest:policy.digest,dimensions:autoDimensions,issues:[],evaluator_version:'auto-test-v1'}
+ const autoKey=randomUUID()
+ const autoEvaluation=await ok('document-evaluations',autoInput,undefined,autoKey)
+ assert.equal((await ok('document-evaluations',autoInput,undefined,autoKey)).id,autoEvaluation.id)
+ assert.equal(autoEvaluation.needs_review,false)
+ const autoTask=(await ok('document-review-tasks?project=demo')).items.find(t=>t.evaluation_id===autoEvaluation.id)
+ assert.equal(autoTask.status,'approved');assert.equal(autoTask.approval_mode,'auto')
+ const autoEvent=(await ok('document-review-events?project=demo')).items.find(e=>e.task_id===autoTask.id)
+ assert.equal(autoEvent.actor_id,'system:quality-policy');assert.equal(autoEvent.policy_digest,policy.digest)
+ const autoPublished=await ok('publish-document',{project:'demo',artifact_id:autoArtifact.id,evaluation_id:autoEvaluation.id})
+ assert.ok(autoPublished.publications.every(p=>p.status==='published'))
+ assert.equal(readFileSync(autoPublished.path,'utf8'),autoDoc)
+ const autoRetry=await ok('publish-document',{project:'demo',artifact_id:autoArtifact.id,evaluation_id:autoEvaluation.id})
+ assert.equal(autoRetry.sha256,autoArtifact.content_sha256);assert.deepEqual(autoRetry.publications,autoPublished.publications)
  await setup('quality-policies',{path:'doc',expected_revision:0,patch:{review_threshold:90}})
  policy=await ok('quality-policy-effective?project=demo&path=doc%2F50-designs');assert.equal(policy.review_threshold,90);assert.equal(policy.origins.review_threshold,'doc@1')
  assert.equal((await api('publish-document',{project:'demo',artifact_id:artifact.id,evaluation_id:evaluation.id})).status,409)
- assert.equal((await ok('document-review-events?project=demo')).items.length,1)
+ assert.equal((await ok('document-review-events?project=demo')).items.length,2)
+ assert.equal((await api('publish-document',{project:'demo',artifact_id:autoArtifact.id,evaluation_id:autoEvaluation.id})).status,409,'automatic approval expires on policy changes')
 
  const gitConfig=await setup('data-sources',{name:'Git docs',type:'git',url:'git@example.test:team/docs.git',subpath:'docs',revision_selector:'main'})
  const gitContext=await ok('context?project=demo'),gitSource=gitContext.data_sources.find(s=>s.id===gitConfig.id)

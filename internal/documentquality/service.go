@@ -557,14 +557,27 @@ func saveEvaluation(tx Tx, r Record) (Record, error) {
 	if e = supersedePending(tx, id(artifact)); e != nil {
 		return nil, e
 	}
-	// Default all document evaluations require an independent human decision.
-	task, e := tx.Insert("review_tasks", Record{"artifact_id": id(artifact), "evaluation_id": id(eval), "artifact_digest": artifact["content_sha256"], "policy_digest": p.Digest, "status": "pending"})
+	task, e := createEvaluationReview(tx, artifact, eval, p, assessment)
 	if e != nil {
 		return nil, e
 	}
 	eval["review_task_id"] = id(task)
 	return eval, nil
 }
+
+func createEvaluationReview(tx Tx, artifact, evaluation Record, policy Effective, assessment Assessment) (Record, error) {
+	status, mode := "pending", "manual"
+	if !assessment.NeedsReview {
+		status, mode = "approved", "auto"
+	}
+	task, err := tx.Insert("review_tasks", Record{"artifact_id": id(artifact), "evaluation_id": id(evaluation), "artifact_digest": artifact["content_sha256"], "policy_digest": policy.Digest, "status": status, "approval_mode": mode})
+	if err != nil || mode != "auto" {
+		return task, err
+	}
+	_, err = tx.Insert("review_events", Record{"task_id": id(task), "decision": "approve", "actor_id": "system:quality-policy", "from_status": "", "to_status": "approved", "approval_mode": "auto", "evaluation_id": id(evaluation), "artifact_digest": artifact["content_sha256"], "policy_digest": policy.Digest, "total": assessment.Total, "review_threshold": policy.Threshold, "note": fmt.Sprintf("Automatically approved: complete evidence, score %.4f >= threshold %.4f, no blocking issues or mandatory human review", *assessment.Total, policy.Threshold)})
+	return task, err
+}
+
 func saveDecision(tx Tx, actor string, r Record) (Record, error) {
 	if e := required(r, "task_id", "note", "decision"); e != nil {
 		return nil, e
@@ -668,11 +681,14 @@ func beginPublication(tx Tx, r Record) (Record, error) {
 	approved := false
 	for _, task := range tasks {
 		if Text(task, "evaluation_id") == id(eval) && Text(task, "status") == "approved" {
+			if Text(task, "approval_mode") == "auto" && (p.RequireHuman || eval["needs_review"] == true || eval["total"] == nil || number(eval, "total") < p.Threshold) {
+				return nil, problem(409, "Automatic document approval is no longer eligible")
+			}
 			approved = true
 		}
 	}
 	if !approved {
-		return nil, problem(409, "Document requires independent human approval")
+		return nil, problem(409, "Document review approval is required")
 	}
 	pubs, e := tx.List("publications")
 	if e != nil {
