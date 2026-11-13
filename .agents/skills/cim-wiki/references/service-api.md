@@ -20,6 +20,22 @@
 
 所有写操作请求为 JSON；`--json-file -` 从 stdin 读取。客户端显示服务响应，HTTP 失败或完整校验发现 errors 时以非零状态退出，不自动重复写入请求。
 
+## 受控枚举与机器契约
+
+绑定项目后调用 `context --project <project-id>`，读取 `vocabulary`、节点 Schema 和模板契约。结构化字段使用当次服务允许的值：
+
+| 节点内容 | 允许值来源 |
+|---|---|
+| `rule_category`、`rule_tags` | `context.vocabulary.category` |
+| `operation`、模板受控业务动作 | `context.vocabulary.operation` |
+| 关系谓词 | `context.vocabulary.relation`，同时遵守模板及实际校验约束 |
+
+词表缺失时报告缺项，不猜测允许值。原文概念没有对应枚举时，保留原文和定位并标记待确认，不静默替换为含义不同的值。新增枚举需要维护服务实际契约；编辑 Skill 不会改变允许值。
+
+当前接口从服务端 `contracts/wiki/v1/vocabulary.json` 返回全局词表，没有按项目覆盖的配置能力。Skill 安装端通过接口读取，不复制该文件。项目业务术语资料的使用见[抽取说明](extraction.md#项目术语与命名)。
+
+审核等级不从词表自行推导。当前 `context` 不返回完整审核策略，服务端仍包含按业务关键词升级审核的规则；提交时遵循实际校验结果，要求人工审核时等待独立裁决，不通过删改原文或更换词语绕过门禁。评分与审核交接见[evaluation.md](evaluation.md#审核等级门限)。
+
 ## 可选：初始化产品展示目录
 
 initialize 复用现有 project 命名空间，要求调用者提供真实 delivery_contract，不覆盖不同的既有契约。directories 返回当前 revision 和目录映射，update-directories 提交完整目录数组并检查 expected_revision。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 directory 字段为当前配置，未初始化时为 null。
@@ -30,13 +46,13 @@ convert 和 register 使用相同字段。convert 调服务生成 parsed；regis
 
 ```json
 {
-  "project": "mycim",
+  "project": "example-project",
   "system": "CIM",
   "version": "V2.8",
   "category": "design",
-  "source": "shared://team/mycim/sources/myCIM4.0名词对应表-V2.8.xlsx",
-  "parsed": "shared://team/mycim/parsed/V2.8/名词对应表.md",
-  "ingest_path": "/mnt/knowledge/mycim/sources/myCIM4.0名词对应表-V2.8.xlsx"
+  "source": "shared://team/example-project/sources/project-glossary-v1.xlsx",
+  "parsed": "shared://team/example-project/parsed/v1/project-glossary.md",
+  "ingest_path": "/mnt/knowledge/example-project/sources/project-glossary-v1.xlsx"
 }
 ```
 
@@ -46,7 +62,7 @@ convert 和 register 使用相同字段。convert 调服务生成 parsed；regis
 
 ```json
 {
-  "source": "shared://team/mycim/parsed/V2.8/名词对应表.md",
+  "source": "shared://team/example-project/parsed/v1/project-glossary.md",
   "action": "freeze",
   "by": "local-agent",
   "note": "已核对工作表和表头"
@@ -71,7 +87,7 @@ Bundle 须符合 context 返回的节点 Schema。字段和完整正文由本地
 提交请求引用共享 Bundle 文件：
 
 ```json
-{"uri":"shared://team/mycim/work/CR-20261105-0001/nodes.json"}
+{"uri":"shared://team/example-project/work/CR-20261105-0001/nodes.json"}
 ```
 
 默认由独立人工审核批准后发布。只有服务器管理员显式设置 CIM_WIKI_AUTO_PUBLISH=true 才允许合格的 L0 新页面自动放行，Agent 的评分和请求字段不能开启该权限。返回 state=pending 时必须先人工审核。服务端保存提交快照及 digest，后续修改共享 nodes.json 不会悄悄替换已提交版本；修订使用新的 Bundle ID。已有页面即使评分达到 L0 也需要审核。

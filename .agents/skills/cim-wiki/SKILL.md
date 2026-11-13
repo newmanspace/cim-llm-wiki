@@ -9,7 +9,7 @@ description: 通过 cim-llm-wiki 服务将 CIM/MES 文档转换为可追溯 Wiki
 
 - **服务端**：文档转换、来源记录与状态管理、模板/契约、审核记录、编译和校验。
 - **本地 Agent/LLM**：理解原稿、抽取知识、七维评分、冲突识别和向用户组织审核。不需要额外的 LLM API。
-- **本 skill**：流程、领域规范及轻量 HTTP 客户端；不包含解析器、编译器或部署程序。
+- **本 skill**：读取项目配置、处理本机采集认证、执行知识处理流程及轻量 HTTP 客户端；不包含解析器、编译器或部署程序。
 
 将整个 `cim-wiki/` 复制到目标 Agent 的技能目录即可。客户端仅使用 Node.js ≥20 内置模块，不需要 npm install，不依赖主仓目录，也不在 skill 安装目录存放业务数据。
 
@@ -48,6 +48,14 @@ node "$SKILL/scripts/client.mjs" context --project <project-id>
 
 请求摄取文档时执行下述全流程；请求审核时读取 bundle 并执行步骤 5；请求校验时直接执行步骤 6 的 validate。
 
+## 项目数据源与采集认证
+
+数据源在项目建立和维护时配置。先读取绑定项目，文档源以 `context.data_sources` 为准，代码源以项目 `repos` 为准。类型、仓库地址、子路径、分支或版本、启停状态及模块映射均来自项目配置，不由 Skill 定义，不在采集对话中重新询问或临时覆盖。多源按本次任务范围处理；只有范围不明确时才让用户选择已配置的数据源。
+
+按[项目数据源执行约定](references/project-sources.md)获取文件。正常情况下直接使用本机已有认证；只有认证缺失或失效时，才协助用户通过可信本机客户端处理 Git HTTPS/SSH 或 SVN 凭据缓存，再按同一项目配置重试。认证交互不更改采集范围，账密不写入 Skill、项目配置或服务请求。
+
+文档采集后的转换、归类、目录评分及独立人工审核见[文档结果处理](references/document-quality.md)。代码来源与分析边界见[项目代码数据源](references/code-sources.md)。
+
 ## 2. 转换或登记现有转换稿
 
 先将输入文件放到服务端可见的共享源目录，指定另一个共享 Markdown 输出路径。根据 [service-api.md](references/service-api.md) 生成请求 JSON，再调用：
@@ -74,7 +82,7 @@ PDF 由服务端调用 MinerU；XLSX/DOCX/PPTX/HTML 由服务端调用 Docling�
 
 按 [references/evaluation.md](references/evaluation.md) 在本地完成七维语义评分，qscore 字段为 auth、comp、rel、fresh、struct、reuse、risk、total。服务端仅复算总分与检查门限，不调用 LLM 代替语义判断。
 
-L0_auto ≥0.95；L1_expert ≥0.80；L2_arch ≥0.55；低于0.55 为 archive。关键状态机、Hold/Release、QTime、PLM/ERP 或 Critical，以及修改既有 business_rule，强制 L2。新旧节点冲突须在审核摘要中显著标记，不能靠提高分数绕过裁决。所有页面替换均需人工批准。
+审核等级与评分交接见 [evaluation.md](references/evaluation.md)，以服务端实际校验和审核状态为准。新旧节点冲突须在审核摘要中显著标记，不能靠提高分数绕过裁决。所有页面替换均需人工批准。
 
 ## 5. 提交与聚合审核
 
@@ -96,3 +104,11 @@ node "$SKILL/scripts/client.mjs" validate
 服务端将 frozen 源文档自动激活为 active，保留文档与 Bundle 关联。归档节点不进入主库。Wiki 由服务端写入和展示，按 `<project>/doc/`（领域知识）与 `<project>/code/`（代码契约）分库；项目内关联链接必须带平面前缀。编译规则阅读说明见 [references/frontmatter.md](references/frontmatter.md)。
 
 最终报告实际转换/登记结果、原始文档位置、发布页面、审核记录、校验结果及遗留问题。不以 mock 测试或健康检查冒充真实转换质量验证。时间戳使用 UTC ISO8601。
+
+## 项目文档目录
+
+context的document_directories列出管理员维护的归类目录；结合项目交付契约确定目标路径。创建目录不设置评分覆盖，目录策略仍逐项继承父级。目录和文档结果在后台独立菜单维护，自动化凭据不能写目录配置。
+
+## 项目资料与服务契约
+
+业务术语、别名及命名规范按[抽取说明](references/extraction.md#项目术语与命名)引用绑定项目资料；节点受控枚举按[服务调用契约](references/service-api.md#受控枚举与机器契约)读取 `context.vocabulary`。项目资料和服务机器契约分别维护，Skill 不保存具体项目词表或枚举清单。

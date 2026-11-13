@@ -6,6 +6,14 @@
 
 你是专业的半导体 MES 软件知识工程师，擅长解构 SDD/IDD 设计文档。从文档内容中提取所有知识节点，输出带 schema_version、bundle_id、project 和 nodes 的 Bundle 对象。
 
+## 项目术语与命名
+
+业务术语用于解释概念、别名和命名习惯，以绑定项目已确认的术语表、数据字典或用户明确指定的资料为依据，保留来源、版本和适用范围。当前 `context` 没有专门的项目术语表配置或返回字段，不能假定接口已提供这些资料。
+
+没有术语资料时保留原文用语并标记待确认；资料冲突时记录各自来源，不自行裁定统一含义。展示名称、代码标识和缩写分别遵循项目约定，不套用其他项目的默认规则。需要补充术语时写入项目已确认的资料目录，不写入可分发的 Skill、模板或示例。
+
+项目资料中的产品、客户、版本、人员及内部路径仅在授权范围内使用。业务术语解释含义，节点受控枚举限定结构化字段允许值；枚举读取方式见[服务调用契约](service-api.md#受控枚举与机器契约)，两者不能相互替代。
+
 ## 节点字段示例
 
 以下为字段说明，不是可执行的 JSON Schema。机器契约由服务端 context 接口提供（服务内部位于 `contracts/wiki/v1/`），Bundle 必须声明 `schema_version: "1.0"`、`bundle_id`、`project` 和 `nodes`。类型、字段、正文及关联关系均接受严格校验，不能以本说明替代机器门禁。
@@ -29,7 +37,7 @@
   "integration_system": "仅外部集成 api：对接系统，如 Siemens_Teamcenter",
   "endpoint": "仅 api：如 POST /api/v1/wip/lots/track-in",
   "protocol": "仅 api：HTTP/REST | Webhook/REST | gRPC | MQTT",
-  "operation": "仅 api（api card）：vocabulary.md Operation 词表的业务动作词，如 MoveInReservation",
+  "operation": "仅 api（api card）：context.vocabulary.operation 中的受控业务动作",
   "transaction_code": "仅外部集成 api：事务码，如 ODIS0001；全局唯一（compile 写入 data/documents/api-registry.json）",
   "domain_objects": ["仅 api：操作的领域对象名列表，如 [\"Equipment\", \"ControlJob\"]"],
   "preconditions": ["仅 api：生效校验规则的 wikilink 列表，如 [[business/br-wip-001.md]]；无前置时正文槽位显式写 None"],
@@ -109,7 +117,7 @@ wiki 按消费对象物理分为两库，compile.mjs 按下表自动路由并写
 | 4 质量与统计 | quality | QMS / SPC / YMS | 质量 HOLD、SPC 越界、良率数据 |
 | 5 仓储物流 | logistics | WMS / AGV / MCS | 物料领用、搬运任务、FOUP 位置 |
 
-## 用户手册版面模式抽取（myCIM 类 user-manual）
+## 用户手册版面模式抽取（章节编号式 user-manual）
 
 | 版面模式 | 抽取方法 |
 |----------|----------|
@@ -136,7 +144,7 @@ business_rule 节点的 content 采用固定分节模板（身份与元数据仍
 <违反后果 + 执行点，如 "TrackIn / ProcessStart must be rejected">
 
 ## Related Operations
-- <业务动作词表：TrackIn / StartProcess / DownloadRecipe…（受控动词，非节点引用）>
+- <从 context.vocabulary.operation 选择的受控业务动作，非节点引用>
 
 ## Test Hint
 - <正例 / 反例 / 边界，作为未来 test_case 种子>
@@ -147,7 +155,7 @@ frontmatter 新增字段（compile.mjs 已支持渲染）：
 | 字段 | 含义 | 取值 |
 |------|------|------|
 | `severity` | 违反影响 | Critical / High / Medium / Low；**Critical 强制 L2_arch 人审** |
-| `rule_category` | 规则切面（跨模块聚合用） | RECIPE / HOLD / PORT / CARRIER / LOT / QTIME / DISPATCH / TRACK… |
+| `rule_category` | 规则切面（跨模块聚合用） | 从 context.vocabulary.category 读取允许值 |
 | `verification_status` | 展示用核验状态 | 由 review_level 派生：待审=`AI-Candidate`，批准=`Human-Verified`，归档=`Deprecated`。**不是独立状态机**，审核流程仍以 status/review_level 为准 |
 | `rule_type` | 双平面路由键 | `contract`=功能契约（接口级校验，入 `code/rules/`，应带 applies_to）；`business_rule`=业务规则（全局政策/invariant，入 `doc/business/`） |
 | `applies_to` | 规则生效点（rule → api 图闭合） | 列表；元素必须是 api 节点 wikilink，如 `[[apis/api-int-eap-001.md]]`；一条规则可作用于多个接口 |
@@ -167,7 +175,7 @@ frontmatter 新增字段（compile.mjs 已支持渲染）：
 |------|------|
 | `domain_object` | 对象名，如 Equipment |
 | `primary_key` | 主键（AI 实体解析键），如 EquipmentId |
-| `rule_tags` | 列表；取值必须是 vocabulary.md 的 Rule Category 枚举 |
+| `rule_tags` | 列表；取值必须是 context.vocabulary.category 枚举 |
 | `synthesized` | true 表示跨文档聚合卡 |
 
 content 固定槽位（lint 校验存在性）：
@@ -194,7 +202,7 @@ content 固定槽位（lint 校验存在性）：
 Capability 类属性并入本表（group=Capability），不单独成节。
 
 ## Relations
-<subject —predicate→ object 三元组列表；predicate 必须是 vocabulary.md 的 Relation 枚举；object 一律 wikilink>
+<subject —predicate→ object 三元组列表；predicate 必须是 context.vocabulary.relation 枚举；object 一律 wikilink>
 
 ## Reasoning Hint
 <有序检查清单，每行：步骤 | 指向的 rule wikilink | reject/warn。这是 AI 排查"为什么不能执行"的决策链>
@@ -203,10 +211,10 @@ Capability 类属性并入本表（group=Capability），不单独成节。
 <摘要 + wikilink；每条 invariant 的完整定义是独立 business_rule，卡片不重复展开>
 
 ## Related Operations
-<vocabulary.md 的 Operation 受控动词；关联的流程/接口走 related_apis/related_rules>
+<context.vocabulary.operation 中的受控动词；关联的流程/接口走 related_apis/related_rules>
 ```
 
-抽取纪律：Rule Tags 与 rule card 的 `rule_category` 共用 vocabulary.md 同一枚举；三份词表（Category/Operation/Relation）未登记的值一律不得使用。
+抽取纪律：Rule Tags 与 rule card 的 `rule_category` 共用 context.vocabulary.category；动作和关系分别读取 context.vocabulary.operation 与 context.vocabulary.relation，不以 Skill 文本登记枚举。
 
 ## data_dictionary 结构化模板（dictionary card v1，doc/dictionaries）
 
@@ -249,7 +257,7 @@ frontmatter 专有字段（compile.mjs 已支持渲染）：
 
 | 字段 | 含义 |
 |------|------|
-| `operation` | 业务动作词，必须是 vocabulary.md Operation 枚举（lint 校验） |
+| `operation` | 业务动作词，必须是 context.vocabulary.operation 枚举（lint 校验） |
 | `transaction_code` | 事务码（如 ODIS0001）；**全局唯一**，compile 时登记 `data/documents/api-registry.json`，一码一卡冲突即拒绝入库 |
 | `domain_objects` | 本动作直接操作的领域对象名列表（与 domain card 的 `domain_object` 对应） |
 | `preconditions` | 生效校验规则卡 wikilink 列表；无前置须正文槽位显式写 `None`（lint 校验二者至少居一） |
@@ -289,7 +297,7 @@ content 固定槽位：
 ```
 
 抽取纪律：
-1. `operation` 必须已在 vocabulary.md Operation 词表登记；同一事务码承载多个业务动作时拆为多张 api 卡，不得一卡混装。
+1. `operation` 必须出现在当前 context.vocabulary.operation 中；同一事务码承载多个业务动作时拆为多张 api 卡，不得一卡混装。
 2. Preconditions 只接受 rule card wikilink；若校验条件尚无独立规则卡，先抽 business_rule 再引用（保持图闭合，禁止正文造自由文本引用）。
 3. Effects 忠实原文状态机；原文未显式给出状态变更时写可观察结果（返回报文、落记录）并降低 confidence。
 
@@ -333,7 +341,7 @@ content 固定槽位：
 
 业务模块级与工序级的功能需求规格书统一使用 `frd` 模板（**[functional-requirement-template.md](../assets/functional-requirement-template.md)**）编写，原 `module-template.md`（驾驶舱模板）已全面被其包含并淘汰。
 
-`functional-requirement-template.md` 采用 12 寸晶圆制造厂标准规范（AMAT 300Works / 芯星标准）：
+`functional-requirement-template.md` 提供结构骨架；具体章节、术语与业务约束以绑定项目已确认的资料为准：
 1. **模块与功能矩阵层（原 module 能力）**：第 1 章节包含业务背景、功能范围与特性矩阵（Feature & Scenario Breakdown）、系统边界（System Scope）、用户需求跟踪清单与专业术语表。
 2. **多场景规格层（FRD 核心能力）**：第 2 章节按特性编号下辖多个业务场景（Scenario），提供参与角色、核心业务步骤（Steps）、输入输出参数、卡控业务规则与异常分支处理。
 
