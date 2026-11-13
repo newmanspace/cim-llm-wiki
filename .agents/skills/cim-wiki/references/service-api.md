@@ -122,6 +122,12 @@ Bundle 须符合 context 返回的节点 Schema。字段和完整正文由本地
 
 无共享目录访问权限时，先建立双方可见的挂载与路径映射，不要求把业务文件复制进服务端代码目录。
 
-## 模板文档生成
+## 按 Project 模板编写文档
 
-render-document 使用已绑定模板的正文骨架和显式 values 生成 Markdown。允许变量从 context.template_variables 读取；缺失值、未知变量或非法 UTC 时间拒绝生成，不把模板样例中的产品、人员或日期当成真实项目信息。返回 document 和检查诊断，不自动登记、审核或发布。
+新编或修订文档见 [document-authoring.md](document-authoring.md)。读取指定 Project 的模板，撰写或修改实际正文，不修改模板定义、契约或项目绑定。
+
+render-document 使用已绑定模板的正文骨架和显式 values 填充元数据，返回 document 和 errors。请求为 project、template_id、values；允许变量从 context.template_variables 读取。它不会自动撰写业务正文，Agent 仍须依据项目资料填充各章节，不能原样交付格式样例。已有文档修订时以原文为基础，不重新渲染后覆盖已有内容。
+
+正文完成后调用 check-document，请求为 project、template_id、document（含唯一一级标题的完整 Markdown）、phase=draft。检查的是该文档实例；用户指定了完整模板定义快照时可用 definition 检查该快照下的实例，但不能为了通过而改模板或降低约束。没有完整契约或项目绑定时，保留文档草案并说明未完成的在线检查，不伪造全局定义。
+
+读取返回 errors 中的 severity，error 必须处理，warning 如实列出。当前 check-document 和 render-document 命令输出诊断时可能仍以零退出，不能只依赖退出码认定通过。缺失值、未知变量或非法 UTC 时间会拒绝渲染，不把模板样例中的产品、人员或日期当成真实项目信息。渲染、检查和本地编写均不自动登记、审核或发布。
