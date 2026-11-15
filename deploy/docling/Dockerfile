@@ -5,7 +5,7 @@ FROM quay.io/docling-project/docling-serve:latest
 
 USER root
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    fastapi "uvicorn[standard]" python-multipart
+    fastapi "uvicorn[standard]" python-multipart lxml==5.4.0
 COPY docling_app.py /app/docling_app.py
 WORKDIR /app
 
