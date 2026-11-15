@@ -96,6 +96,18 @@ test('administrative settings require independent service authentication; contra
     document: '# Missing',
   })
   assert.ok(bad.value.errors.some((e) => e.rule_id === 'section_required'))
+  const sdd = state.draft.templates.find((template) => template.id === 'sdd')
+  const wrongDirectory = await call('/api/v2/knowledge/check-document', {
+    project: 'demo', template_id: 'sdd', document: sdd.example,
+    target_path: 'doc/90-guides/example.md', phase: 'draft',
+  }, 'agent-token')
+  assert.equal(wrongDirectory.status, 200)
+  assert.ok(wrongDirectory.value.errors.some((e) => e.rule_id === 'document_directory_mismatch'))
+  const rightDirectory = await call('/api/v2/knowledge/check-document', {
+    project: 'demo', template_id: 'sdd', document: sdd.example,
+    target_path: 'doc/50-designs/example.md', phase: 'draft',
+  }, 'agent-token')
+  assert.deepEqual(rightDirectory.value.errors, [])
   const missing = await call(
     '/api/v2/knowledge/context?project=unbound',
     undefined,

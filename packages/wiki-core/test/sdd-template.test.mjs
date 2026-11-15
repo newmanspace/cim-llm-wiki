@@ -41,6 +41,22 @@ test('every SDD function requires its own ordered subsections within its parent'
   assert.ok(errors(fenced).some((d) => d.rule_id === 'section_group_required'))
 })
 
+test('SDD requires all three preparation dimensions as real ordered level-four sections', () => {
+  const template = sdd()
+  const titles = ['5.2.1 表的变更', '5.2.2 初始化数据准备', '5.2.3 应用配置文件调整']
+  assert.deepEqual(errors(template.example), [])
+  for (const title of titles) {
+    const heading = '#### ' + title
+    assert.ok(template.example.includes(heading))
+    assert.ok(template.contract.sections.includes(title))
+    const hidden = template.example.replace(heading, '```markdown\n' + heading + '\n```')
+    assert.ok(errors(hidden).some((d) => d.rule_id === 'section_required' && d.expected === title))
+  }
+  const swapped = template.example.replace('#### ' + titles[0], '#### TEMP')
+    .replace('#### ' + titles[1], '#### ' + titles[0]).replace('#### TEMP', '#### ' + titles[1])
+  assert.ok(errors(swapped).some((d) => d.rule_id === 'section_order'))
+})
+
 test('SDD mapping cannot reference an absent function and unknown group contracts are rejected', () => {
   const template = sdd()
   assert.ok(errors(template.example.replace('| REQ-001 | FUN-001 | 3.1 |', '| REQ-001 | FUN-404 | 3.1 |'))

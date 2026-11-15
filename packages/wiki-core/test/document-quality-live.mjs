@@ -1,7 +1,7 @@
 import { createDefaultsStore,builtinDefaults } from '../document-defaults.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync } from 'node:fs'
+import { mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
@@ -28,10 +28,10 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  }
  async function ok(path,body,token,key){const response=await api(path,body,token,key);assert.equal(response.status,200,JSON.stringify(response.value));return response.value.data||response.value}
  const setup=async(op,body)=>{const r=await fetch(ledgerURL+'/setup/projects/demo/'+op,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':randomUUID()},body:JSON.stringify(body)});const value=await r.json();assert.equal(r.status,200,JSON.stringify(value));return value.data}
- await setup('document-directories',{path:'doc/50-designs/empty',display_name:'空目录'})
+ await setup('document-directories',{path:'doc/40-requirements/empty',display_name:'空目录'})
  const folderResponse=await fetch(ledgerURL+'/internal/v1/projects/demo/document-quality/document-directories',{headers:{Authorization:'Bearer '+ledgerToken}})
  assert.equal(folderResponse.status,200)
- assert.ok((await folderResponse.json()).data.items.some(item=>item.path==='doc/50-designs/empty'))
+ assert.ok((await folderResponse.json()).data.items.some(item=>item.path==='doc/40-requirements/empty'))
  const maintained=await setup('document-directories',{path:'doc/workspace',display_name:'工作区'})
  await setup('document-directories',{action:'update',id:maintained.id,expected_revision:1,path:'doc/workspace',display_name:'已维护名称'})
  const catalogResponse=await fetch(ledgerURL+'/internal/v1/projects/demo/document-quality/directory-catalog?parent=doc&limit=200',{headers:{Authorization:'Bearer '+ledgerToken}})
@@ -47,12 +47,13 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  const eventResponse=await fetch(ledgerURL+'/internal/v1/projects/demo/document-quality/directory-events',{headers:{Authorization:'Bearer '+ledgerToken}})
  assert.ok((await eventResponse.json()).data.items.some(row=>row.directory_id===maintained.id&&row.action==='update'))
  await setup('document-directories',{action:'delete',id:maintained.id,expected_revision:2})
- const previewImpact=await setup('quality-policy-preview',{path:'doc/50-designs',expected_revision:0,patch:{review_threshold:85}})
- assert.ok(previewImpact.changed_paths.includes('doc/50-designs'))
+ const previewImpact=await setup('quality-policy-preview',{path:'doc/40-requirements',expected_revision:0,patch:{review_threshold:85}})
+ assert.ok(previewImpact.changed_paths.includes('doc/40-requirements'))
  await setup('data-sources',{name:'SVN docs',type:'svn',url:'https://example.test/repo',revision_selector:'HEAD'})
- const context=await ok('context?project=demo');assert.ok(context.document_directories.some(item=>item.path==='doc/50-designs/empty'));assert.equal(context.data_sources[0].url,'https://example.test/repo');assert.equal(context.data_sources[0].auth,'svn_cache')
+ const context=await ok('context?project=demo');assert.ok(context.document_directories.some(item=>item.path==='doc/40-requirements/empty'));assert.equal(context.data_sources[0].url,'https://example.test/repo');assert.equal(context.data_sources[0].auth,'svn_cache')
  assert.equal(context.document_quality.requires_human,false)
  assert.equal(context.document_quality.approval_policy,'directory-quality-policy')
+ assert.deepEqual(context.document_directories.find(item=>item.path==='doc/40-requirements/empty').node_types,['requirement','frd'])
  const source=context.data_sources[0]
  const run=await ok('ingest-runs',{project:'demo',source_id:source.id,source_config_id:source.config_id,operative_revision:'42',repository_uuid:'repo',recipe_version:'test-v1'})
  const sha=value=>createHash('sha256').update(value).digest('hex')
@@ -61,9 +62,14 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  await ok('convert',registration);await ok('state',{source:registration.parsed,action:'freeze',by:'skill'})
  save(join(shared,'classified.md'),artifactDoc)
  assert.equal((await ok('ingest-source-links?project=demo')).items.length,1)
- const artifact=await ok('artifacts',{project:'demo',run_id:run.id,logical_key:'design',template_id:'urd',target_path:'doc/50-designs/design.md',content_uri:'shared://team/classified.md',parsed_uri:registration.parsed,recipe_version:'test-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
+ const beforeRoutingFailure=(await ok('document-results?project=demo')).items.length
+ const wrongRoute=await api('artifacts',{project:'demo',run_id:run.id,logical_key:'wrong-route',template_id:'urd',target_path:'doc/90-guides/example.md',content_uri:'shared://team/classified.md',parsed_uri:registration.parsed,recipe_version:'test-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
+ assert.equal(wrongRoute.status,422);assert.match(wrongRoute.value.error,/document_directory_mismatch/)
+ assert.equal((await ok('document-results?project=demo')).items.length,beforeRoutingFailure)
+ assert.equal(existsSync(join(organizedRoot,'demo/doc/90-guides/example.md')),false)
+ const artifact=await ok('artifacts',{project:'demo',run_id:run.id,logical_key:'design',template_id:'urd',target_path:'doc/40-requirements/design.md',content_uri:'shared://team/classified.md',parsed_uri:registration.parsed,recipe_version:'test-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
  assert.equal((await ok('ingest-artifact-links?project=demo')).items.length,1)
- let policy=await ok('quality-policy-effective?project=demo&path=doc%2F50-designs')
+ let policy=await ok('quality-policy-effective?project=demo&path=doc%2F40-requirements')
  const dimensions=Object.fromEntries(['fidelity','completeness','traceability','consistency','structure','usability','validity'].map(k=>[k,{score:75,reason:'Source compared',evidence:[{section:'1'}]}]))
  const evaluation=await ok('document-evaluations',{project:'demo',artifact_id:artifact.id,artifact_sha256:artifact.content_sha256,policy_digest:policy.digest,dimensions,issues:[],evaluator_version:'test-v1'})
  assert.equal(evaluation.needs_review,true)
@@ -72,6 +78,7 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  assert.equal((await api('document-review-decisions',decision)).status,403)
  const review=await ok('document-review-decisions',decision,human);assert.equal(review.actor_id,'Reviewer')
  const published=await ok('publish-document',{project:'demo',artifact_id:artifact.id,evaluation_id:evaluation.id})
+ assert.equal(published.path,join(organizedRoot,'demo',artifact.target_path))
  assert.equal(readFileSync(published.path,'utf8'),artifactDoc)
  const history=await ok('document-review-events?project=demo');assert.equal(history.items.length,1)
  const node = {schema_version:'1.0',id:'REQ-SOURCE-001',type:'requirement',plane:'doc',product:'CIM',version:'v1',domain:'cim',module:'docs',source:registration.parsed,source_location:{section:'1'},title:'Source requirement',content:artifactDoc.replace(/^# [^\n]+\n/,''),status:'published',confidence:.99,review_level:'L0_auto',reviewer:'auto',created_at:'2026-11-12T00:00:00Z',updated_at:'2026-11-12T00:00:00Z',qscore:{auth:1,comp:1,rel:1,fresh:1,struct:1,reuse:1,risk:.1,total:.99}}
@@ -86,13 +93,13 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  const download=await ok('document-result-original?project=demo&id='+artifact.id,undefined,human)
  assert.equal(Buffer.from(download.base64,'base64').toString(),'source fixture')
  save(join(shared,'unsafe.md'),'# Unsafe\n\n<script>bad()</script>')
- assert.equal((await api('artifacts',{project:'demo',run_id:run.id,logical_key:'unsafe',target_path:'doc/50-designs/unsafe.md',content_uri:'shared://team/unsafe.md',parsed_uri:registration.parsed,recipe_version:'v1',source_links:[{source_version_id:original.id}]})).status,422)
+ assert.equal((await api('artifacts',{project:'demo',run_id:run.id,logical_key:'unsafe',target_path:'doc/40-requirements/unsafe.md',content_uri:'shared://team/unsafe.md',parsed_uri:registration.parsed,recipe_version:'v1',source_links:[{source_version_id:original.id}]})).status,422)
 
 
  // A second real artifact with complete, above-threshold scores is approved by policy.
  const autoDoc=artifactDoc.replace('Reviewer','待指定')
  save(join(shared,'automatic.md'),autoDoc)
- const autoArtifact=await ok('artifacts',{project:'demo',run_id:run.id,logical_key:'automatic',template_id:'urd',target_path:'doc/50-designs/automatic.md',content_uri:'shared://team/automatic.md',parsed_uri:registration.parsed,recipe_version:'auto-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
+ const autoArtifact=await ok('artifacts',{project:'demo',run_id:run.id,logical_key:'automatic',template_id:'urd',target_path:'doc/40-requirements/automatic.md',content_uri:'shared://team/automatic.md',parsed_uri:registration.parsed,recipe_version:'auto-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
  const autoDimensions=Object.fromEntries(Object.entries(dimensions).map(([k,v])=>[k,{...v,score:85}]))
  const autoInput={project:'demo',artifact_id:autoArtifact.id,artifact_sha256:autoArtifact.content_sha256,policy_digest:policy.digest,dimensions:autoDimensions,issues:[],evaluator_version:'auto-test-v1'}
  const autoKey=randomUUID()
@@ -109,7 +116,7 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  const autoRetry=await ok('publish-document',{project:'demo',artifact_id:autoArtifact.id,evaluation_id:autoEvaluation.id})
  assert.equal(autoRetry.sha256,autoArtifact.content_sha256);assert.deepEqual(autoRetry.publications,autoPublished.publications)
  await setup('quality-policies',{path:'doc',expected_revision:0,patch:{review_threshold:90}})
- policy=await ok('quality-policy-effective?project=demo&path=doc%2F50-designs');assert.equal(policy.review_threshold,90);assert.equal(policy.origins.review_threshold,'doc@1')
+ policy=await ok('quality-policy-effective?project=demo&path=doc%2F40-requirements');assert.equal(policy.review_threshold,90);assert.equal(policy.origins.review_threshold,'doc@1')
  assert.equal((await api('publish-document',{project:'demo',artifact_id:artifact.id,evaluation_id:evaluation.id})).status,409)
  assert.equal((await ok('document-review-events?project=demo')).items.length,2)
  assert.equal((await api('publish-document',{project:'demo',artifact_id:autoArtifact.id,evaluation_id:autoEvaluation.id})).status,409,'automatic approval expires on policy changes')
@@ -125,8 +132,8 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  const gitRegistration={...registration,source:'shared://team/git-original.docx',parsed:'shared://team/git-parsed.md'}
  await ok('convert',gitRegistration);await ok('state',{source:gitRegistration.parsed,action:'freeze',by:'skill'})
  save(join(shared,'git-classified.md'),artifactDoc.replace('## 1. 背景与目标','## 1. 背景与目标\n\nGit-backed content.'))
- const gitArtifact=await ok('artifacts',{project:'demo',run_id:gitRun.id,logical_key:'git-design',template_id:'urd',target_path:'doc/50-designs/git-design.md',content_uri:'shared://team/git-classified.md',parsed_uri:gitRegistration.parsed,recipe_version:'git-skill-v1',source_links:[{source_version_id:gitOriginal.id,location:{section:'1'}}]})
- const gitPolicy=await ok('quality-policy-effective?project=demo&path=doc%2F50-designs')
+ const gitArtifact=await ok('artifacts',{project:'demo',run_id:gitRun.id,logical_key:'git-design',template_id:'urd',target_path:'doc/40-requirements/git-design.md',content_uri:'shared://team/git-classified.md',parsed_uri:gitRegistration.parsed,recipe_version:'git-skill-v1',source_links:[{source_version_id:gitOriginal.id,location:{section:'1'}}]})
+ const gitPolicy=await ok('quality-policy-effective?project=demo&path=doc%2F40-requirements')
  const gitEvaluation=await ok('document-evaluations',{project:'demo',artifact_id:gitArtifact.id,artifact_sha256:gitArtifact.content_sha256,policy_digest:gitPolicy.digest,dimensions,issues:[],evaluator_version:'git-test-v1'})
  await ok('document-review-decisions',{project:'demo',task_id:gitEvaluation.review_task_id,expected_revision:1,decision:'approve',note:'Git original checked'},human)
  const gitPublished=await ok('publish-document',{project:'demo',artifact_id:gitArtifact.id,evaluation_id:gitEvaluation.id});assert.match(readFileSync(gitPublished.path,'utf8'),/Git-backed/)

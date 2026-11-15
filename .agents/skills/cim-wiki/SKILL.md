@@ -88,6 +88,12 @@ PDF 由服务端调用 MinerU；XLSX/DOCX/PPTX/HTML 由服务端调用 Docling�
 
 服务端记录定稿 SHA-256，draft 不能提交抽取结果或编译。原件路径、版本、哈希和稿件状态均由服务端核验，Agent 不伪造来源记录。
 
+## 文档类型与目录映射
+
+登记 artifacts 或确定文档输出位置前，按[目录路由与导出路径](references/document-routing.md)读取 Project 绑定定义：template_id → template.node_type → document_defaults.definition.directories 中适用的 node_types 规则 → target_path。document_directories 的类型仅为该规则的派生展示，不是另一套配置。路径不匹配时停止登记，不根据文档标题或模板名称猜目录，不修改模板绕过检查。
+
+校验已有路径时采用最近的非空目录类型规则，按完整路径段匹配；空类型目录只作为容器。生成路径没有唯一候选时，依据明确的模块位置选择，否则报告歧义，不能任意选最深分支。导出复用已登记的 artifact.target_path，不再次分类；只有输出根已经指向 doc／code 平面时才去掉对应平面前缀。
+
 ## 4. 本地抽取与七维评分
 
 按 [references/extraction.md](references/extraction.md)、服务端 Schema 和生效模板抽取原子节点。长文档 >6000 字符时分块，保留 500 字符重叠。使用真实产品、版本、业务域和模块，代码只保留 repository/class/method/git_ref 索引，不复制源码全文。

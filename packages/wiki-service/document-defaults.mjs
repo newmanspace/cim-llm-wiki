@@ -9,6 +9,7 @@ import {
   mkdtempSync,
 } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { documentTargetErrors } from '../wiki-core/document-routing.mjs'
 import {
   createDefaultsStore,
   checkDefinition,
@@ -166,10 +167,14 @@ export function createDocumentDefaults(projectRoot, wikiRoot) {
       const { root, ...options } = data
       void root
       return {
-        errors: checkDocument(template, data.document, {
-          ...options,
-          terms: definition.terms,
-        }),
+        errors: [
+          ...(Object.hasOwn(data, 'target_path') ? documentTargetErrors(definition, data.template_id, data.target_path) : []),
+          ...checkDocument(template, data.document, {
+            ...options,
+            documentPath: data.target_path ?? options.documentPath,
+            terms: definition.terms,
+          }),
+        ],
         template_id: template.id,
       }
     },

@@ -6,7 +6,9 @@
 
 按现有 convert/register → 核对 → freeze 流程登记原件与转换稿。按文档内容划分产品阶段目录或 code 契约目录，输出 UTF-8 Markdown 到共享 staging，保持标题、表格、条件和真实来源定位。图片使用服务转换得到的内嵌栅格数据；归类产物不允许原始 HTML 或未登记的外部图片，避免丢附件。
 
-逐产物调用 artifacts：project、run_id、logical_key（该产物稳定业务标识）、target_path、content_uri、parsed_uri、recipe_version、source_links。source_links 为 [{source_version_id,location}]；content_sha256 可省略，由服务读取文件计算。target_path 相对于本项目归类根，例如 doc/50-designs/modules/example.md、code/apis/api-example.md，不能填写来源仓库路径。content_uri 指向共享候选文件，服务保存内容快照。
+逐产物调用 artifacts：project、run_id、logical_key（该产物稳定业务标识）、template_id、target_path、content_uri、parsed_uri、recipe_version、source_links。source_links 为 [{source_version_id,location}]；content_sha256 可省略，由服务读取文件计算。target_path 相对于本项目归类根，例如 doc/50-designs/modules/example.md、code/apis/api-example.md，不能填写来源仓库路径。content_uri 指向共享候选文件，服务保存内容快照。
+
+登记前按[目录路由规则](document-routing.md)核对 template_id 对应的 node_type 与目标路径最近的非空目录规则。类型规则来自 context.document_defaults.definition.directories，不能由 document_directories 的名称或文件名猜测；子目录非空规则优先，空数组仅为容器。无匹配或类型不允许进入该目录时停止登记，多候选生成路径无法确定时报告歧义。可将完整正文与 target_path 一起提交 check-document 提前检查，服务登记、复核和导出仍强制重验。
 
 ## 2. 文档七维质量
 

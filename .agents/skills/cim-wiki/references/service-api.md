@@ -6,7 +6,7 @@
 |---|---|---|
 | initialize | POST /initialize | --json-file，project/name/product_version/modules |
 | render-document | POST /render-document | --json-file，project/template_id/values |
-| check-document | POST /check-document | --json-file，project/template_id/document/phase |
+| check-document | POST /check-document | --json-file，project/template_id/document/phase，可选 target_path |
 | directories | GET /directories?project=ID | --project |
 | update-directories | POST /directories | --json-file，project/expected_revision/directories |
 | context | GET /context?project=ID | --project |
@@ -131,3 +131,10 @@ render-document 使用已绑定模板的正文骨架和显式 values 填充元�
 正文完成后调用 check-document，请求为 project、template_id、document（含唯一一级标题的完整 Markdown）、phase=draft。检查的是该文档实例；用户指定了完整模板定义快照时可用 definition 检查该快照下的实例，但不能为了通过而改模板或降低约束。没有完整契约或项目绑定时，保留文档草案并说明未完成的在线检查，不伪造全局定义。
 
 读取返回 errors 中的 severity，error 必须处理，warning 如实列出。当前 check-document 和 render-document 命令输出诊断时可能仍以零退出，不能只依赖退出码认定通过。缺失值、未知变量或非法 UTC 时间会拒绝渲染，不把模板样例中的产品、人员或日期当成真实项目信息。渲染、检查和本地编写均不自动登记、审核或发布。
+
+
+## 文档类型与目标目录检查
+
+路径路由规则见 [document-routing.md](document-routing.md)。check-document 传入 target_path 时检查该路径是否允许所选模板的 node_type；省略时只检查正文，不能声称目录已验证。类型映射唯一来源是 Project 绑定的 document_defaults.definition.directories，context.document_directories 的 node_types 是按路径派生的展示值。
+
+artifacts 登记、复核及 publish-document 始终检查路由，不能省略。非法路径返回 document_target_invalid，无适用规则返回 document_directory_unmapped，类型不匹配返回 document_directory_mismatch，诊断包含模板、类型、目标路径、命中目录和允许目录。服务导出保留 artifact.target_path 的平面前缀，不根据正文重新选目录。

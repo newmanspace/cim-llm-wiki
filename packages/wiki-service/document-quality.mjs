@@ -1,4 +1,5 @@
 import { createDefaultsStore, checkDocument } from '../wiki-core/document-defaults.mjs'
+import { documentDirectoryRule, documentTargetErrors, validateDocumentTargetPath } from '../wiki-core/document-routing.mjs'
 import { verifyGitEvidence } from './source-evidence.mjs'
 import {
   readFileSync,
@@ -30,55 +31,7 @@ const identifier = (value) => {
   return value
 }
 const parser = new MarkdownIt({ html: true })
-const standardDoc = new Set([
-  '00-overview',
-  '10-planning',
-  '20-architecture',
-  '30-standards',
-  '40-requirements',
-  '50-designs',
-  '60-test',
-  '70-release',
-  '80-deploy',
-  '90-guides',
-  '99-templates',
-])
-const standardCode = new Set([
-  'apis',
-  'domain',
-  'rules',
-  'schemas',
-  'code-index',
-])
-export function validateTarget(path) {
-  if (typeof path !== 'string' || path.length > 600)
-    fail('Invalid classified Markdown path')
-  const parts = path.split('/')
-  if (
-    parts.length < 3 ||
-    parts.some(
-      (p) =>
-        !p ||
-        p === '.' ||
-        p === '..' ||
-        !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(p),
-    ) ||
-    !path.endsWith('.md') ||
-    parts.at(-1).toLowerCase() === 'readme.md'
-  )
-    fail('Invalid classified Markdown path')
-  if (
-    !(
-      parts[0] === 'doc'
-        ? standardDoc
-        : parts[0] === 'code'
-          ? standardCode
-          : new Set()
-    ).has(parts[1])
-  )
-    fail('Target is outside the configured document classification')
-  return path
-}
+export const validateTarget = validateDocumentTargetPath
 function validateMarkdown(text) {
   if (!text.trim() || Buffer.byteLength(text) > 4 * 1024 * 1024)
     fail('Markdown is empty or exceeds the size limit')
@@ -202,8 +155,12 @@ export function createDocumentQuality({
       all(project, 'source-revisions'),
       all(project, 'document-directories'),
     ])
+    const definition = createDefaultsStore(projectRoot).effective(project).definition
     return {
-      document_directories: directories,
+      document_directories: directories.map((d) => ({
+        ...d,
+        node_types: documentDirectoryRule(definition, d.path)?.node_types || [],
+      })),
       data_sources: sources.map((s) => ({
         ...s,
         ...configs.find((c) => c.id === s.config_id),
@@ -256,7 +213,7 @@ export function createDocumentQuality({
     return { sha256, path }
   }
   async function verifyArtifact(project, artifact) {
-    validateTarget(artifact.target_path)
+    checkArtifactDirectory(project, artifact)
     if (
       !existsSync(artifact.snapshot_path) ||
       hashFile(artifact.snapshot_path) !== artifact.content_sha256
@@ -297,18 +254,24 @@ export function createDocumentQuality({
     checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'))
     return artifact
   }
-  function checkArtifactContract(project,artifact,text,phase='review',reviewer,approvalMode='manual') {
+  function checkArtifactDirectory(project, artifact) {
     const binding=createDefaultsStore(projectRoot).effective(project)
     if(artifact.document_contract_digest && artifact.document_contract_digest!==binding.digest)fail('Artifact document contract changed; register a new artifact',409)
     const template=binding.definition.templates.find(t=>t.id===artifact.template_id)
     if(!template)fail('Artifact requires a bound template_id',422)
+    const routeErrors=documentTargetErrors(binding.definition,artifact.template_id,artifact.target_path)
+    if(routeErrors.length)fail('Artifact directory contract failed: '+JSON.stringify(routeErrors),422)
+    return { binding, template }
+  }
+  function checkArtifactContract(project,artifact,text,phase='review',reviewer,approvalMode='manual') {
+    const {binding,template}=checkArtifactDirectory(project,artifact)
     const diagnostics=checkDocument(template,text,{phase,reviewer,approvalMode,terms:binding.definition.terms,documentPath:artifact.target_path})
     if(diagnostics.some(d=>d.severity==='error'))fail('Artifact document contract failed: '+JSON.stringify(diagnostics),422)
     artifact.document_contract_digest=binding.digest
   }
 
   async function prepareArtifact(project, data) {
-    validateTarget(data.target_path)
+    checkArtifactDirectory(project, data)
     const doc = registeredDocument(data.parsed_uri)
     if (doc.project !== project)
       fail('Parsed source belongs to another project', 403)
