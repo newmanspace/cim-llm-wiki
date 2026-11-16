@@ -18,7 +18,15 @@ const wikiRoot = join(projectRoot, 'data/wiki')
 const defaults=createDefaultsStore(projectRoot), definition=builtinDefaults()
 definition.delivery=[{id:'requirements',type:'requirement',scope:'project',min:1}]
 defaults.save(definition,0,'CI');defaults.publish(1,'CI');defaults.bind('ci',['ci'])
-const content=definition.templates[0].example.replace(/^# [^\n]+\n/,'').replace('待指定','auto').replace('| 文档名称 | URD 用户需求定义 |','| 文档名称 | CI build requirement |').replace('## 1. 背景与目标','## 1. 背景与目标\n\nThe site must render a valid synthetic knowledge page.')
+const diagrams = [
+  'flowchart LR\nsubgraph SPC["模块"]\nA["采集"] --> B["分析"]\nend',
+  'sequenceDiagram\nMES->>SPC: 收值\nSPC-->>MES: 结果',
+  'stateDiagram-v2\n[*] --> Draft\nDraft --> Published',
+  'erDiagram\nJOB ||--o{ SAMPLE : collects',
+  'flowchart LR\nA["{{ 7 * 7 }} <img src=x onerror=window.__mermaidExecuted=true>"]\nclick A "javascript:window.__mermaidExecuted=true"',
+  'not a valid diagram'
+].map(source => '```mermaid\n' + source + '\n```').join('\n\n')
+const content=definition.templates[0].example.replace(/^# [^\n]+\n/,'').replace('待指定','auto').replace('| 文档名称 | URD 用户需求定义 |','| 文档名称 | CI build requirement |').replace('## 1. 背景与目标','## 1. 背景与目标\n\nThe site must render a valid synthetic knowledge page.\n\n' + diagrams + '\n\n```js\nconst ordinary = "ordinary-code-sentinel"\n```')
 write(join(projectRoot, 'data/raw/ci-source.md'), source)
 write(join(projectRoot, 'data/documents/manifest.json'), { version: 1, docs: [{ doc_id: 'ci-source', path: 'data/raw/ci-source.md',
   system: 'CIM', category: 'design', version: 'V1', state: 'frozen', sha256: createHash('sha256').update(source).digest('hex'), history: [], bundles: [] }] })

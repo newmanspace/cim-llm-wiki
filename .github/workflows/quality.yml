@@ -201,7 +201,10 @@ jobs:
           echo "WIKI_ROOT=$RUNNER_TEMP/cim-wiki-fixture/data/wiki" >> "$GITHUB_ENV"
       - run: node scripts/ci-wiki-fixture.mjs "$CIM_WIKI_WORKSPACE"
       - run: npm ci --prefix wiki --no-audit --no-fund
+      - run: npm test --prefix wiki
       - run: npm run docs:build --prefix wiki
+      - run: npx --prefix wiki playwright install --with-deps chromium
+      - run: npm run test:browser --prefix wiki
 
   configuration:
     name: Configuration checks

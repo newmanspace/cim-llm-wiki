@@ -1,10 +1,14 @@
 # 文档结果、目录质量与审核
 
-完成项目数据源采集后执行本流程；采集入口见[项目数据源执行约定](project-sources.md)。
+完成项目数据源采集后执行本流程；采集入口见[项目数据源执行约定](project-sources.md)。转换测试按 [Skill 的交付与完成条件](../SKILL.md#转换测试的交付与完成条件)生成并检查 Wiki 候选文档，停止在下述 artifacts 登记之前；仅解析模式不执行候选整理。完整摄取流程继续执行定稿、产物登记、评估与审核。
 
 ## 1. 转换、内容归类及结果登记
 
-按现有 convert/register → 核对 → freeze 流程登记原件与转换稿。按文档内容划分产品阶段目录或 code 契约目录，输出 UTF-8 Markdown 到共享 staging，保持标题、表格、条件和真实来源定位。图片使用服务转换得到的内嵌栅格数据；归类产物不允许原始 HTML 或未登记的外部图片，避免丢附件。
+convert/register 返回的是引擎解析稿，不是符合 Project 模板的最终文档。核对原件与解析稿后，按生效模板整理完整正文并选择目标目录，输出 UTF-8 Markdown 候选到独立 staging，保持标题、表格、条件和真实来源定位。每份候选须以完整正文和 target_path 调用 check-document；不因本次是测试而省略模板、目录和契约检查。图片使用服务转换得到的内嵌栅格数据；归类产物不允许原始 HTML 或未登记的外部图片，避免丢附件。
+
+完整摄取时，原件与解析稿仍按 convert/register → 核对 → freeze 流程定稿；测试模式保持 draft，不进入后续登记、评估和发布。
+
+正文、参考文档与独立检查报告按 [Skill 的内容边界](../SKILL.md#转换文档的正文与说明边界)分别编写。真实来源定位集中放在参考文档及机器来源记录中，保真分析、转换问题和检查诊断不写入业务正文。
 
 逐产物调用 artifacts：project、run_id、logical_key（该产物稳定业务标识）、template_id、target_path、content_uri、parsed_uri、recipe_version、source_links。source_links 为 [{source_version_id,location}]；content_sha256 可省略，由服务读取文件计算。target_path 相对于本项目归类根，例如 doc/50-designs/modules/example.md、code/apis/api-example.md，不能填写来源仓库路径。content_uri 指向共享候选文件，服务保存内容快照。
 

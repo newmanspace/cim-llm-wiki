@@ -5,6 +5,7 @@ import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sidebar, nav } from './sidebar-data.mjs'
 import { assertValidWiki } from '../../packages/wiki-core/validate.mjs'
+import { mermaidMarkdown } from './mermaid-markdown.mjs'
 
 const require = createRequire(import.meta.url)
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -25,10 +26,13 @@ export default defineConfig({
   cleanUrls: true,
   ignoreDeadLinks: false,
   lastUpdated: false,
+  markdown: {
+    config: mermaidMarkdown
+  },
   vite: {
     resolve: {
       alias: [
-        { find: /^vue$/, replacement: require.resolve('vue') },
+        { find: /^vue$/, replacement: require.resolve('vue/dist/vue.runtime.esm-bundler.js') },
         { find: /^vue\/server-renderer$/, replacement: require.resolve('vue/server-renderer') }
       ]
     },

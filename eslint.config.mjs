@@ -8,6 +8,8 @@ export default tseslint.config(
   { files: ['**/*.{js,mjs,cjs}'], extends: [js.configs.recommended], languageOptions: { globals: globals.node }, rules: { 'no-unused-vars': ['error', { ignoreRestSiblings: true }] } },
   { files: ['admin/**/*.{ts,vue}'], extends: [...tseslint.configs.recommended], languageOptions: { globals: globals.browser }, rules: { '@typescript-eslint/no-explicit-any': 'off' } },
   ...vue.configs['flat/essential'],
+  { files: ['wiki/.vitepress/**/*.{mjs,vue}'], languageOptions: { globals: globals.browser } },
+  { files: ['wiki/test/browser/**/*.mjs'], languageOptions: { globals: globals.browser } },
   { files: ['**/*.{js,mjs,cjs,ts,vue}'], ignores: ['**/test/**', '**/*.test.*'], rules: { complexity: ['error', 15], 'max-depth': ['error', 4], 'no-eval': 'error', 'no-implied-eval': 'error', 'no-new-func': 'error', 'no-promise-executor-return': 'error' } },
   // Existing Vue declaration scaffolding and route names are supported conventions.
   { files: ['admin/env.d.ts'], rules: { '@typescript-eslint/no-empty-object-type': 'off' } },

@@ -90,5 +90,7 @@ Thumbs.db
 /reports/
 /coverage/
 /admin/coverage/
+/wiki/test-results/
+/wiki/playwright-report/
 /.coverage
 /.coverage.*
