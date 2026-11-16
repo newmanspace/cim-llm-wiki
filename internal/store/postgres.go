@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -204,100 +205,59 @@ func (s *Store) loadProjectWikiNodes(ctx context.Context, p *types.ProjectConfig
 	return wnRows.Err()
 }
 
-func (s *Store) UpsertProject(ctx context.Context, p *types.ProjectConfig, directories ...[]map[string]string) error {
+func (s *Store) CreateProject(ctx context.Context, p *types.NewProject, directories []map[string]string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	_, err = tx.Exec(ctx,
-		`INSERT INTO projects (id, name, product, version)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (id) DO UPDATE SET name=$2, product=$3, version=$4`,
-		p.ID, p.Name, p.Product, p.Version)
-	if err != nil {
-		return fmt.Errorf("upsert project: %w", err)
+	if _, err = tx.Exec(ctx, `INSERT INTO projects (id, name, product, version) VALUES ($1, $2, $3, $4)`, p.ID, p.Name, p.Product, p.Version); err != nil {
+		return fmt.Errorf("create project: %w", err)
 	}
-
-	// Upsert modules
-	_, _ = tx.Exec(ctx, `DELETE FROM project_modules WHERE project_id = $1`, p.ID)
-	for _, m := range p.Modules {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO project_modules (project_id, module_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-			p.ID, m)
-		if err != nil {
-			return fmt.Errorf("insert module %s: %w", m, err)
-		}
+	if err := insertDocumentDirectories(ctx, tx, p.ID, directories); err != nil {
+		return err
 	}
-
-	// Upsert docs
-	for _, d := range p.Docs {
-		var ingested *time.Time
-		if d.IngestedAt != "" {
-			t, _ := time.Parse(time.RFC3339, d.IngestedAt)
-			ingested = &t
-		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO project_docs (project_id, doc_id, path, type, submodule, sha256, ingested_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
-			 ON CONFLICT (project_id, doc_id) DO UPDATE SET
-			   path=$3, type=$4, submodule=$5, sha256=$6, ingested_at=$7`,
-			p.ID, d.DocID, d.Path, d.Type, d.Submodule, d.SHA256, ingested)
-		if err != nil {
-			return fmt.Errorf("upsert doc %s: %w", d.DocID, err)
-		}
-	}
-
-	// Upsert repos
-	for _, r := range p.Repos {
-		if err = NormalizeCodeRepository(&r); err != nil {
-			return err
-		}
-		var synced *time.Time
-		if r.SyncedAt != "" {
-			t, _ := time.Parse(time.RFC3339, r.SyncedAt)
-			synced = &t
-		}
-		var repoID int
-		err = tx.QueryRow(ctx,
-			`INSERT INTO project_repos (project_id, name, url, branch, submodule, last_sync_sha, synced_at,source_type,source_subpath,revision_selector,enabled)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9,$10,$11)
-			 ON CONFLICT (project_id, name) DO UPDATE SET
-			   url=$3, branch=$4, submodule=$5,
-               last_sync_sha=CASE WHEN project_repos.url<>$3 OR project_repos.source_subpath<>$9 OR project_repos.revision_selector<>$10 THEN NULL ELSE $6 END,
-               synced_at=CASE WHEN project_repos.url<>$3 OR project_repos.source_subpath<>$9 OR project_repos.revision_selector<>$10 THEN NULL ELSE $7 END,
-               source_subpath=$9,revision_selector=$10,enabled=$11,config_revision=project_repos.config_revision+1
-             WHERE project_repos.source_type=$8
-			 RETURNING id`,
-			p.ID, r.Name, r.URL, r.Branch, r.Submodule, r.LastSyncSHA, synced, r.Type, r.Subpath, r.RevisionSelector, r.Enabled).Scan(&repoID)
-		if err != nil {
-			return fmt.Errorf("upsert repo %s: %w", r.Name, err)
-		}
-		// Replace module mappings
-		_, _ = tx.Exec(ctx, `DELETE FROM repo_module_mappings WHERE repo_id = $1`, repoID)
-		for prefix, modID := range r.ModuleMapping {
-			_, err = tx.Exec(ctx,
-				`INSERT INTO repo_module_mappings (repo_id, path_prefix, module_id) VALUES ($1, $2, $3)`,
-				repoID, prefix, modID)
-			if err != nil {
-				return fmt.Errorf("insert mapping %s→%s: %w", prefix, modID, err)
-			}
-		}
-	}
-
-	for _, entries := range directories {
-		if err := insertDocumentDirectories(ctx, tx, p.ID, entries); err != nil {
-			return err
-		}
-	}
-
 	return tx.Commit(ctx)
 }
 
 func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
 	return err
+}
+
+// UpdateProjectBasics locks the row and writes only supplied values that changed.
+// Related configuration is managed through its own endpoints.
+func (s *Store) UpdateProjectBasics(ctx context.Context, id string, patch map[string]string) error {
+	for field := range patch {
+		if field != "name" && field != "product" && field != "version" {
+			return fmt.Errorf("unsupported project field: %s", field)
+		}
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var name, product, version string
+	if err := tx.QueryRow(ctx, `SELECT name, product, version FROM projects WHERE id=$1 FOR UPDATE`, id).Scan(&name, &product, &version); err != nil {
+		return err
+	}
+	current := map[string]string{"name": name, "product": product, "version": version}
+	assignments := []string{}
+	args := []any{id}
+	for _, field := range []string{"name", "product", "version"} {
+		value, supplied := patch[field]
+		if supplied && value != current[field] {
+			args = append(args, value)
+			assignments = append(assignments, fmt.Sprintf("%s=$%d", field, len(args)))
+		}
+	}
+	if len(assignments) > 0 {
+		if _, err := tx.Exec(ctx, "UPDATE projects SET "+strings.Join(assignments, ", ")+" WHERE id=$1", args...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // ─── Token Management ────────────────────────────────────────────────────────

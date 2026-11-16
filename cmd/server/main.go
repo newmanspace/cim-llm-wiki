@@ -158,7 +158,8 @@ func buildHandler(cfg *config.Config) (http.Handler, func(), error) {
 			{
 				// Public endpoints (no token required)
 				adminGroup.GET("/projects", admin.ListProjects)
-				adminGroup.POST("/projects", auth.RequireSession(), admin.UpsertProject)
+				adminGroup.POST("/projects", auth.RequireSession(), admin.CreateProject)
+				adminGroup.PATCH("/projects/:id", auth.RequireSession(), admin.UpdateProject)
 				adminGroup.POST("/projects/:id/code-sources", auth.RequireSession(), admin.SaveCodeSource)
 				adminGroup.GET("/projects/:id", admin.GetProject)
 				adminGroup.DELETE("/projects/:id", admin.DeleteProject)

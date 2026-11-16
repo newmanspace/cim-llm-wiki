@@ -23,11 +23,7 @@ type DocumentDefaultsHandler struct {
 	Client *http.Client
 }
 
-func NewDocumentDefaultsHandler(stores ...*store.Store) *DocumentDefaultsHandler {
-	var repository *store.Store
-	if len(stores) > 0 {
-		repository = stores[0]
-	}
+func NewDocumentDefaultsHandler(repository *store.Store) *DocumentDefaultsHandler {
 	return &DocumentDefaultsHandler{Store: repository, URL: strings.TrimRight(os.Getenv("CIM_WIKI_KNOWLEDGE_URL"), "/"), Token: os.Getenv("CIM_WIKI_LEDGER_TOKEN"), Client: &http.Client{Timeout: 30 * time.Second}}
 }
 
@@ -112,11 +108,11 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 }
 
 // InitializeProject binds new projects to the published system contract.
-func (h *DocumentDefaultsHandler) InitializeProject(c *gin.Context, projectID, name, version string, modules []string) ([]map[string]string, error) {
+func (h *DocumentDefaultsHandler) InitializeProject(c *gin.Context, projectID, name, version string) ([]map[string]string, error) {
 	if h.URL == "" || len(h.Token) < 32 {
 		return nil, templateError("Document template service is not configured")
 	}
-	payload, _ := json.Marshal(gin.H{"project": projectID, "name": name, "product_version": version, "modules": modules})
+	payload, _ := json.Marshal(gin.H{"project": projectID, "name": name, "product_version": version, "modules": []string{}})
 	// Project initialization always uses the configured service origin.
 	saved := c.Request.URL.RawQuery
 	c.Request.URL.RawQuery = ""

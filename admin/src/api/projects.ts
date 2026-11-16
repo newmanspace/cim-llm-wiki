@@ -17,8 +17,14 @@ export async function getProject(id: string): Promise<ProjectConfig> {
   return res.data
 }
 
-export async function upsertProject(project: ProjectConfig): Promise<void> {
+export type ProjectBasics = Pick<ProjectConfig, 'name' | 'product' | 'version'>
+
+export async function createProject(project: ProjectBasics & { id: string }): Promise<void> {
   await client.post('/admin/projects', project)
+}
+
+export async function updateProject(id: string, patch: Partial<ProjectBasics>): Promise<void> {
+  await client.patch(`/admin/projects/${encodeURIComponent(id)}`, patch)
 }
 
 export async function deleteProject(id: string): Promise<void> {

@@ -233,6 +233,14 @@ type ProjectToken struct {
 	Scopes    []string `json:"scopes"`     // 权限范围：read_config / write_status / trigger_sync
 }
 
+// NewProject contains only the basic fields accepted when creating a project.
+type NewProject struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Product string `json:"product"`
+	Version string `json:"version"`
+}
+
 // ProjectConfig 是 Admin 下发的项目配置（skill 本地缓存于 data/documents/project-registry.json）。
 type ProjectConfig struct {
 	ID      string `json:"id"`      // 全局唯一，如 mes-wip

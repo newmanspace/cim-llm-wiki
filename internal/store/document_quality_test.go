@@ -77,12 +77,29 @@ func TestDocumentQualityLifecycle(t *testing.T) {
 	}
 
 	assertFolders("other", 11)
-	if err = s.UpsertProject(ctx, &types.ProjectConfig{ID: "new-project", Name: "New project"}); err != nil {
+	if err = s.CreateProject(ctx, &types.NewProject{ID: "new-project", Name: "New project"}, []map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
 	assertFolders("new-project", 11)
-	if err = s.UpsertProject(ctx, &types.ProjectConfig{ID: "new-project", Name: "Updated project"}); err != nil {
+	// UPDATE OF triggers detect columns named in SET, even if their values did
+	// not change. This catches broad updates that round-trip untouched fields.
+	if err = s.Migrate(ctx, `CREATE TABLE basic_update_audit(field text);
+CREATE FUNCTION audit_basic_update() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN INSERT INTO basic_update_audit VALUES(TG_ARGV[0]); RETURN NEW; END $$;
+CREATE TRIGGER audit_basic_name AFTER UPDATE OF name ON projects FOR EACH ROW EXECUTE FUNCTION audit_basic_update('name');
+CREATE TRIGGER audit_basic_product AFTER UPDATE OF product ON projects FOR EACH ROW EXECUTE FUNCTION audit_basic_update('product');
+CREATE TRIGGER audit_basic_version AFTER UPDATE OF version ON projects FOR EACH ROW EXECUTE FUNCTION audit_basic_update('version');`); err != nil {
 		t.Fatal(err)
+	}
+	if err = s.UpdateProjectBasics(ctx, "new-project", map[string]string{"name": "Updated project", "product": ""}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.UpdateProjectBasics(ctx, "new-project", map[string]string{"name": "Updated project"}); err != nil {
+		t.Fatal(err)
+	}
+	var audit string
+	if err = s.pool.QueryRow(ctx, "SELECT string_agg(field, ',') FROM basic_update_audit").Scan(&audit); err != nil || audit != "name" {
+		t.Fatalf("expected only changed name in SQL SET, got %q: %v", audit, err)
 	}
 	assertFolders("new-project", 11)
 	if err = s.Migrate(ctx, string(defaults)); err != nil {
@@ -168,7 +185,7 @@ func TestDocumentQualityLifecycle(t *testing.T) {
 	if err = s.Migrate(ctx, string(migration)); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.UpsertProject(ctx, &types.ProjectConfig{ID: "template-project", Name: "Template project"}, []map[string]string{{"path": "doc", "title": "Docs"}, {"path": "doc/custom-default", "title": "Custom default"}}); err != nil {
+	if err = s.CreateProject(ctx, &types.NewProject{ID: "template-project", Name: "Template project"}, []map[string]string{{"path": "doc", "title": "Docs"}, {"path": "doc/custom-default", "title": "Custom default"}}); err != nil {
 		t.Fatal(err)
 	}
 	assertFolders("template-project", 2)

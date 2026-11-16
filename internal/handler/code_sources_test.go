@@ -13,7 +13,14 @@ import (
 func TestCodeSourcesGitSVNAndMappingPreservation(t *testing.T) {
 	s := isolatedAdminStore(t)
 	ctx := context.Background()
-	if e := s.UpsertProject(ctx, &types.ProjectConfig{ID: "code-test", Name: "Code test", Repos: []types.RepoBinding{{Name: "existing", URL: "https://example.test/old.git", Branch: "main", ModuleMapping: map[string]string{"src/": "wip"}, LastSyncSHA: strings.Repeat("a", 40)}}}); e != nil {
+	if e := s.CreateProject(ctx, &types.NewProject{ID: "code-test", Name: "Code test"}, []map[string]string{}); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.SaveCodeSource(ctx, "code-test", types.RepoBinding{Name: "existing", Type: "git", URL: "https://example.test/old.git", RevisionSelector: "main"}, 0); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.Migrate(ctx, `UPDATE project_repos SET last_sync_sha=repeat('a',40) WHERE project_id='code-test';
+ INSERT INTO repo_module_mappings(repo_id,path_prefix,module_id) SELECT id,'src/','wip' FROM project_repos WHERE project_id='code-test'`); e != nil {
 		t.Fatal(e)
 	}
 	h := NewAdminHandler(s)

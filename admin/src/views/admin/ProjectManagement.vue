@@ -49,6 +49,7 @@
               <template #dropdown>
                 <t-dropdown-menu>
                   <t-dropdown-item @click="router.push(`/projects/${row.id}`)">{{ t('project.detail') }}</t-dropdown-item>
+                  <t-dropdown-item @click="router.push({ path: `/projects/${row.id}`, query: { tab: 'document-templates' } })">文档模板</t-dropdown-item>
                   <t-dropdown-item divider @click="confirmDelete(row)">
                     <span class="danger-text">{{ t('common.delete') }}</span>
                   </t-dropdown-item>
@@ -116,8 +117,8 @@ import {
 } from 'tdesign-icons-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
-import { listProjects, getProject, upsertProject, deleteProject } from '@/api/projects'
-import type { ProjectSummary, ProjectConfig } from '@/api/types'
+import { listProjects, createProject, updateProject, deleteProject, type ProjectBasics } from '@/api/projects'
+import type { ProjectSummary } from '@/api/types'
 
 const router = useRouter()
 const { t, locale } = useI18n()
@@ -133,7 +134,7 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const saving = ref(false)
 const formRef = ref<FormInstanceFunctions>()
-const editingFull = ref<ProjectConfig | null>(null)
+const originalBasics = ref<ProjectBasics>({ name: '', product: '', version: '' })
 
 const form = ref({ id: '', name: '', product: '', version: '' })
 
@@ -193,22 +194,18 @@ async function load() {
 
 function openCreate() {
   isEdit.value = false
-  editingFull.value = null
+  originalBasics.value = { name: '', product: '', version: '' }
   form.value = { id: '', name: '', product: 'Semiconductor-MES', version: '' }
   dialogVisible.value = true
   formRef.value?.clearValidate()
 }
 
-async function openEdit(row: ProjectSummary) {
+function openEdit(row: ProjectSummary) {
   isEdit.value = true
   form.value = { id: row.id, name: row.name, product: row.product, version: row.version }
+  originalBasics.value = { name: row.name, product: row.product, version: row.version }
   dialogVisible.value = true
   formRef.value?.clearValidate()
-  try {
-    editingFull.value = await getProject(row.id)
-  } catch (e: any) {
-    MessagePlugin.error(e.response?.data?.error || t('common.error'))
-  }
 }
 
 async function handleSave() {
@@ -217,29 +214,15 @@ async function handleSave() {
 
   saving.value = true
   try {
-    const base: ProjectConfig =
-      editingFull.value ||
-      ({
-        docs: [],
-        repos: [],
-        modules: [],
-        wiki_nodes: { doc: [], code: [] },
-        sync_state: {
-          last_doc_sync: '',
-          last_code_sync: '',
-          pending_changes: [],
-          last_error: '',
-        },
-      } as unknown as ProjectConfig)
-
-    const payload: ProjectConfig = {
-      ...base,
-      id: form.value.id,
-      name: form.value.name,
-      product: form.value.product,
-      version: form.value.version,
+    if (isEdit.value) {
+      const patch: Partial<ProjectBasics> = {}
+      for (const field of ['name', 'product', 'version'] as const) {
+        if (form.value[field] !== originalBasics.value[field]) patch[field] = form.value[field]
+      }
+      if (Object.keys(patch).length) await updateProject(form.value.id, patch)
+    } else {
+      await createProject({ ...form.value })
     }
-    await upsertProject(payload)
     MessagePlugin.success(t('project.saved'))
     dialogVisible.value = false
     await load()

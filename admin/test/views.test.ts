@@ -11,11 +11,12 @@ import App from '../src/App.vue'
 import PageHeader from '../src/components/PageHeader.vue'
 
 const state = vi.hoisted(() => ({
-  route: { path: '/projects/mes', query: {}, params: { id: 'mes' } },
+  route: { path: '/projects/mes', query: {} as Record<string, string>, params: { id: 'mes' } },
   push: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
   save: vi.fn(),
+  update: vi.fn(),
   remove: vi.fn(),
   issue: vi.fn(),
   revoke: vi.fn(),
@@ -28,10 +29,12 @@ const state = vi.hoisted(() => ({
   confirm: vi.fn(),
   destroy: vi.fn(),
 }))
+vi.mock('../src/components/ProjectDocumentTemplates.vue', () => ({ default: { props: ['projectId'], template: '<div data-test="project-templates">{{ projectId }}</div>' } }))
 vi.mock('../src/api/projects', () => ({
   listProjects: state.list,
   getProject: state.get,
-  upsertProject: state.save,
+  createProject: state.save,
+  updateProject: state.update,
   deleteProject: state.remove,
   issueToken: state.issue,
   revokeToken: state.revoke,
@@ -48,11 +51,15 @@ vi.mock('tdesign-vue-next', async (original) => ({
   NotifyPlugin: { error: state.notify },
   DialogPlugin: { confirm: state.confirm },
 }))
-vi.mock('vue-router', async (original) => ({
+vi.mock('vue-router', async (original) => {
+  const { reactive } = await import('vue')
+  state.route = reactive(state.route)
+  return ({
   ...(await original<typeof import('vue-router')>()),
   useRoute: () => state.route,
   useRouter: () => ({ push: state.push }),
-}))
+})
+})
 
 const project = {
   id: 'mes',
@@ -115,6 +122,7 @@ beforeEach(() => {
   i18n.global.locale.value = 'zh-CN'
   state.route.path = '/projects/mes'
   state.route.params.id = 'mes'
+  state.route.query = {}
   Object.defineProperty(window, 'innerWidth', {
     value: 1200,
     writable: true,
@@ -128,6 +136,7 @@ beforeEach(() => {
   state.list.mockResolvedValue([project])
   state.get.mockResolvedValue(structuredClone(project))
   state.save.mockResolvedValue(undefined)
+  state.update.mockResolvedValue(undefined)
   state.remove.mockResolvedValue(undefined)
   state.issue.mockResolvedValue({ token: 'issued-once' })
   state.revoke.mockResolvedValue(undefined)
@@ -184,20 +193,24 @@ test('dashboard aggregates available projects and reports load failures', async 
   await flushPromises()
 })
 
-test('project editing preserves document bindings and create validates input', async () => {
+test('project editing submits only changed basic fields; unchanged saves make no request', async () => {
   const wrapper = view(ProjectManagement)
   await flushPromises()
   await click(wrapper, 'common.edit')
   const edit = dialog(wrapper, 'project.edit')
   edit.vm.$emit('confirm')
   await flushPromises()
-  expect(state.save).toHaveBeenCalledWith(
-    expect.objectContaining({
-      id: 'mes',
-      docs: project.docs,
-      repos: project.repos,
-    }),
-  )
+  expect(state.update).not.toHaveBeenCalled()
+  expect(state.save).not.toHaveBeenCalled()
+  expect(state.get).not.toHaveBeenCalled()
+  await click(wrapper, 'common.edit')
+  const changed = dialog(wrapper, 'project.edit')
+  await changed.findAll('input')[1]!.setValue('Changed name')
+  changed.vm.$emit('confirm')
+  await flushPromises()
+  expect(state.update).toHaveBeenCalledExactlyOnceWith('mes', { name: 'Changed name' })
+  expect(state.save).not.toHaveBeenCalled()
+
   await click(wrapper, 'project.create')
   const create = dialog(wrapper, 'project.create')
   const inputs = create.findAll('input')
@@ -207,12 +220,10 @@ test('project editing preserves document bindings and create validates input', a
   validateForm.mockResolvedValueOnce(false)
   create.vm.$emit('confirm')
   await flushPromises()
-  expect(state.save).toHaveBeenCalledTimes(1)
+  expect(state.save).not.toHaveBeenCalled()
   create.vm.$emit('confirm')
   await flushPromises()
-  expect(state.save).toHaveBeenLastCalledWith(
-    expect.objectContaining({ id: 'mesnew', docs: [] }),
-  )
+  expect(state.save).toHaveBeenLastCalledWith({ id: 'mesnew', name: 'New MES', product: 'Semiconductor-MES', version: '' })
   await wrapper.find('input').setValue('does not exist')
   expect(wrapper.text()).not.toContain('MES Project')
 })
@@ -232,13 +243,14 @@ test('project mutation failures remain visible and confirmation is released', as
   confirmation = state.confirm.mock.calls.at(-1)![0]
   await confirmation.onConfirm()
   expect(state.error).toHaveBeenCalledWith('delete failed')
-  state.get.mockRejectedValue(new Error('offline'))
+  state.error.mockClear()
   await click(wrapper, 'common.edit')
-  expect(state.error).toHaveBeenCalled()
-  state.save.mockRejectedValue(new Error('offline'))
+  expect(state.get).not.toHaveBeenCalled()
+  state.update.mockRejectedValue({ response: { data: { error: 'update failed' } } })
+  await dialog(wrapper, 'project.edit').findAll('input')[1]!.setValue('Changed')
   dialog(wrapper, 'project.edit').vm.$emit('confirm')
   await flushPromises()
-  expect(state.error).toHaveBeenCalled()
+  expect(state.error).toHaveBeenCalledExactlyOnceWith('update failed')
   state.list.mockRejectedValue(new Error('offline'))
   await click(wrapper, 'common.refresh')
   expect(state.error).toHaveBeenCalled()
@@ -403,4 +415,44 @@ test('layout supports desktop and mobile navigation, language and theme preferen
   })
   wrappers.push(header)
   expect(header.text()).toContain('Source')
+})
+
+ test('detail navigation selects the requested template tab and reloads the new project', async () => {
+  const wrapper = view(ProjectDetail)
+  await flushPromises()
+  expect(wrapper.find('[data-test="project-templates"]').exists()).toBe(false)
+  state.route.query = { tab: 'document-templates' }
+  await flushPromises()
+  expect(wrapper.find('[data-test="project-templates"]').text()).toBe('mes')
+  state.get.mockResolvedValue({ ...structuredClone(project), id: 'other', name: 'Other project' })
+  state.route.params.id = 'other'
+  await flushPromises()
+  expect(state.get).toHaveBeenLastCalledWith('other')
+  expect(wrapper.text()).toContain('Other project')
+  expect(wrapper.find('[data-test="project-templates"]').text()).toBe('other')
+ })
+
+test('late replies from the previous project do not overwrite its replacement or reveal its token', async () => {
+  let finishProject!: (value: typeof project) => void
+  let finishToken!: (value: { token: string }) => void
+  state.get.mockImplementationOnce(() => new Promise(resolve => { finishProject = resolve }))
+  const wrapper = view(ProjectDetail)
+  await flushPromises()
+  state.get.mockResolvedValue({ ...structuredClone(project), id: 'other', name: 'Other project' })
+  state.route.params.id = 'other'
+  await flushPromises()
+  finishProject(structuredClone(project))
+  await flushPromises()
+  expect(wrapper.text()).toContain('Other project')
+  expect(wrapper.text()).not.toContain('MES Project')
+  state.issue.mockImplementationOnce(() => new Promise(resolve => { finishToken = resolve }))
+  await click(wrapper, 'detail.issueToken')
+  dialog(wrapper, 'detail.issueToken').vm.$emit('confirm')
+  await flushPromises()
+  state.get.mockResolvedValue(structuredClone(project))
+  state.route.params.id = 'mes'
+  await flushPromises()
+  finishToken({ token: 'previous-project-token' })
+  await flushPromises()
+  expect(wrapper.findAll('textarea').some(node => node.element.value === 'previous-project-token')).toBe(false)
 })

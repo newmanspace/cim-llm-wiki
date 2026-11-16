@@ -148,6 +148,9 @@
         <t-tab-panel value="document-quality" label="文档数据源">
           <DocumentQualityPanel v-if="activeTab === 'document-quality'" :project-id="project.id" mode="sources" />
         </t-tab-panel>
+        <t-tab-panel value="document-templates" label="文档模板">
+          <ProjectDocumentTemplates v-if="activeTab === 'document-templates'" :project-id="project.id" />
+        </t-tab-panel>
       </t-tabs>
 
       <!-- Issue token dialog -->
@@ -233,7 +236,7 @@
 <script setup lang="ts">
 import DocumentQualityPanel from '@/components/DocumentQualityPanel.vue'
 import CodeSourceSettings from '@/components/CodeSourceSettings.vue'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin, NotifyPlugin } from 'tdesign-vue-next'
@@ -254,6 +257,7 @@ import {
   getWikiNodes,
 } from '@/api/projects'
 import type { ProjectConfig, SyncLog, WikiNodeEntry, RepoBinding } from '@/api/types'
+import ProjectDocumentTemplates from '@/components/ProjectDocumentTemplates.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -264,6 +268,9 @@ const projectId = computed(() => String(route.params.id))
 const project = ref<ProjectConfig | null>(null)
 const loading = ref(false)
 const activeTab = ref('overview')
+watch(() => route.query.tab, tab => {
+  activeTab.value = tab === 'document-templates' ? 'document-templates' : 'overview'
+}, { immediate: true })
 
 const descColumn = computed(() => (isMobile.value ? 1 : 2))
 
@@ -366,35 +373,41 @@ async function copyText(text: string) {
 }
 
 async function loadProject() {
+  const id = projectId.value
   loading.value = true
   try {
-    project.value = await getProject(projectId.value)
+    const result = await getProject(id)
+    if (id === projectId.value) project.value = result
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    loading.value = false
+    if (id === projectId.value) loading.value = false
   }
 }
 
 async function loadLogs() {
+  const id = projectId.value
   logsLoading.value = true
   try {
-    syncLogs.value = await getSyncLogs(projectId.value, 50)
+    const result = await getSyncLogs(id, 50)
+    if (id === projectId.value) syncLogs.value = result
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    logsLoading.value = false
+    if (id === projectId.value) logsLoading.value = false
   }
 }
 
 async function loadWikiNodes() {
+  const id = projectId.value
   wikiLoading.value = true
   try {
-    wikiNodes.value = await getWikiNodes(projectId.value)
+    const result = await getWikiNodes(id)
+    if (id === projectId.value) wikiNodes.value = result
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    wikiLoading.value = false
+    if (id === projectId.value) wikiLoading.value = false
   }
 }
 
@@ -407,15 +420,18 @@ async function handleIssueToken() {
     MessagePlugin.warning(t('detail.tokenScopes'))
     return
   }
+  const id = projectId.value
   issuing.value = true
   try {
-    issuedToken.value = await issueToken(projectId.value, tokenScopes.value, tokenExpiry.value)
+    const result = await issueToken(id, tokenScopes.value, tokenExpiry.value)
+    if (id !== projectId.value) return
+    issuedToken.value = result
     tokenDialogVisible.value = false
     tokenResultVisible.value = true
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    issuing.value = false
+    if (id === projectId.value) issuing.value = false
   }
 }
 
@@ -431,21 +447,35 @@ async function handleRevokeToken() {
     MessagePlugin.warning(t('detail.tokenPlaceholder'))
     return
   }
+  const id = projectId.value
   revoking.value = true
   try {
-    await revokeToken(projectId.value, token)
+    await revokeToken(id, token)
+    if (id !== projectId.value) return
     MessagePlugin.success(t('detail.revoked'))
     revokeDialogVisible.value = false
     revokeTokenValue.value = ''
     if (issuedToken.value?.token === token) acknowledgeToken()
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    revoking.value = false
+    if (id === projectId.value) revoking.value = false
   }
 }
 
-onMounted(loadAll)
+watch(projectId, () => {
+  project.value = null
+  syncLogs.value = []
+  wikiNodes.value = []
+  tokenDialogVisible.value = false
+  revokeDialogVisible.value = false
+  revokeTokenValue.value = ''
+  mappingsVisible.value = false
+  acknowledgeToken()
+  issuing.value = false
+  revoking.value = false
+  void loadAll()
+}, { immediate: true })
 </script>
 
 <style scoped>

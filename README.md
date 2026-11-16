@@ -231,8 +231,6 @@ cim-llm-wiki/
 │   └── scripts/
 │       └── client.mjs            ← 轻量 HTTP 客户端（无主项目依赖）
 ├── admin/                        ← ★ 管理台（TDesign Vue Next SPA：项目登记/Token/审核/进度）
-├── scripts/
-│   └── register-admin.mjs        ← 一次性 Admin 引导：登记项目/发 Token/同步 wiki 节点
 ├── wiki/                         ← ★ 独立 Wiki 知识库展示工程
 │   ├── .vitepress/config.mjs     ← VitePress 站点配置（srcDir=../data/wiki）
 │   ├── scripts/gen-sidebar.mjs   ← 扫描 data/wiki 自动生成侧边栏与首页

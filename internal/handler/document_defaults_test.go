@@ -2,6 +2,7 @@ package handler
 
 import (
 	"cim-llm-wiki/internal/config"
+	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,17 @@ func TestInitializeProjectAcceptsDirectoryNodeTypes(t *testing.T) {
 		if r.URL.Path != "/internal/document-defaults/bind" {
 			t.Error("unexpected target")
 		}
+		var body struct {
+			Modules []string `json:"modules"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			http.Error(w, "invalid request", 400)
+			return
+		}
+		if body.Modules == nil || len(body.Modules) != 0 {
+			t.Errorf("expected explicit empty modules, got %#v", body.Modules)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"directories":[{"path":"doc/40-requirements","title":"需求","node_types":["requirement"],"description":"Requirements"}]}`))
 	}))
@@ -57,7 +69,7 @@ func TestInitializeProjectAcceptsDirectoryNodeTypes(t *testing.T) {
 	h := &DocumentDefaultsHandler{URL: upstream.URL, Token: strings.Repeat("s", 40), Client: upstream.Client()}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("POST", "/projects", strings.NewReader(`{}`))
-	entries, err := h.InitializeProject(c, "mycim-mes4", "myCIM MES 4.0", "4.0", []string{})
+	entries, err := h.InitializeProject(c, "mycim-mes4", "myCIM MES 4.0", "4.0")
 	if err != nil {
 		t.Fatal(err)
 	}
