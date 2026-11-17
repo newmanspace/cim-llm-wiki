@@ -4,11 +4,13 @@
 
 ## 1. 转换、内容归类及结果登记
 
-convert/register 返回的是引擎解析稿，不是符合 Project 模板的最终文档。核对原件与解析稿后，按生效模板整理完整正文并选择目标目录，输出 UTF-8 Markdown 候选到独立 staging，保持标题、表格、条件和真实来源定位。每份候选须以完整正文和 target_path 调用 check-document；不因本次是测试而省略模板、目录和契约检查。图片使用服务转换得到的内嵌栅格数据；归类产物不允许原始 HTML 或未登记的外部图片，避免丢附件。
+convert/register 返回的是引擎解析稿，不是最终文档。核对原件与解析稿后，先按[类型判定规则](document-classification.md)识别实际类型；有专门模板时按模板整理，无专门模板时仅规范通用格式，再选择目标目录，输出 UTF-8 Markdown 候选到独立 staging，保持标题、表格、条件和真实来源定位。专门模板候选以完整正文和 target_path 调用 check-document；通用标准格式候选执行通用格式及保真检查，不借用模板或虚构 template_id。图片使用服务转换得到的内嵌栅格数据；归类产物不允许原始 HTML 或未登记的外部图片，避免丢附件。
 
 完整摄取时，原件与解析稿仍按 convert/register → 核对 → freeze 流程定稿；测试模式保持 draft，不进入后续登记、评估和发布。
 
 正文、参考文档与独立检查报告按 [Skill 的内容边界](../SKILL.md#转换文档的正文与说明边界)分别编写。真实来源定位集中放在参考文档及机器来源记录中，保真分析、转换问题和检查诊断不写入业务正文。
+
+以下 artifacts 登记要求真实 template_id；仅适用于已匹配专门模板的产物。通用标准格式文档若没有服务支持的登记类型，保留本地候选并报告该限制，不为继续登记而改写文档类型。
 
 逐产物调用 artifacts：project、run_id、logical_key（该产物稳定业务标识）、template_id、target_path、content_uri、parsed_uri、recipe_version、source_links。source_links 为 [{source_version_id,location}]；content_sha256 可省略，由服务读取文件计算。target_path 相对于本项目归类根，例如 doc/50-designs/modules/example.md、code/apis/api-example.md，不能填写来源仓库路径。content_uri 指向共享候选文件，服务保存内容快照。
 

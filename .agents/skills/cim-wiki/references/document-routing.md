@@ -1,6 +1,6 @@
 # 文档目录路由与导出路径
 
-新编／修订文档和 artifacts 登记共用同一套目录选择规则，模板和路径来自目标 Project，不在 Skill 中保存固定映射表。
+专门模板文档和 artifacts 登记按下述类型目录规则执行。通用标准格式文档按下述无模板路径规则保存；两者均依据目标 Project，不在 Skill 中保存固定映射表。
 
 ## 目录选择与校验
 
@@ -13,6 +13,12 @@
 例如所选模板为 sdd、node_type=design，且当前项目仅将 design 映射到 doc/50-designs，则 doc/50-designs/example.md 可用，doc/90-guides/example.md 必须拒绝。此例不作为其他项目的硬编码目录。
 
 文档内容检查不能替代路径检查。完整正文完成后，调用 check-document 时同时提交 project、template_id、document、phase=draft、target_path，检查返回 errors。document_directory_mismatch 表示类型不允许进入该目录，document_directory_unmapped 表示没有适用的类型规则，document_target_invalid 表示路径非法；不能只以命令退出码判断通过。后续 artifacts 登记、复核及导出仍由服务端重验。
+
+## 无专门模板的标准格式文档
+
+先判定真实文档用途，按项目资料目录用途和用户确认位置保存本地候选，沿用同一输出根公式；不得为取得目录映射而将功能清单改称 requirement，或借用 glossary、knowledge_article 等 node_type。记录实际类型的说明性标签与模板未匹配状态，不将说明性标签当作服务受控枚举。
+
+本地格式整理与服务归类登记分开：服务要求 template_id 或受控 node_type 而未提供通用文档入口时，正常完成标准格式候选，说明尚未登记及未做专项模板路径校验；不能声称已通过该模板的目录契约。后续有登记／发布需求时再解决服务支持，不自动新增模板、目录类型、绑定或兼容兜底。
 
 ## 登记与输出位置
 
