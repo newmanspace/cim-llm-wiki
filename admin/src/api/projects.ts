@@ -19,7 +19,7 @@ export async function getProject(id: string): Promise<ProjectConfig> {
 
 export type ProjectBasics = Pick<ProjectConfig, 'name' | 'product' | 'version'>
 
-export async function createProject(project: ProjectBasics & { id: string }): Promise<void> {
+export async function createProject(project: ProjectBasics & { id: string; wiki_source_directory?: string }): Promise<void> {
   await client.post('/admin/projects', project)
 }
 
@@ -56,4 +56,25 @@ export async function getSyncLogs(id: string, limit = 20): Promise<SyncLog[]> {
 export async function getWikiNodes(id: string): Promise<WikiNodeEntry[]> {
   const res = await client.get(`/admin/projects/${id}/wiki-nodes`)
   return res.data.nodes || []
+}
+
+export interface ProjectWikiStatus {
+  project: string
+  sourceDirectory: string
+  contentKind: 'strict_nodes' | 'repository_docs'
+  storageRoot: string
+  siteDirectory: string
+  siteUrl: string
+  initialized: boolean
+  published: boolean
+  gitStatus: 'uninitialized' | 'clean' | 'dirty'
+}
+export async function getProjectWiki(id: string): Promise<ProjectWikiStatus> {
+  return (await client.get(`/admin/projects/${encodeURIComponent(id)}/wiki`)).data.data
+}
+export async function configureProjectWiki(id: string, sourceDirectory: string): Promise<ProjectWikiStatus> {
+  return (await client.post(`/admin/projects/${encodeURIComponent(id)}/wiki/configure`, { sourceDirectory })).data.data
+}
+export async function initializeProjectWiki(id: string): Promise<ProjectWikiStatus> {
+  return (await client.post(`/admin/projects/${encodeURIComponent(id)}/wiki/initialize`, {})).data.data
 }

@@ -108,7 +108,7 @@ func (h *AdminHandler) CreateProject(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Project lookup failed"})
 		return
 	}
-	directories, err := NewDocumentDefaultsHandler(h.store).InitializeProject(c, p.ID, p.Name, p.Version)
+	directories, err := NewDocumentDefaultsHandler(h.store).InitializeProject(c, p.ID, p.Name, p.Version, fields["wiki_source_directory"])
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Project document initialization failed", "detail": err.Error()})
 		return
@@ -156,7 +156,7 @@ func readProjectFields(c *gin.Context, creating bool) (map[string]string, bool) 
 	}
 	patch := map[string]string{}
 	for field, value := range input {
-		if (field != "name" && field != "product" && field != "version" && !(creating && field == "id")) || value == nil {
+		if (field != "name" && field != "product" && field != "version" && !(creating && (field == "id" || field == "wiki_source_directory"))) || value == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Only allowed project string fields may be supplied"})
 			return nil, false
 		}

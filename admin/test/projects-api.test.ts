@@ -52,3 +52,15 @@ test('project registry, token and synchronization requests preserve their API co
   expect(await api.getSyncLogs('mes', 50)).toEqual([])
   expect(await api.getWikiNodes('mes')).toEqual([])
 })
+
+test('project Wiki requests keep the URL project scope and return directory settings', async () => {
+  const status = { project: 'demo', initialized: true, siteUrl: '/wiki/demo/' }
+  vi.mocked(client.get).mockResolvedValue({ data: { data: status } })
+  expect(await api.getProjectWiki('demo')).toEqual(status)
+  expect(client.get).toHaveBeenLastCalledWith('/admin/projects/demo/wiki')
+  vi.mocked(client.post).mockResolvedValue({ data: { data: status } })
+  expect(await api.configureProjectWiki('demo', '/storage/projects/demo/wiki')).toEqual(status)
+  expect(client.post).toHaveBeenLastCalledWith('/admin/projects/demo/wiki/configure', { sourceDirectory: '/storage/projects/demo/wiki' })
+  expect(await api.initializeProjectWiki('demo')).toEqual(status)
+  expect(client.post).toHaveBeenLastCalledWith('/admin/projects/demo/wiki/initialize', {})
+})

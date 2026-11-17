@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import client from '@/api/client'
+import ProjectWikiSettings from '@/components/ProjectWikiSettings.vue'
 import { listProjects } from '@/api/projects'
 
 type Job = { id: string; mode: string; gitCommit: string; state: string; bundleId?: string; error?: string; diagnostics?: { code: string; message: string; issues?: { code: string; path?: string; message: string }[] }[]; expiresAt?: number; attempts: { stage: string; error?: string }[]; result?: { previewUrl?: string; updated?: boolean; reason?: string } }
@@ -50,6 +51,7 @@ onUnmounted(() => { disposed = true; generation++; clearInterval(poll) })
     <button :disabled="!project || busy" @click="load">刷新任务</button>
     <button :disabled="!project || busy" @click="action('build', {})">构建当前 Wiki</button>
     <p v-if="project">首次构建或重新生成站点可直接构建当前 Wiki；服务会检查已发布内容、Git 基线和完整库，不会自动提交未审核变更。</p>
+    <ProjectWikiSettings :project="project" />
     <form v-if="project" @submit.prevent="action('preview', { bundle_id: bundleId })">
       <label>已审核 Bundle <input v-model="bundleId" required placeholder="Bundle ID" /></label>
       <button :disabled="busy || !bundleId">预览完整 Wiki</button>

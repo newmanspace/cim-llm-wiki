@@ -19,7 +19,7 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  defaults.save(definition,0,'Test Administrator');defaults.publish(1,'Test Administrator');defaults.bind('demo',['docs'])
  const artifactDoc=definition.templates[0].example.replace('待指定','Reviewer').replaceAll('URD 用户需求定义','Source requirement')
  const ledgerURL=process.env.QUALITY_TEST_LEDGER_URL,ledgerToken=process.env.QUALITY_TEST_LEDGER_TOKEN,human=process.env.QUALITY_TEST_REVIEW_TOKEN
- const server=createKnowledgeServer({projectRoot,wikiRoot,roots:{team:shared},token:'automation',reviewerTokens:{Reviewer:human},ledgerURL,ledgerToken,organizedRoot,parser:async()=>({md:'# Source\n\nSource-backed text.\n',images:[]})})
+ const server=createKnowledgeServer({ projectWikis: null,projectRoot,wikiRoot,roots:{team:shared},token:'automation',reviewerTokens:{Reviewer:human},ledgerURL,ledgerToken,organizedRoot,parser:async()=>({md:'# Source\n\nSource-backed text.\n',images:[]})})
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve)}))
  const origin=`http://127.0.0.1:${server.address().port}`
  async function api(path,body,token='automation',key=randomUUID()){

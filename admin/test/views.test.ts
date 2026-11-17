@@ -22,6 +22,7 @@ const state = vi.hoisted(() => ({
   revoke: vi.fn(),
   logs: vi.fn(),
   nodes: vi.fn(),
+  wiki: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
   warning: vi.fn(),
@@ -32,6 +33,7 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/components/ProjectDocumentTemplates.vue', () => ({ default: { props: ['projectId'], template: '<div data-test="project-templates">{{ projectId }}</div>' } }))
 vi.mock('../src/api/projects', () => ({
   listProjects: state.list,
+  getProjectWiki: state.wiki,
   getProject: state.get,
   createProject: state.save,
   updateProject: state.update,
@@ -117,6 +119,7 @@ function dialog(wrapper: VueWrapper, key: string) {
   return result!
 }
 beforeEach(() => {
+  state.wiki.mockResolvedValue({ initialized: false, published: false })
   vi.clearAllMocks()
   localStorage.clear()
   i18n.global.locale.value = 'zh-CN'
@@ -153,6 +156,7 @@ beforeEach(() => {
   state.nodes.mockResolvedValue([
     { plane: 'doc', path: 'data/wiki/mes/doc/a.md' },
     { plane: 'code', path: 'mes/code/b.md' },
+    { plane: 'code', path: 'data/projects/mes/custom-markdown/code/apis/api-new.md' },
   ])
   state.confirm.mockReturnValue({ destroy: state.destroy })
   validateForm.mockResolvedValue(true)
@@ -259,6 +263,7 @@ test('project mutation failures remain visible and confirmation is released', as
 test('detail view publishes source links and displays tokens once, then revokes them', async () => {
   const wrapper = view(ProjectDetail)
   await flushPromises()
+  expect(wrapper.find('a[href="/wiki/mes/code/apis/api-new"]').exists()).toBe(true)
   expect(
     wrapper
       .findAll('a')
@@ -455,4 +460,29 @@ test('late replies from the previous project do not overwrite its replacement or
   finishToken({ token: 'previous-project-token' })
   await flushPromises()
   expect(wrapper.findAll('textarea').some(node => node.element.value === 'previous-project-token')).toBe(false)
+})
+
+test('project Wiki column links published sites and shows initialization, build and fetch failure states', async () => {
+  state.list.mockResolvedValue([
+    { ...project, id: 'ready' }, { ...project, id: 'pending' }, { ...project, id: 'new' }, { ...project, id: 'offline' },
+  ])
+  state.wiki.mockImplementation(async (id: string) => {
+    if (id === 'offline') throw new Error('Wiki unavailable')
+    return { initialized: id !== 'new', published: id === 'ready', siteUrl: '/wiki/ready/' }
+  })
+  const wrapper = view(ProjectManagement)
+  await flushPromises()
+  expect(wrapper.find('a[href="/wiki/ready/"]').exists()).toBe(true)
+  expect(wrapper.text()).toContain('待构建')
+  expect(wrapper.text()).toContain('设置 Wiki')
+  expect(wrapper.text()).toContain('Wiki 设置读取失败')
+  await wrapper.findAll('a').find(a => a.text() === '待构建')!.trigger('click')
+  expect(state.push).toHaveBeenLastCalledWith({ path: '/wiki-builds', query: { project: 'pending' } })
+  await click(wrapper, 'project.create')
+  const form = dialog(wrapper, 'project.create'), inputs = form.findAll('input')
+  await inputs[0]!.setValue('custom')
+  await inputs[1]!.setValue('Custom Wiki')
+  await inputs[4]!.setValue('/app/data/projects/custom/markdown')
+  form.vm.$emit('confirm'); await flushPromises()
+  expect(state.save).toHaveBeenLastCalledWith({ id: 'custom', name: 'Custom Wiki', product: 'Semiconductor-MES', version: '', wiki_source_directory: '/app/data/projects/custom/markdown' })
 })

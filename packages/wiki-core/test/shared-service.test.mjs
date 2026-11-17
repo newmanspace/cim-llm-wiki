@@ -12,11 +12,12 @@ import { createServer } from 'node:http'
 import { createKnowledgeServer } from '../../wiki-service/server.mjs'
 import { resolveShared, hashFile, writeSharedFile } from '../sources.mjs'
 import { validateWiki } from '../validate.mjs'
+import { createProjectWiki } from '../../wiki-service/project-wiki.mjs'
 import { createBuildRuntime } from '../../wiki-service/build-runtime.mjs'
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
 function save(path, data) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, typeof data === 'string' ? data : JSON.stringify(data)) }
-async function fixture(t, { autoPublish = true, builds = false } = {}) {
+async function fixture(t, { autoPublish = true, builds = false, projectStorage = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'shared-knowledge-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const projectRoot = join(root, 'state'), wikiRoot = join(projectRoot, 'data/wiki'), shared = join(root, 'external-share')
@@ -38,9 +39,15 @@ async function fixture(t, { autoPublish = true, builds = false } = {}) {
     ledgerURL = `http://127.0.0.1:${ledger.address().port}`
     t.after(() => { ledger.closeAllConnections(); ledger.close() })
   }
-  const buildRuntime = builds ? createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath: join(root, 'build.sock') }) : undefined
+  const projectWikis = projectStorage ? createProjectWiki({ projectRoot }) : null
+  if (projectWikis) {
+    projectWikis.initialize('demo'); cpSync(join(wikiRoot, 'demo'), projectWikis.source('demo'), { recursive: true })
+    execFileSync('git', ['-C', projectWikis.source('demo'), 'add', '.'])
+    execFileSync('git', ['-C', projectWikis.source('demo'), 'commit', '-m', 'Generated baseline contract'], { stdio: 'pipe' })
+  }
+  const buildRuntime = builds ? createBuildRuntime({ projectRoot, wikiRoot, roots, projectWikis, socketPath: join(root, 'build.sock') }) : undefined
   if (buildRuntime) t.after(() => buildRuntime.close())
-  const server = createKnowledgeServer({ projectRoot, wikiRoot, roots, autoPublish, buildRuntime, ledgerURL, ledgerToken: builds ? ledgerToken : undefined, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
+  const server = createKnowledgeServer({ projectWikis, projectRoot, wikiRoot, roots, autoPublish, buildRuntime, ledgerURL, ledgerToken: builds ? ledgerToken : undefined, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
     calls.push({ input, engine }); return { md: '# Terms\n\nA source-backed definition.\n', images: [] }
   } })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -60,7 +67,7 @@ async function fixture(t, { autoPublish = true, builds = false } = {}) {
     qscore: { auth: 1, comp: 1, rel: 1, fresh: 1, struct: 1, reuse: 1, risk: .1, total: .99 },
   }] })
   const submit = async b => { save(join(shared, 'demo/work/nodes.json'), b); return api('bundles', { uri: 'shared://team/demo/work/nodes.json' }) }
-  return { reviewToken, ledgerToken, buildRuntime, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
+  return { projectWikis, reviewToken, ledgerToken, buildRuntime, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
 }
 async function ready(f) {
   const converted = await f.api('convert', f.registration)
@@ -280,6 +287,7 @@ test('product directory initialization runs through human review, strict compila
   const isolatedConfig = readFileSync(baseConfigPath, 'utf8')
     .replace("from 'vitepress'", `from ${JSON.stringify(pathToFileURL(wikiRequire.resolve('vitepress')).href)}`)
     .replace("from '../../packages/wiki-core/validate.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/validate.mjs')).href)}`)
+    .replace("from '../../packages/wiki-core/repository-docs.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/repository-docs.mjs')).href)}`)
     .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(baseConfigUrl)})`)
     .replace('export default defineConfig({', `export default defineConfig({\n  outDir: ${JSON.stringify(join(site, 'dist'))},\n  cacheDir: ${JSON.stringify(join(site, 'cache'))},`)
   cpSync(join(repo, 'wiki/.vitepress/mermaid-markdown.mjs'), join(configDir, 'mermaid-markdown.mjs'))
@@ -389,4 +397,32 @@ test('administrators can request the first build without a Bundle and receive du
   assert.equal((await listed.json()).data[0].id, data.id)
   assert.equal(readFileSync(join(f.wikiRoot, 'demo/document-contract.json'), 'utf8'), before)
   assert.equal(existsSync(join(f.wikiRoot, '.git')), false)
+})
+
+test('project storage API preserves review gates, previews candidates and commits only an initially clean project', async t => {
+  const f = await fixture(t, { autoPublish: false, builds: true, projectStorage: true })
+  await ready(f)
+  const b = f.bundle('CR-PROJECT-STORAGE', 'L1_expert')
+  assert.equal((await f.submit(b)).status, 200)
+  assert.equal((await f.api('compile', { bundle_id: b.bundle_id, preview: true, site: true })).status, 409)
+  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve' }, f.reviewToken)).status, 200)
+  const preview = await f.api('compile', { bundle_id: b.bundle_id, preview: true, site: true })
+  assert.equal(preview.status, 200, JSON.stringify(preview.value))
+  assert.equal(preview.value.site_build.mode, 'preview')
+  const source = f.projectWikis.source('demo'), dirty = join(source, 'unreviewed.md')
+  writeFileSync(dirty, '# Unreviewed content')
+  const previous = process.env.WIKI_GITOPS_ENABLED
+  process.env.WIKI_GITOPS_ENABLED = 'true'
+  t.after(() => { if (previous === undefined) delete process.env.WIKI_GITOPS_ENABLED; else process.env.WIKI_GITOPS_ENABLED = previous })
+  const blocked = await f.api('compile', { bundle_id: b.bundle_id })
+  assert.equal(blocked.status, 422)
+  assert.match(blocked.value.error, /uncommitted/)
+  assert.equal(existsSync(join(source, 'doc/requirements/req-terms-001.md')), false)
+  rmSync(dirty)
+  const published = await f.api('compile', { bundle_id: b.bundle_id })
+  assert.equal(published.status, 200, JSON.stringify(published.value))
+  assert.equal(published.value.site_build.state, 'queued', JSON.stringify(published.value))
+  assert.equal(f.projectWikis.status('demo').gitStatus, 'clean')
+  assert.equal(existsSync(join(source, 'doc/requirements/req-terms-001.md')), true)
+  assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md')), false)
 })

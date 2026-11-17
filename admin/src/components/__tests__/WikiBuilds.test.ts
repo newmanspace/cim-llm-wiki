@@ -3,6 +3,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import WikiBuilds from '../../views/admin/WikiBuilds.vue'
 
 const mock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), projects: vi.fn(), replace: vi.fn(), route: { query: {} as Record<string, string> } }))
+vi.mock('../ProjectWikiSettings.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/api/client', () => ({ default: { get: mock.get, post: mock.post } }))
 vi.mock('@/api/projects', () => ({ listProjects: mock.projects }))
 vi.mock('vue-router', () => ({ useRoute: () => mock.route, useRouter: () => ({ replace: mock.replace }) }))

@@ -112,11 +112,15 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 }
 
 // InitializeProject binds new projects to the published system contract.
-func (h *DocumentDefaultsHandler) InitializeProject(c *gin.Context, projectID, name, version string) ([]map[string]string, error) {
+func (h *DocumentDefaultsHandler) InitializeProject(c *gin.Context, projectID, name, version string, wikiSourceDirectory ...string) ([]map[string]string, error) {
 	if h.URL == "" || len(h.Token) < 32 {
 		return nil, templateError("Document template service is not configured")
 	}
-	payload, _ := json.Marshal(gin.H{"project": projectID, "name": name, "product_version": version, "modules": []string{}})
+	input := gin.H{"project": projectID, "name": name, "product_version": version, "modules": []string{}}
+	if len(wikiSourceDirectory) > 0 && wikiSourceDirectory[0] != "" {
+		input["wiki_source_directory"] = wikiSourceDirectory[0]
+	}
+	payload, _ := json.Marshal(input)
 	// Project initialization always uses the configured service origin.
 	saved := c.Request.URL.RawQuery
 	c.Request.URL.RawQuery = ""

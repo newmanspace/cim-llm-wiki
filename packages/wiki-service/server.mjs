@@ -1,3 +1,4 @@
+import { createProjectWiki } from './project-wiki.mjs'
 import { createBuildRuntime } from './build-runtime.mjs'
 import { publicJob } from './build-coordinator.mjs'
 import { createDocumentDefaults } from './document-defaults.mjs'
@@ -148,11 +149,15 @@ export function createKnowledgeServer({
   ledgerToken = process.env.CIM_WIKI_LEDGER_TOKEN,
   organizedRoot = process.env.CIM_WIKI_ORGANIZED_ROOT,
   buildRuntime,
+  projectWikis: configuredWikis,
 } = {}) {
   validateCredentials(token, reviewerTokens, ledgerToken)
   projectRoot = resolve(projectRoot)
   wikiRoot = resolve(wikiRoot)
   const options = { projectRoot, wikiRoot, roots }
+  const projectWikis = resolveProjectWikis(configuredWikis, options)
+  const { projectOptions, wikiPath, sourceFor } = projectStorage(options, projectWikis)
+  const publishedPath = path => { const [project, ...parts] = path.split('/'); return wikiPath(project, ...parts) }
   const docs = () => loadManifest(projectRoot)
   const getDoc = (source) =>
     docs().docs.find((d) => d.path === source) ||
@@ -176,12 +181,13 @@ export function createKnowledgeServer({
     registeredDocument: getDoc,
     wikiRoot,
   })
-  const defaults = createDocumentDefaults(projectRoot, wikiRoot)
+  const defaults = createDocumentDefaults(projectRoot, wikiRoot, sourceFor)
   let queue = Promise.resolve()
 
   function context(project) {
     identifier(project)
-    const contractPath = join(wikiRoot, project, 'document-contract.json')
+    if (projectWikis?.kind(project) === 'repository_docs') fail('Documentation repositories use Git builds and do not accept strict-node compilation', 409)
+    const contractPath = wikiPath(project, 'document-contract.json')
     if (!existsSync(contractPath))
       fail('Project delivery contract is required on the server', 409)
     const contract = readContractJson(contractPath)
@@ -218,7 +224,7 @@ export function createKnowledgeServer({
       template_variables: templateVariables,
       project,
       delivery_contract: contract,
-      directory: readDirectory(project, { wikiRoot }),
+      directory: readDirectory(project, projectOptions(project)),
       node_types: NODE_TYPES,
       node_schema: json(join(CONTRACT_ROOT, 'node.schema.json')),
       vocabulary: json(join(CONTRACT_ROOT, 'vocabulary.json')),
@@ -398,8 +404,7 @@ export function createKnowledgeServer({
   function validateNodeRisk(node, value) {
     const [plane, dir] = nodeLocation(node)
     const existing = join(
-      wikiRoot,
-      value.project,
+      projectWikis ? projectWikis.source(value.project) : join(wikiRoot, value.project),
       plane,
       dir,
       `${slugify(node.id)}.md`,
@@ -461,7 +466,7 @@ export function createKnowledgeServer({
         return (
           ['L1_expert', 'L2_arch'].includes(n.review_level) ||
           existsSync(
-            join(wikiRoot, value.project, plane, dir, `${slugify(n.id)}.md`),
+            wikiPath(value.project, plane, dir, `${slugify(n.id)}.md`),
           )
         )
       })
@@ -472,8 +477,8 @@ export function createKnowledgeServer({
         const path = `${value.project}/${plane}/${dir}/${slugify(n.id)}.md`
         return {
           path,
-          sha256: existsSync(join(wikiRoot, path))
-            ? hashFile(join(wikiRoot, path))
+          sha256: existsSync(publishedPath(path))
+            ? hashFile(publishedPath(path))
             : null,
         }
       })
@@ -555,8 +560,8 @@ export function createKnowledgeServer({
   function verifyPublishedBaseline(record) {
     if (record.state !== 'published')
       for (const target of record.targets || []) {
-        const current = existsSync(join(wikiRoot, target.path))
-          ? hashFile(join(wikiRoot, target.path))
+        const current = existsSync(publishedPath(target.path))
+          ? hashFile(publishedPath(target.path))
           : null
         if (current !== target.sha256)
           fail(
@@ -664,11 +669,11 @@ export function createKnowledgeServer({
           'start',
           publicationKey,
         )
-    const hooks = buildHooks(bundle, record, preview, site)
     let result
     try {
+      const hooks = buildHooks(bundle, record, preview, site)
       result = await compileBundle(bundle, {
-        ...options,
+        ...projectOptions(bundle.project),
         preview: preview === true,
         ...hooks,
       })
@@ -689,7 +694,7 @@ export function createKnowledgeServer({
         result,
         files: result.written.map((path) => ({
           path,
-          sha256: hashFile(join(wikiRoot, path)),
+          sha256: hashFile(publishedPath(path)),
         })),
       }
       writeJson(bundlePath(bundle.bundle_id), record)
@@ -720,8 +725,8 @@ export function createKnowledgeServer({
     const pending = record.publication_pending
     for (const file of pending.files) {
       if (
-        !existsSync(join(wikiRoot, file.path)) ||
-        hashFile(join(wikiRoot, file.path)) !== file.sha256
+        !existsSync(publishedPath(file.path)) ||
+        hashFile(publishedPath(file.path)) !== file.sha256
       )
         fail(
           'Pending publication files changed; operator reconciliation required',
@@ -745,7 +750,7 @@ export function createKnowledgeServer({
 
   const getRoutes = {
     '/directories': (url) =>
-      readDirectory(url.searchParams.get('project'), { wikiRoot }),
+      readDirectory(url.searchParams.get('project'), projectOptions(url.searchParams.get('project'))),
     '/context': async (url) => {
       const project = url.searchParams.get('project')
       return { ...context(project), ...(await quality.context(project)) }
@@ -767,11 +772,12 @@ export function createKnowledgeServer({
         )
       )
         fail('Unsupported initialization field')
+      if (projectWikis) projectWikis.initialize(data.project)
       return defaults.initialize(data)
     },
     '/check-document': (data) => defaults.check(data),
     '/render-document': (data) => defaults.render(data),
-    '/directories': (data) => updateDirectory(data, { wikiRoot }),
+    '/directories': (data) => updateDirectory(data, projectOptions(data.project)),
     '/convert': (data) => register(data, true),
     '/register': (data) => register(data, false),
     '/state': changeSourceState,
@@ -886,8 +892,11 @@ export function createKnowledgeServer({
       'POST /preview': () =>
         defaults.store.preview(data.project, data.overrides || {}),
       'POST /render': () => defaults.render(data),
-      'POST /bind': () =>
-        defaults.initialize({ ...data, actor }, data.upgrade === true),
+      'POST /bind': () => {
+        if (projectWikis && data.wiki_source_directory) projectWikis.configure(data.project, { sourceDirectory: data.wiki_source_directory })
+        if (projectWikis) projectWikis.initialize(data.project)
+        return defaults.initialize({ ...data, actor }, data.upgrade === true)
+      },
     }
     const execute = actions[req.method + ' ' + action]
     if (!execute) fail('Settings endpoint not found', 404)
@@ -940,6 +949,20 @@ export function createKnowledgeServer({
     fail('Operation not found', 404)
   }
 
+  async function internalProjectWiki(req, url) {
+    if (!projectWikis) fail('Project Wiki storage is not configured', 503)
+    const project = identifier(url.searchParams.get('project'))
+    const action = url.pathname.slice('/internal/project-wiki'.length)
+    if (req.method === 'GET' && action === '') return { data: projectWikis.status(project) }
+    if (req.method !== 'POST') fail('Operation not found', 404)
+    const data = await body(req)
+    return mutate(() => {
+      if (action === '/configure') return { data: projectWikis.configure(project, data) }
+      if (action === '/initialize') return { data: projectWikis.initialize(project) }
+      fail('Operation not found', 404)
+    })
+  }
+
   function authenticateInternal(req) {
     if (!ledgerToken || ledgerToken.length < 32 || ledgerToken === token || !sameToken(req.headers.authorization, ledgerToken)) fail('Administrator service authentication required', 403)
   }
@@ -976,6 +999,11 @@ export function createKnowledgeServer({
         send(200, { status: 'ok' })
         return
       }
+      if (url.pathname.startsWith('/internal/project-wiki')) {
+        authenticateInternal(req)
+        send(200, await internalProjectWiki(req, url))
+        return
+      }
       if (url.pathname.startsWith('/internal/wiki-builds')) {
         authenticateInternal(req)
         send(200, await internalBuilds(req, url))
@@ -1005,9 +1033,10 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  const buildRuntime = process.env.CIM_WIKI_BUILD_ENABLED === 'true' ? createBuildRuntime({ projectRoot: process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, wikiRoot: process.env.WIKI_ROOT || join(process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, 'data/wiki'), roots: sharedRoots() }) : null
+  const projectWikis = createProjectWiki({ projectRoot: process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, legacyRoot: process.env.WIKI_ROOT || join(process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, 'data/wiki') })
+  const buildRuntime = process.env.CIM_WIKI_BUILD_ENABLED === 'true' ? createBuildRuntime({ projectRoot: process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, wikiRoot: process.env.WIKI_ROOT || join(process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, 'data/wiki'), roots: sharedRoots(), projectWikis }) : null
   if (buildRuntime) await buildRuntime.start()
-  const server = createKnowledgeServer({ buildRuntime })
+  const server = createKnowledgeServer({ buildRuntime, projectWikis })
   for (const name of ['SIGTERM', 'SIGINT']) process.once(name, () => { buildRuntime?.close(); server.close(); server.closeAllConnections() })
   server.requestTimeout = 15 * 60 * 1000
   server.listen(
@@ -1015,4 +1044,20 @@ if (
     process.env.KNOWLEDGE_HOST || '127.0.0.1',
     () => console.log('Knowledge service ready'),
   )
+}
+
+function projectStorage(options, projectWikis) {
+  const sourceFor = projectWikis ? project => {
+    if (projectWikis.kind(project) === 'repository_docs') fail('Documentation repositories use Git builds and do not accept node initialization', 409)
+    return projectWikis.source(project)
+  } : undefined
+  return {
+    sourceFor,
+    projectOptions: project => ({ ...options, ...(sourceFor ? { project, sourceRoot: sourceFor(project) } : {}) }),
+    wikiPath: (project, ...parts) => join(projectWikis ? projectWikis.source(project) : join(options.wikiRoot, project), ...parts),
+  }
+}
+
+function resolveProjectWikis(value, { projectRoot, wikiRoot }) {
+  return value === undefined ? createProjectWiki({ projectRoot, legacyRoot: wikiRoot }) : value
 }

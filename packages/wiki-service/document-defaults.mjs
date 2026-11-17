@@ -22,7 +22,7 @@ import {
   updateDirectory,
 } from '../wiki-core/product-directory.mjs'
 
-export function createDocumentDefaults(projectRoot, wikiRoot) {
+export function createDocumentDefaults(projectRoot, wikiRoot, sourceFor) {
   const store = createDefaultsStore(projectRoot)
   function initialize(data, upgrade = false) {
     const before = store.preview(data.project)
@@ -78,12 +78,15 @@ export function createDocumentDefaults(projectRoot, wikiRoot) {
       allow_unlisted: true,
       documents: definition.delivery,
     }
+    const sourceRoot = sourceFor?.(data.project)
+    const directoryOptions = { wikiRoot, sourceRoot }
+    const base = sourceRoot || join(wikiRoot, data.project)
     const paths = ['directory.json', 'catalog', 'document-contract.json'].map(
-      (p) => join(wikiRoot, data.project, p),
+      (p) => join(base, p),
     )
     paths.push(join(projectRoot, 'data/document-defaults/state.json'))
     withRollback(projectRoot, paths, () => {
-      const directory = readDirectory(data.project, { wikiRoot })
+      const directory = readDirectory(data.project, directoryOptions)
       if (upgrade && before.current && directory) {
         const prior = new Set(before.current.directories.map((d) => d.path)),
           next = new Set(directories.map((d) => d.path))
@@ -104,7 +107,7 @@ export function createDocumentDefaults(projectRoot, wikiRoot) {
             delivery_contract: contract,
             directories,
           },
-          { wikiRoot },
+          directoryOptions,
         )
       } else if (upgrade)
         updateDirectory(
@@ -113,9 +116,8 @@ export function createDocumentDefaults(projectRoot, wikiRoot) {
             expected_revision: directory.revision,
             directories,
           },
-          { wikiRoot },
+          directoryOptions,
         )
-      const base = join(wikiRoot, data.project)
       mkdirSync(base, { recursive: true })
       const file = join(base, 'document-contract.json'),
         temporary = file + '.' + randomUUID()

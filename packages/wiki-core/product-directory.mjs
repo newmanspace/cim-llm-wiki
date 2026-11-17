@@ -12,9 +12,15 @@ const encode = value => JSON.stringify(value, null, 2) + '\n'
 const plain = value => typeof value === 'string' && value.length <= 2000 && !/[<>[\]`{}\r\n\0]/.test(value)
 const escape = value => value.replace(/[\\*_!#|]/g, '\\$&').replaceAll('&', '&amp;')
 
-function projectPath(project, wikiRoot) {
+function projectPath(project, wikiRoot, sourceRoot) {
   if (typeof project !== 'string' || !identifierPattern.test(project) || reserved.has(project) || project === 'templates') error('Invalid project identifier')
   const root = resolve(wikiRoot)
+  if (sourceRoot) {
+    for (const target of [sourceRoot, ...['directory.json', 'catalog', 'document-contract.json'].map(name => join(sourceRoot, name))]) {
+      if (lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink()) error('Symbolic links are not permitted')
+    }
+    return sourceRoot
+  }
   for (const target of [root, join(root, project), join(root, project, 'directory.json'), join(root, project, 'catalog'), join(root, project, 'document-contract.json')]) {
     if (lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink()) error('Symbolic links are not permitted')
   }
@@ -58,8 +64,8 @@ function validateConfig(config, project) {
   return config
 }
 
-export function readDirectory(project, { wikiRoot }) {
-  const path = join(projectPath(project, wikiRoot), 'directory.json')
+export function readDirectory(project, { wikiRoot, sourceRoot }) {
+  const path = join(projectPath(project, wikiRoot, sourceRoot), 'directory.json')
   return existsSync(path) ? validateConfig(readContractJson(path), project) : null
 }
 
@@ -91,8 +97,8 @@ function replaceConfig(path, content) {
   }
 }
 
-function saveDirectory(config, wikiRoot, contract) {
-  const base = projectPath(config.project, wikiRoot)
+function saveDirectory(config, wikiRoot, contract, sourceRoot) {
+  const base = projectPath(config.project, wikiRoot, sourceRoot)
   const stage = join(base, `.directory-${randomUUID()}`), backup = stage + '-backup'
   const configPath = join(base, 'directory.json'), catalog = join(base, 'catalog')
   const before = existsSync(configPath) ? readFileSync(configPath) : null
@@ -129,21 +135,21 @@ function initializationInput(input) {
 }
 
 
-export function initializeDirectory(input, { wikiRoot }) {
-  const base = projectPath(input.project, wikiRoot)
+export function initializeDirectory(input, { wikiRoot, sourceRoot }) {
+  const base = projectPath(input.project, wikiRoot, sourceRoot)
   if (existsSync(join(base, 'directory.json')) || existsSync(join(base, 'catalog'))) error('Product directory is already initialized', 409)
   const { contract } = initializationInput(input)
   const contractPath = join(base, 'document-contract.json')
   if (existsSync(contractPath) && encode(readContractJson(contractPath)) !== encode(contract)) error('Existing delivery contract differs; it will not be overwritten', 409)
   const config = validateConfig({ schema_version: '1.0', project: input.project, name: input.name, version: input.version, revision: 1, directories: input.directories }, input.project)
-  return saveDirectory(config, wikiRoot, existsSync(contractPath) ? null : contract)
+  return saveDirectory(config, wikiRoot, existsSync(contractPath) ? null : contract, sourceRoot)
 }
 
-export function updateDirectory(input, { wikiRoot }) {
-  const current = readDirectory(input.project, { wikiRoot })
+export function updateDirectory(input, { wikiRoot, sourceRoot }) {
+  const current = readDirectory(input.project, { wikiRoot, sourceRoot })
   if (!current) error('Product directory is not initialized', 404)
   if (input.expected_revision !== current.revision) error('Directory revision conflict', 409)
-  return saveDirectory(validateConfig({ ...current, revision: current.revision + 1, directories: input.directories }, input.project), wikiRoot)
+  return saveDirectory(validateConfig({ ...current, revision: current.revision + 1, directories: input.directories }, input.project), wikiRoot, undefined, sourceRoot)
 }
 
 function filesUnder(path, prefix = '') {

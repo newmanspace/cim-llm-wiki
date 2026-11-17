@@ -28,6 +28,14 @@ func (h *WikiBuildHandler) ready(c *gin.Context) bool {
 }
 
 func (h *WikiBuildHandler) Handle(c *gin.Context) {
+	h.handle(c, "/internal/wiki-builds", map[string]bool{"": true, "build": true, "preview": true, "retry": true, "revoke": true})
+}
+
+func (h *WikiBuildHandler) ProjectWiki(c *gin.Context) {
+	h.handle(c, "/internal/project-wiki", map[string]bool{"": true, "configure": true, "initialize": true})
+}
+
+func (h *WikiBuildHandler) handle(c *gin.Context, path string, actions map[string]bool) {
 	if !h.ready(c) {
 		return
 	}
@@ -37,7 +45,7 @@ func (h *WikiBuildHandler) Handle(c *gin.Context) {
 		return
 	}
 	action := c.Param("action")
-	if !map[string]bool{"": true, "build": true, "preview": true, "retry": true, "revoke": true}[action] {
+	if !actions[action] {
 		c.JSON(404, gin.H{"error": "Unknown build operation"})
 		return
 	}
@@ -54,7 +62,6 @@ func (h *WikiBuildHandler) Handle(c *gin.Context) {
 	saved := c.Request.URL.RawQuery
 	c.Request.URL.RawQuery = url.Values{"project": {project}}.Encode()
 	defer func() { c.Request.URL.RawQuery = saved }()
-	path := "/internal/wiki-builds"
 	if action != "" {
 		path += "/" + action
 	}

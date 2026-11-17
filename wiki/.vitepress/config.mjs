@@ -1,3 +1,4 @@
+import { assertRepositoryDocs, repositoryKind, repositoryMarkdown } from '../../packages/wiki-core/repository-docs.mjs'
 import { defineConfig } from 'vitepress'
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
@@ -11,13 +12,15 @@ const require = createRequire(import.meta.url)
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const srcDir = process.env.WIKI_ROOT || (existsSync(join(__dirname, '../../data/wiki')) ? '../data/wiki' : existsSync('/data/wiki') ? '/data/wiki' : 'data/wiki')
 
-assertValidWiki({ wikiRoot: resolve(__dirname, '..', srcDir) })
+const isRepository = process.env.WIKI_CONTENT_KIND === repositoryKind
+if (isRepository) assertRepositoryDocs(join(srcDir, process.env.WIKI_PROJECT))
+else assertValidWiki({ wikiRoot: resolve(__dirname, '..', srcDir), project: process.env.WIKI_PROJECT || undefined })
 
 export default defineConfig({
   lang: 'zh-CN',
   title: 'CIM 知识库',
   description: '泛半导体 CIM/MES 全生命周期原子化 Wiki',
-  srcDir,
+  srcDir: process.env.WIKI_SITE_ROOT || srcDir,
   // 自定义文档模板目录（全局 + 项目级）不作为 wiki 页面
   srcExclude: ['**/templates/**'],
   // 站点挂在 /wiki/ 前缀下，页面按项目分树：/<project>/<plane>/...
@@ -29,7 +32,7 @@ export default defineConfig({
   ignoreDeadLinks: false,
   lastUpdated: false,
   markdown: {
-    config: mermaidMarkdown
+    config: md => { mermaidMarkdown(md); if (isRepository) repositoryMarkdown(md, { root: process.env.WIKI_SITE_ROOT || join(srcDir, process.env.WIKI_PROJECT) }) }
   },
   vite: {
     // Vue's server compiler consumes entities from CommonJS. Bundle it during

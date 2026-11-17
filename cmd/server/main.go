@@ -145,6 +145,17 @@ func buildHandler(cfg *config.Config) (http.Handler, func(), error) {
 		// Admin API (Project Registry management, requires PostgreSQL)
 		if adminStore != nil {
 			admin := handler.NewAdminHandler(adminStore)
+			projectWiki := v1.Group("/admin/projects/:id/wiki", auth.RequireSession())
+			projectWiki.Use(func(c *gin.Context) {
+				if _, err := adminStore.GetProject(c.Request.Context(), c.Param("id")); err != nil {
+					c.AbortWithStatusJSON(404, gin.H{"error": "Project not found"})
+					return
+				}
+				c.Next()
+			})
+			projectWiki.GET("", wikiBuilds.ProjectWiki)
+			projectWiki.GET("/:action", wikiBuilds.ProjectWiki)
+			projectWiki.POST("/:action", wikiBuilds.ProjectWiki)
 			documentDefaults := handler.NewDocumentDefaultsHandler(adminStore)
 			settings := v1.Group("/admin/system/document-templates", auth.RequireSession())
 			settings.GET("", documentDefaults.Handle)

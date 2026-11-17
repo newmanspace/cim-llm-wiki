@@ -312,10 +312,15 @@ function formatDate(s: string) {
   return d.toLocaleString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US')
 }
 
-// DB path (data/wiki/<project>/<plane>/...) → 渲染页 URL（VitePress base=/wiki/，cleanUrls 无扩展名）
+// Project checkout prefixes may vary; compiled atomic node entries end in plane/directory/file.
 function wikiUrl(dbPath: string) {
   if (!dbPath) return '#'
   let rel = dbPath
+  if (rel.startsWith(`data/projects/${projectId.value}/`)) {
+    const node = rel.split('/').slice(-3)
+    if (!['doc', 'code'].includes(node[0] || '')) return '#'
+    rel = `${projectId.value}/${node.join('/')}`
+  }
   if (rel.startsWith('data/wiki/')) rel = rel.slice('data/wiki/'.length)
   rel = rel.replace(/\.md$/, '')
   return `/wiki/${rel}`

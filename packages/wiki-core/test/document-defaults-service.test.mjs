@@ -25,7 +25,7 @@ test('administrative settings require independent service authentication; contra
   )
   const ledgerURL = `http://127.0.0.1:${ledger.address().port}`
   const ledgerToken = 'service-' + 's'.repeat(40)
-  const server = createKnowledgeServer({
+  const server = createKnowledgeServer({ projectWikis: null,
     projectRoot: root,
     wikiRoot: join(root, 'data/wiki'),
     roots: { team: root },

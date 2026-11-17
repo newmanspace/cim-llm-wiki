@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os'
 import { createDefaultsStore, templateFor, checkDocument } from './document-defaults.mjs'
 import {
   sharedRoots,
@@ -6,7 +7,7 @@ import {
   hashFile,
   nodeProvenance,
 } from './sources.mjs'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, mkdirSync, cpSync, rmSync, lstatSync } from 'node:fs'
 import { join, resolve, relative, posix } from 'node:path'
 import { createHash } from 'node:crypto'
 import {
@@ -36,7 +37,10 @@ export function validateWiki({
   projectRoot = process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT,
   wikiRoot = join(projectRoot, 'data/wiki'),
   roots = sharedRoots(),
+  project,
+  sourceRoot,
 } = {}) {
+  if (sourceRoot) return validateProjectWiki({ projectRoot, wikiRoot, roots, project, sourceRoot })
   wikiRoot = resolve(wikiRoot)
   const bindingCache = new Map()
   const errors = [],
@@ -156,10 +160,11 @@ export function validateWiki({
           typeof registry.projects !== 'object'
         )
           throw new Error('registry.projects must be an object')
-        for (const project of Object.keys(registry.projects)) {
-          if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(project))
-            throw new Error(`Invalid project ID: ${project}`)
-          projects.add(project)
+        for (const registered of Object.keys(registry.projects)) {
+          if (project && registered !== project) continue
+          if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(registered))
+            throw new Error(`Invalid project ID: ${registered}`)
+          projects.add(registered)
         }
       } catch (e) {
         add('project_registry_error', registryPath, e.message)
@@ -372,6 +377,7 @@ export function validateWiki({
           throw new Error('manifest.docs must be an array')
         const byPath = new Map()
         for (const rec of manifest.docs) {
+          if (project && rec.project !== project && ![...pages.values()].some(page => (Array.isArray(page.fm.source) ? page.fm.source : [page.fm.source]).includes(rec.path))) continue
           byPath.set(rec.path, rec)
           let path
           try {
@@ -550,4 +556,21 @@ export function assertValidWiki(options) {
         .join('\n'),
     )
   return result
+}
+
+// A temporary project view preserves the strict node key contract (<project>/doc
+// or code) while the physical checkout itself starts with doc/ and code/.
+function validateProjectWiki(options) {
+  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(options.project || '')) throw new Error('Project is required for an isolated Wiki')
+  if (!existsSync(join(options.sourceRoot, 'document-contract.json'))) return { errors: [{ code: 'project_contract_missing', path: options.project, message: 'Initialize the project document contract before publishing strict nodes' }], warnings: [], scanned: 0 }
+  const stage = mkdtempSync(join(tmpdir(), 'wiki-project-check-'))
+  try {
+    mkdirSync(join(stage, options.project))
+    cpSync(options.sourceRoot, join(stage, options.project), { recursive: true, filter: path => {
+      if (['.git', '.vitepress'].includes(path.split('/').at(-1))) return false
+      if (lstatSync(path).isSymbolicLink()) throw new Error('Symbolic links are not permitted in Wiki content')
+      return true
+    } })
+    return validateWiki({ ...options, wikiRoot: stage, sourceRoot: undefined })
+  } finally { rmSync(stage, { recursive: true, force: true }) }
 }

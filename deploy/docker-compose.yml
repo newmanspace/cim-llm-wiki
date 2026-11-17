@@ -25,7 +25,7 @@ services:
     environment:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
-      - WIKI_OUTPUT_DIR=/app/data/wiki
+      - WIKI_OUTPUT_DIR=/app/data/work/legacy-wiki
       - WIKI_RAW_DIR=/app/data/raw
       - MINERU_ENDPOINT=http://mineru:8888
       - DOCLING_ENDPOINT=http://docling:5001
@@ -104,7 +104,7 @@ services:
     image: cim-wiki-web:latest
     container_name: cim-wiki-runtime
     volumes:
-      - ../data/wiki-site:/data/wiki-site:ro
+      - ../data/projects:/data/projects:ro
       - ../data/wiki-previews:/data/wiki-previews:ro
     restart: unless-stopped
     depends_on:

@@ -125,7 +125,7 @@ export function createBuildCoordinator({ root, clock = Date.now, leaseMs = 60000
   }
   return { enqueue, claim, waitClaim, heartbeat, authorize, complete, completeWith, fail, cancel, retry, reconcile, get,
     list: project => [...jobs.values()].filter(j => !project || j.project === project).sort((a, b) => b.sequence - a.sequence).map(publicJob),
-    latestFormal: () => [...jobs.values()].filter(j => j.mode === 'formal').sort((a, b) => b.sequence - a.sequence)[0],
+    latestFormal: project => [...jobs.values()].filter(j => j.mode === 'formal' && (!project || j.project === project)).sort((a, b) => b.sequence - a.sequence)[0],
     accessible(id) { const job = get(id); return job.mode === 'preview' && job.state === 'succeeded' && job.expiresAt > clock() },
     close() { if (closed) return; closed = true; clearTimeout(retryTimer); notify(); store.close() },
     isTerminal: state => terminal.has(state),

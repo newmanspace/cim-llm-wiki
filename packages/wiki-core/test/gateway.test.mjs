@@ -39,6 +39,6 @@ test('gateway only redirects to canonical URLs under the protected browsing surf
     'https://wiki.example.evil/wiki/',
     '',
   ]) {
-    assert.equal(redirect(next), '/wiki/', next)
+    assert.equal(redirect(next), '/admin/projects', next)
   }
 })

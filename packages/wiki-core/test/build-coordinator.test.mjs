@@ -91,3 +91,14 @@ test('publication authorized before a synchronous update finishes once even acro
   assert.equal(c.completeWith(job.id, claim.claimToken, apply).state, 'succeeded')
   assert.equal(updates, 1)
 })
+
+test('formal requests from another project do not supersede the current project request', t => {
+  const { c } = fixture(t)
+  const first = c.enqueue(input)
+  const other = c.enqueue({ ...input, project: 'other' })
+  assert.equal(c.latestFormal('demo').id, first.id)
+  assert.equal(c.latestFormal('other').id, other.id)
+  const next = c.enqueue({ ...input, gitCommit: 'c'.repeat(40) })
+  assert.equal(c.latestFormal('demo').id, next.id)
+  assert.equal(c.latestFormal('other').id, other.id)
+})

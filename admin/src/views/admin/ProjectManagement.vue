@@ -38,6 +38,10 @@
             {{ row.name || row.id }}
           </t-link>
         </template>
+        <template #wiki="{ row }">
+          <a v-if="wikiStatuses[row.id]?.published" :href="wikiStatuses[row.id]?.siteUrl" target="_blank" rel="noopener">访问 Wiki</a>
+          <t-link v-else theme="primary" @click="router.push({ path: '/wiki-builds', query: { project: row.id } })">{{ wikiErrors[row.id] ? 'Wiki 设置读取失败 · 重试' : wikiStatuses[row.id]?.initialized ? '待构建' : '设置 Wiki' }}</t-link>
+        </template>
         <template #created_at="{ row }">{{ formatDate(row.created_at) }}</template>
         <template #operation="{ row }">
           <t-space break-line size="small">
@@ -98,6 +102,10 @@
         <t-form-item :label="t('project.version')" name="version">
           <t-input v-model="form.version" placeholder="V2.26.3" />
         </t-form-item>
+        <t-form-item v-if="!isEdit" label="Wiki Markdown 源目录" name="wiki_source_directory">
+          <t-input v-model="form.wiki_source_directory" placeholder="留空使用项目默认目录" />
+          <small>自定义目录须为服务内本项目存储子目录；创建后会初始化独立 Git。</small>
+        </t-form-item>
       </t-form>
     </t-dialog>
   </div>
@@ -117,7 +125,7 @@ import {
 } from 'tdesign-icons-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
-import { listProjects, createProject, updateProject, deleteProject, type ProjectBasics } from '@/api/projects'
+import { getProjectWiki, type ProjectWikiStatus, listProjects, createProject, updateProject, deleteProject, type ProjectBasics } from '@/api/projects'
 import type { ProjectSummary } from '@/api/types'
 
 const router = useRouter()
@@ -126,6 +134,8 @@ const { isMobile } = useBreakpoint()
 
 const loading = ref(false)
 const projects = ref<ProjectSummary[]>([])
+const wikiStatuses = ref<Record<string, ProjectWikiStatus>>({})
+const wikiErrors = ref<Record<string, boolean>>({})
 const searchQuery = ref('')
 const page = ref(1)
 const pageSize = ref(10)
@@ -136,7 +146,7 @@ const saving = ref(false)
 const formRef = ref<FormInstanceFunctions>()
 const originalBasics = ref<ProjectBasics>({ name: '', product: '', version: '' })
 
-const form = ref({ id: '', name: '', product: '', version: '' })
+const form = ref({ id: '', name: '', product: '', version: '', wiki_source_directory: '' })
 
 const rules = computed<FormRules>(() => ({
   id: [
@@ -151,6 +161,7 @@ const columns = computed(() => {
     { colKey: 'name', title: () => t('project.name'), width: 180, cell: 'name' },
     { colKey: 'product', title: () => t('project.product'), width: 150, ellipsis: true },
     { colKey: 'version', title: () => t('project.version'), width: 120 },
+    { colKey: 'wiki', title: 'Wiki', width: 180, cell: 'wiki' },
     { colKey: 'created_at', title: () => t('project.createdAt'), width: 180, cell: 'created_at' },
     { colKey: 'operation', title: () => t('common.actions'), width: isMobile.value ? 150 : 160, fixed: 'right', cell: 'operation' },
   ]
@@ -185,6 +196,11 @@ async function load() {
   loading.value = true
   try {
     projects.value = await listProjects()
+    wikiStatuses.value = {}; wikiErrors.value = {}
+    await Promise.all(projects.value.map(async project => {
+      try { wikiStatuses.value[project.id] = await getProjectWiki(project.id) }
+      catch { wikiErrors.value[project.id] = true }
+    }))
   } catch (e: any) {
     MessagePlugin.error(e.response?.data?.error || t('common.error'))
   } finally {
@@ -195,14 +211,14 @@ async function load() {
 function openCreate() {
   isEdit.value = false
   originalBasics.value = { name: '', product: '', version: '' }
-  form.value = { id: '', name: '', product: 'Semiconductor-MES', version: '' }
+  form.value = { id: '', name: '', product: 'Semiconductor-MES', version: '', wiki_source_directory: '' }
   dialogVisible.value = true
   formRef.value?.clearValidate()
 }
 
 function openEdit(row: ProjectSummary) {
   isEdit.value = true
-  form.value = { id: row.id, name: row.name, product: row.product, version: row.version }
+  form.value = { id: row.id, name: row.name, product: row.product, version: row.version, wiki_source_directory: '' }
   originalBasics.value = { name: row.name, product: row.product, version: row.version }
   dialogVisible.value = true
   formRef.value?.clearValidate()
@@ -221,7 +237,8 @@ async function handleSave() {
       }
       if (Object.keys(patch).length) await updateProject(form.value.id, patch)
     } else {
-      await createProject({ ...form.value })
+      const { wiki_source_directory, ...basics } = form.value
+      await createProject({ ...basics, ...(wiki_source_directory ? { wiki_source_directory } : {}) })
     }
     MessagePlugin.success(t('project.saved'))
     dialogVisible.value = false

@@ -196,7 +196,7 @@ wiki 物理分库为两平面：**`doc/`（领域知识库，面向人与高层�
 
 - **Project Registry + Admin 管理台**：`data/documents/project-registry.json` 多项目登记，`admin/`（TDesign Vue Next SPA）+ Go Admin API + PostgreSQL，`project-token`（`cimwt_...`）鉴权，网关统一登录门控 wiki/admin 访问。
 - **wiki 产出**：`data/wiki/cim-llm-wiki/` 双平面共 **24** 个原子节点——`doc/`（需求/设计/模块/业务流程/数据字典等）+ `code/`（api 卡、功能契约、领域实体、schema、代码索引），首页与三棵树侧边栏由 `npm run gen` 自动生成，`gen-manuals.mjs <bundle.json>` 发布已审核人读手册。
-- **知识库 GitOps 独立版本管理**（Issue #1）：`data/wiki/` 作为独立 git 仓库，`compile.mjs` 编译入库后可自动 `commit`（env 未设=完全 no-op），已对接私有知识仓 `newmanspace/cim-llm-wiki-knowledge`（main 分支），赋予版本追溯/diff/回滚，主仓仍因 `.gitignore` 忽略 `data/` 不被产物污染。
+- **知识库 GitOps 独立版本管理**（Issue #1）：`data/projects/<project>/wiki/` 按项目作为独立 Git 仓库，`compile.mjs` 编译入库后可自动 `commit`（env 未设=完全 no-op），已对接私有知识仓 `newmanspace/cim-llm-wiki-knowledge`（main 分支），赋予版本追溯/diff/回滚，主仓仍因 `.gitignore` 忽略 `data/` 不被产物污染。
 - **标准人读文档模板**：`assets/` 四类骨架（frd 功能需求文档/design/module/user-manual）纳入 Stage 2 抽取强约束，杜绝退化为空洞提纲。
 
 > 试业务链路：用 cim-wiki skill 摄取一个 PDF/DOCX（如 `data/samples/idd_wip_sample.docx`，模块 `wip-management`），需先启动 MinerU/Docling 容器。
@@ -236,7 +236,7 @@ cim-llm-wiki/
 │   ├── scripts/gen-sidebar.mjs   ← 扫描 data/wiki 自动生成侧边栏与首页
 │   └── package.json              ← npm run gen / docs:dev / docs:build / docs:preview
 ├── .env.example                  ← 解析服务端点、Admin URL/Token、GitOps 开关等环境变量样例
-├── docs -> ../cim-llm-wiki-knowledge/  ← 知识仓入口
+├── docs -> data/projects/cim-llm-wiki/wiki/  ← 知识仓入口
 │   ├── code/                     ← 代码契约与机器可读知识
 │   └── doc/                      ← 产品标准文档、工程资料与模板
 ├── data/                         ← 运行时数据（.gitignore）

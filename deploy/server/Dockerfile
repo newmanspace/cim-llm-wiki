@@ -9,7 +9,7 @@ RUN chmod +x /app/cim-wiki-server
 EXPOSE 8080
 ENV SERVER_HOST=0.0.0.0
 ENV SERVER_PORT=8080
-ENV WIKI_OUTPUT_DIR=/app/data/wiki
+ENV WIKI_OUTPUT_DIR=/app/data/work/legacy-wiki
 ENV WIKI_RAW_DIR=/app/data/raw
 ENV MINERU_ENDPOINT=http://mineru:8888
 ENV DOCLING_ENDPOINT=http://docling:5001

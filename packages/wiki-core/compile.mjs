@@ -12,7 +12,7 @@ import {
   closeSync,
   lstatSync,
 } from 'node:fs'
-import { join, dirname, resolve } from 'node:path'
+import { join, dirname, resolve, relative } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import {
@@ -123,7 +123,7 @@ function copyCandidate(wikiRoot, candidateRoot) {
   })
 }
 
-function stageNodes(data, projectRoot, wikiRoot, candidateRoot) {
+function stageNodes(data, projectRoot, wikiRoot, candidateRoot, sourceRoot) {
   const changes = new Map(),
     written = [],
     archived = [],
@@ -149,11 +149,11 @@ function stageNodes(data, projectRoot, wikiRoot, candidateRoot) {
     const dest = join(candidateRoot, path)
     mkdirSync(dirname(dest), { recursive: true })
     writeFileSync(dest, text)
-    changes.set(join(wikiRoot, path), text)
+    changes.set(sourceRoot ? join(sourceRoot, path.slice(data.project.length + 1)) : join(wikiRoot, path), text)
     written.push(path)
     wikiEntries.push({
       plane,
-      path: `data/wiki/${path}`,
+      path: sourceRoot ? relative(projectRoot, join(sourceRoot, path.slice(data.project.length + 1))) : `data/wiki/${path}`,
       node_id: node.id,
       bundle_id: data.bundle_id,
     })
@@ -176,14 +176,14 @@ function updateProjectRegistry(docsDir, data, wikiEntries, now, changes) {
   changes.set(registryPath, encode(registry))
 }
 
-function updateAPIRegistry(docsDir, data, now, changes) {
+function updateAPIRegistry(docsDir, data, now, changes, projectRoot, sourceRoot) {
   const apiPath = join(docsDir, 'api-registry.json')
   const registry = json(apiPath) || {}
   for (const node of data.nodes.filter(
     (n) =>
       n.type === 'api' && n.transaction_code && n.review_level !== 'archive',
   )) {
-    const path = `data/wiki/${data.project}/code/apis/${slugify(node.id)}.md`
+    const path = sourceRoot ? relative(projectRoot, join(sourceRoot, `code/apis/${slugify(node.id)}.md`)) : `data/wiki/${data.project}/code/apis/${slugify(node.id)}.md`
     const code = node.transaction_code.toUpperCase()
     if (registry[code] && registry[code].page !== path)
       throw new Error(`Transaction code already registered: ${code}`)
@@ -228,6 +228,7 @@ export async function compileBundle(
     roots = sharedRoots(),
     afterPublish,
     onCandidate,
+    sourceRoot,
   } = {},
 ) {
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
@@ -253,15 +254,19 @@ export async function compileBundle(
     )
     staging = mkdtempSync(join(tmpdir(), 'wiki-candidate-'))
     const candidateRoot = join(staging, 'wiki')
-    copyCandidate(wikiRoot, candidateRoot)
+    if (sourceRoot) {
+      mkdirSync(candidateRoot)
+      copyCandidate(sourceRoot, join(candidateRoot, data.project))
+    } else copyCandidate(wikiRoot, candidateRoot)
     const { changes, written, archived, wikiEntries } = stageNodes(
       data,
       projectRoot,
       wikiRoot,
       candidateRoot,
+      sourceRoot,
     )
     try {
-      assertValidWiki({ projectRoot, wikiRoot: candidateRoot, roots })
+      assertValidWiki({ projectRoot, wikiRoot: candidateRoot, roots, project: sourceRoot ? data.project : undefined })
     } catch (e) {
       throw new Error(e.message.replaceAll(candidateRoot, wikiRoot), {
         cause: e,
@@ -280,7 +285,7 @@ export async function compileBundle(
       return result
     }
     updateProjectRegistry(docsDir, data, wikiEntries, now, changes)
-    updateAPIRegistry(docsDir, data, now, changes)
+    updateAPIRegistry(docsDir, data, now, changes, projectRoot, sourceRoot)
     activateSources(docsDir, data, now, changes)
     replaceFiles(changes)
     if (afterPublish) await afterPublish(result)

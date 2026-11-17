@@ -1,3 +1,4 @@
+import { repositoryCommit, repositoryKind } from '../wiki-core/repository-docs.mjs'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -12,7 +13,7 @@ import { hashFile } from '../wiki-core/sources.mjs'
 import { validateWiki } from '../wiki-core/validate.mjs'
 
 const read = path => JSON.parse(readFileSync(path, 'utf8'))
-export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, previewTtlMs } = {}) {
+export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, previewTtlMs, projectWikis } = {}) {
   const config = { ...buildConfig(projectRoot), ...(socketPath ? { socketPath } : {}), ...(previewTtlMs ? { previewTtlMs } : {}) }
   const buildsRoot = join(projectRoot, 'data/wiki-builds'), jobsRoot = config.jobsRoot, intentsRoot = join(jobsRoot, 'intents'), previewsRoot = join(projectRoot, 'data/wiki-previews')
   for (const root of [buildsRoot, intentsRoot, previewsRoot]) mkdirSync(root, { recursive: true })
@@ -21,8 +22,18 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
   const coordinator = createBuildCoordinator({ root: jobsRoot, ...config })
   const publisher = createSitePublisher(join(projectRoot, 'data/wiki-site'))
   let socket, timer
-  const snapshot = source => captureSnapshot({ projectRoot, wikiRoot: source, gitRoot: wikiRoot, roots, buildsRoot: join(buildsRoot, 'snapshots') })
+  const sourceFor = project => projectWikis ? projectWikis.source(project) : wikiRoot
+  const kindFor = project => projectWikis?.kind(project) || 'strict_nodes'
+  const snapshot = (source, project, candidate = false) => captureSnapshot({ projectRoot, wikiRoot: source, gitRoot: sourceFor(project), roots, contentKind: kindFor(project), buildsRoot: join(buildsRoot, 'snapshots'), ...(projectWikis ? { project, ...(!candidate ? { sourceRoot: source } : {}) } : {}) })
+  const projectPublishers = new Map()
+  const publisherFor = project => {
+    if (!projectWikis) return publisher
+    if (!projectPublishers.has(project)) projectPublishers.set(project, createSitePublisher(join(projectRoot, 'data/projects', project, 'site')))
+    return projectPublishers.get(project)
+  }
   function begin(record) {
+    if (kindFor(record.bundle.project) === repositoryKind) throw new Error('Documentation repositories do not accept strict-node publication')
+    if (projectWikis) gitIdentity(sourceFor(record.bundle.project))
     const id = randomUUID()
     atomicJson(join(intentsRoot, id + '.json'), { id, bundleId: record.bundle.bundle_id, project: record.bundle.project, bundleDigest: record.digest, state: 'awaiting_publication', createdAt: Date.now() })
     return id
@@ -31,11 +42,12 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
     const path = join(intentsRoot, id + '.json'), intent = read(path)
     try {
       if (!gitopsEnabled()) throw new Error('Enable Wiki GitOps before building the formal site')
-      ensureRepo(wikiRoot)
-      const commit = commitWiki(wikiRoot, `chore(wiki): ${intent.project} ${intent.bundleId}`, { projectRoot, roots })
-      intent.input = { ...snapshot(wikiRoot), project: intent.project, bundleId: intent.bundleId, mode: 'formal' }
+      const source = sourceFor(intent.project)
+      ensureRepo(source)
+      const commit = commitWiki(source, `chore(wiki): ${intent.project} ${intent.bundleId}`, { projectRoot, roots, ...(projectWikis ? { project: intent.project, sourceRoot: source } : {}) })
+      intent.input = { ...snapshot(source, intent.project), project: intent.project, bundleId: intent.bundleId, mode: 'formal' }
       if (commit.committed) {
-        try { intent.push = pushWiki(wikiRoot) } catch (error) { intent.pushError = error.message }
+        try { intent.push = pushWiki(source) } catch (error) { intent.pushError = error.message }
       }
       intent.state = 'captured'
     } catch (error) { intent.state = 'blocked'; intent.error = error.message }
@@ -53,7 +65,8 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
     return publicJob(job)
   }
   function preview(project, bundleId, source) {
-    return publicJob(coordinator.enqueue({ ...snapshot(source), project, bundleId, mode: 'preview' }))
+    if (kindFor(project) === repositoryKind) throw new Error('Documentation repositories do not accept Bundle previews')
+    return publicJob(coordinator.enqueue({ ...snapshot(source, project, true), project, bundleId, mode: 'preview' }))
   }
   function dispatchManual(intent) {
     const job = coordinator.enqueue(intent.input)
@@ -61,25 +74,26 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
     atomicJson(join(intentsRoot, intent.id + '.json'), intent)
     return publicJob(job)
   }
-  function checkCurrentInput() {
+  function checkCurrentInput(project) {
+    if (kindFor(project) === repositoryKind) { repositoryCommit(sourceFor(project)); return [] }
     const diagnostics = []
-    try { gitIdentity(wikiRoot) }
+    try { gitIdentity(sourceFor(project)) }
     catch (error) { diagnostics.push({ code: 'git_baseline', message: 'Wiki Git 基线不可构建：' + error.message }) }
-    const validation = validateWiki({ projectRoot, wikiRoot, roots })
+    const validation = validateWiki({ projectRoot, wikiRoot, roots, ...(projectWikis ? { project, sourceRoot: sourceFor(project) } : {}) })
     if (validation.errors.length) diagnostics.push({ code: 'wiki_validation', message: `全库严格校验未通过，共 ${validation.errors.length} 项错误`, issues: validation.errors })
     const folder = join(projectRoot, 'data/service/bundles')
-    if (existsSync(folder) && readdirSync(folder).filter(name => name.endsWith('.json')).some(name => read(join(folder, name)).publication_pending)) diagnostics.push({ code: 'publication_pending', message: '存在未结算的发布，请先完成发布恢复' })
+    if (existsSync(folder) && readdirSync(folder).filter(name => name.endsWith('.json')).some(name => ((!projectWikis || read(join(folder, name)).bundle?.project === project) && read(join(folder, name)).publication_pending))) diagnostics.push({ code: 'publication_pending', message: '存在未结算的发布，请先完成发布恢复' })
     return diagnostics
   }
   function buildCurrent(project) {
-    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(project) || !existsSync(join(wikiRoot, project))) throw Object.assign(new Error('Wiki project not found'), { status: 404 })
+    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(project) || !existsSync(projectWikis ? sourceFor(project) : join(wikiRoot, project))) throw Object.assign(new Error('Wiki project not found'), { status: 404 })
     const intent = { id: randomUUID(), project, kind: 'manual', state: 'awaiting_validation', createdAt: Date.now() }
     const path = join(intentsRoot, intent.id + '.json')
     atomicJson(path, intent)
     try {
-      intent.diagnostics = checkCurrentInput()
+      intent.diagnostics = checkCurrentInput(project)
       if (intent.diagnostics.length) throw new Error(intent.diagnostics.map(item => item.message).join('；'))
-      intent.input = { ...snapshot(wikiRoot), project, mode: 'formal' }
+      intent.input = { ...snapshot(sourceFor(project), project), project, mode: 'formal' }
       intent.state = 'captured'; atomicJson(path, intent)
     } catch (error) {
       intent.state = 'blocked'; intent.error = error.message; atomicJson(path, intent)
@@ -89,9 +103,10 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
   }
   function output(job) { return join(buildsRoot, 'attempts', job.id, job.claimToken, 'dist') }
   function acceptOutput(job) {
+    if (projectWikis && read(join(buildsRoot, 'snapshots', job.snapshot, 'snapshot.json')).project !== job.project) throw new Error('Project storage changed; request a new isolated build')
     if (job.mode === 'formal') {
-      if (coordinator.latestFormal()?.id !== job.id) return { gitCommit: job.gitCommit, updated: false, reason: 'Superseded by a newer requested commit' }
-      return publisher.publish(output(job), job.gitCommit)
+      if (coordinator.latestFormal(projectWikis ? job.project : undefined)?.id !== job.id) return { gitCommit: job.gitCommit, updated: false, reason: 'Superseded by a newer requested commit' }
+      return { ...publisherFor(job.project).publish(output(job), job.gitCommit), siteUrl: `/wiki/${job.project}/` }
     }
     if (job.expiresAt <= Date.now()) throw new Error('Preview expired')
     const target = join(previewsRoot, job.id)
@@ -119,6 +134,7 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
     for (const file of readdirSync(folder).filter(n => n.endsWith('.json')).sort()) settled(read(join(folder, file)))
   }
   async function start() {
+    if (projectWikis) for (const project of projectWikis.list()) publisherFor(project).recover()
     reconcile()
     socket = await startBuildSocket({ socketPath: config.socketPath, waitMs: config.waitMs, coordinator, acceptOutput })
     timer = setInterval(() => {
@@ -130,8 +146,10 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
     const job = coordinator.get(id)
     const context = snapshotContext(join(buildsRoot, 'snapshots'), job.snapshot, job.digest)
     const metadata = read(join(buildsRoot, 'snapshots', job.snapshot, 'snapshot.json'))
-    if (gitIdentity(wikiRoot) !== job.gitCommit) throw Object.assign(new Error('Wiki Git baseline changed; create a new build'), { status: 409 })
+    const commit = kindFor(job.project) === repositoryKind ? repositoryCommit(sourceFor(job.project)) : gitIdentity(sourceFor(job.project))
+    if (commit !== job.gitCommit) throw Object.assign(new Error('Wiki Git baseline changed; create a new build'), { status: 409 })
     if (metadata.liveChecks.some(check => !existsSync(check.path) || hashFile(check.path) !== check.sha256)) throw Object.assign(new Error('Source evidence changed; revalidate before building'), { status: 409 })
+    if (metadata.contentKind === repositoryKind) return coordinator.retry(id)
     const rules = 'data/document-defaults/state.json'
     if (hashFile(join(projectRoot, rules)) !== hashFile(join(context.projectRoot, rules))) throw Object.assign(new Error('Document binding changed; create a new build'), { status: 409 })
     return coordinator.retry(id)
