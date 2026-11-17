@@ -227,6 +227,7 @@ export async function compileBundle(
     preview = false,
     roots = sharedRoots(),
     afterPublish,
+    onCandidate,
   } = {},
 ) {
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
@@ -274,7 +275,10 @@ export async function compileBundle(
       wikiEntries,
       preview: Boolean(preview),
     }
-    if (preview) return result
+    if (preview) {
+      if (onCandidate) await onCandidate(candidateRoot, result)
+      return result
+    }
     updateProjectRegistry(docsDir, data, wikiEntries, now, changes)
     updateAPIRegistry(docsDir, data, now, changes)
     activateSources(docsDir, data, now, changes)

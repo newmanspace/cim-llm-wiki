@@ -28,7 +28,11 @@ func NewDocumentDefaultsHandler(repository *store.Store) *DocumentDefaultsHandle
 }
 
 func (h *DocumentDefaultsHandler) request(c *gin.Context, action string, payload []byte) ([]byte, int, error) {
-	target := h.URL + "/internal/document-defaults" + action
+	return h.requestTo(c, "/internal/document-defaults"+action, payload)
+}
+
+func (h *DocumentDefaultsHandler) requestTo(c *gin.Context, path string, payload []byte) ([]byte, int, error) {
+	target := h.URL + path
 	if c.Request.URL.RawQuery != "" {
 		target += "?" + c.Request.URL.RawQuery
 	}

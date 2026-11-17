@@ -4,17 +4,19 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, cpSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { once } from 'node:events'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
+import { createServer } from 'node:http'
 import { createKnowledgeServer } from '../../wiki-service/server.mjs'
 import { resolveShared, hashFile, writeSharedFile } from '../sources.mjs'
 import { validateWiki } from '../validate.mjs'
+import { createBuildRuntime } from '../../wiki-service/build-runtime.mjs'
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
 function save(path, data) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, typeof data === 'string' ? data : JSON.stringify(data)) }
-async function fixture(t, { autoPublish = true } = {}) {
+async function fixture(t, { autoPublish = true, builds = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'shared-knowledge-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const projectRoot = join(root, 'state'), wikiRoot = join(projectRoot, 'data/wiki'), shared = join(root, 'external-share')
@@ -28,7 +30,17 @@ async function fixture(t, { autoPublish = true } = {}) {
   save(join(shared, 'sources/original.xlsx'), 'original XLSX fixture bytes')
   const reviewToken = 'human-review-only-' + 'r'.repeat(32)
   const calls = []
-  const server = createKnowledgeServer({ projectRoot, wikiRoot, roots, autoPublish, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
+  const ledgerToken = 'private-build-service-' + 'l'.repeat(32)
+  let ledgerURL
+  if (builds) {
+    const ledger = createServer((_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: { items: [], next_cursor: '' } })) })
+    ledger.listen(0, '127.0.0.1'); await once(ledger, 'listening')
+    ledgerURL = `http://127.0.0.1:${ledger.address().port}`
+    t.after(() => { ledger.closeAllConnections(); ledger.close() })
+  }
+  const buildRuntime = builds ? createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath: join(root, 'build.sock') }) : undefined
+  if (buildRuntime) t.after(() => buildRuntime.close())
+  const server = createKnowledgeServer({ projectRoot, wikiRoot, roots, autoPublish, buildRuntime, ledgerURL, ledgerToken: builds ? ledgerToken : undefined, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
     calls.push({ input, engine }); return { md: '# Terms\n\nA source-backed definition.\n', images: [] }
   } })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -48,7 +60,7 @@ async function fixture(t, { autoPublish = true } = {}) {
     qscore: { auth: 1, comp: 1, rel: 1, fresh: 1, struct: 1, reuse: 1, risk: .1, total: .99 },
   }] })
   const submit = async b => { save(join(shared, 'demo/work/nodes.json'), b); return api('bundles', { uri: 'shared://team/demo/work/nodes.json' }) }
-  return { reviewToken, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
+  return { reviewToken, ledgerToken, buildRuntime, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
 }
 async function ready(f) {
   const converted = await f.api('convert', f.registration)
@@ -270,6 +282,7 @@ test('product directory initialization runs through human review, strict compila
     .replace("from '../../packages/wiki-core/validate.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/validate.mjs')).href)}`)
     .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(baseConfigUrl)})`)
     .replace('export default defineConfig({', `export default defineConfig({\n  outDir: ${JSON.stringify(join(site, 'dist'))},\n  cacheDir: ${JSON.stringify(join(site, 'cache'))},`)
+  cpSync(join(repo, 'wiki/.vitepress/mermaid-markdown.mjs'), join(configDir, 'mermaid-markdown.mjs'))
   writeFileSync(join(configDir, 'config.mjs'), isolatedConfig)
   await runChild([join(repo, 'wiki/node_modules/vitepress/bin/vitepress.js'), 'build', site], env)
   assert.ok(existsSync(join(site, 'dist/demo/catalog/_index.html')))
@@ -297,4 +310,83 @@ test('a reviewed bundle cannot publish after its bound document contract is upgr
   const result=await f.api('compile',{bundle_id:bundle.bundle_id})
   assert.equal(result.status,409);assert.match(result.value.error,/contract changed/)
   assert.equal(existsSync(join(f.wikiRoot,'demo/doc/requirements/req-terms-001.md')),false)
+})
+
+
+test('compile preview never runs formal publication recovery', async t => {
+  const f = await fixture(t)
+  await ready(f)
+  const b = f.bundle('CR-PENDING-RECOVERY')
+  assert.equal((await f.submit(b)).status, 200)
+  const path = join(f.projectRoot, 'data/service/bundles', b.bundle_id + '.json')
+  const record = JSON.parse(readFileSync(path, 'utf8'))
+  record.publication_pending = { key: 'pending', publications: [], files: [], result: {} }
+  save(path, record)
+  const before = readFileSync(path, 'utf8')
+  const preview = await f.api('compile', { bundle_id: b.bundle_id, preview: true })
+  assert.equal(preview.status, 409)
+  assert.match(preview.value.error, /recovery.*preview/)
+  assert.equal(readFileSync(path, 'utf8'), before)
+})
+
+test('approved preview is isolated and publication durably triggers a Git-based formal build', async t => {
+  const f = await fixture(t, { autoPublish: false, builds: true })
+  await ready(f)
+  const git = args => execFileSync('git', ['-C', f.wikiRoot, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim()
+  git(['init']); git(['config', 'user.name', 'Test']); git(['config', 'user.email', 'test@example.invalid'])
+  git(['add', '.']); git(['commit', '-m', 'Baseline contract'])
+  const baseline = git(['rev-parse', 'HEAD']), b = f.bundle('CR-BUILD-001', 'L1_expert')
+  assert.equal((await f.submit(b)).status, 200)
+  const internal = async (action, data, project = 'demo', credential = f.ledgerToken) => {
+    const res = await fetch(`${f.origin}/internal/wiki-builds${action}?project=${project}`, {
+      method: data === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' },
+      body: data === undefined ? undefined : JSON.stringify(data),
+    })
+    return { status: res.status, value: await res.json() }
+  }
+  assert.equal((await internal('', undefined, 'demo', 'test-token')).status, 403)
+  assert.equal((await internal('/preview', { bundle_id: b.bundle_id })).status, 409)
+  assert.equal((await f.api('review', { bundle_id: b.bundle_id, decision: 'approve' }, f.reviewToken)).status, 200)
+  const before = readFileSync(join(f.projectRoot, 'data/documents/manifest.json'), 'utf8')
+  const preview = await internal('/preview', { bundle_id: b.bundle_id })
+  assert.equal(preview.status, 200, JSON.stringify(preview.value))
+  assert.equal(preview.value.site_build.state, 'queued')
+  assert.equal(git(['rev-parse', 'HEAD']), baseline)
+  assert.equal(git(['status', '--porcelain']), '')
+  assert.equal(readFileSync(join(f.projectRoot, 'data/documents/manifest.json'), 'utf8'), before)
+  assert.equal((await internal('/revoke', { id: preview.value.site_build.id }, 'other')).status, 404)
+  assert.equal((await internal('/revoke', { id: preview.value.site_build.id })).status, 200)
+  assert.equal((await internal('/preview', { bundle_id: b.bundle_id }, 'other')).status, 404)
+  const previous = process.env.WIKI_GITOPS_ENABLED
+  process.env.WIKI_GITOPS_ENABLED = 'true'
+  t.after(() => { if (previous === undefined) delete process.env.WIKI_GITOPS_ENABLED; else process.env.WIKI_GITOPS_ENABLED = previous })
+  const formal = await f.api('compile', { bundle_id: b.bundle_id })
+  assert.equal(formal.status, 200, JSON.stringify(formal.value))
+  assert.equal(formal.value.site_build.mode, 'formal')
+  assert.equal(formal.value.site_build.state, 'queued', JSON.stringify(formal.value.site_build))
+  assert.equal(formal.value.site_build.gitCommit, git(['rev-parse', 'HEAD']))
+  assert.notEqual(formal.value.site_build.gitCommit, baseline)
+  assert.equal(git(['status', '--porcelain']), '')
+  f.buildRuntime.reconcile()
+  const jobs = (await internal('')).value.data
+  assert.equal(jobs.filter(job => job.mode === 'formal').length, 1)
+  assert.equal('claimToken' in jobs[0], false)
+  assert.equal('snapshot' in jobs[0], false)
+})
+
+test('administrators can request the first build without a Bundle and receive durable blocked diagnostics', async t => {
+  const f = await fixture(t, { autoPublish: false, builds: true })
+  const before = readFileSync(join(f.wikiRoot, 'demo/document-contract.json'), 'utf8')
+  const request = (project, credential = f.ledgerToken) => fetch(`${f.origin}/internal/wiki-builds/build?project=${project}`, { method: 'POST', headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' }, body: '{}' })
+  assert.equal((await request('demo', 'test-token')).status, 403)
+  assert.equal((await request('other')).status, 404)
+  const response = await request('demo')
+  assert.equal(response.status, 200)
+  const { data } = await response.json()
+  assert.equal(data.state, 'blocked')
+  assert.ok(data.diagnostics.length)
+  const listed = await fetch(`${f.origin}/internal/wiki-builds?project=demo`, { headers: { Authorization: `Bearer ${f.ledgerToken}` } })
+  assert.equal((await listed.json()).data[0].id, data.id)
+  assert.equal(readFileSync(join(f.wikiRoot, 'demo/document-contract.json'), 'utf8'), before)
+  assert.equal(existsSync(join(f.wikiRoot, '.git')), false)
 })

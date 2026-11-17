@@ -22,7 +22,9 @@ export default defineConfig({
   srcExclude: ['**/templates/**'],
   // 站点挂在 /wiki/ 前缀下，页面按项目分树：/<project>/<plane>/...
   // 完整 URL 形如 /wiki/xinshun-mes/doc/business/br-wip-001
-  base: '/wiki/',
+  base: process.env.WIKI_BASE || '/wiki/',
+  ...(process.env.WIKI_OUT_DIR ? { outDir: process.env.WIKI_OUT_DIR } : {}),
+  head: process.env.WIKI_PREVIEW_ID ? [['meta', { name: 'robots', content: 'noindex,nofollow' }]] : [],
   cleanUrls: true,
   ignoreDeadLinks: false,
   lastUpdated: false,
@@ -30,6 +32,9 @@ export default defineConfig({
     config: mermaidMarkdown
   },
   vite: {
+    // Vue's server compiler consumes entities from CommonJS. Bundle it during
+    // SSR so Node never receives a synthetic default import from its ESM entry.
+    ssr: { noExternal: ['entities'] },
     resolve: {
       alias: [
         { find: /^vue$/, replacement: require.resolve('vue/dist/vue.runtime.esm-bundler.js') },
@@ -60,6 +65,9 @@ export default defineConfig({
     }
   },
   themeConfig: {
+    gitCommit: process.env.WIKI_GIT_COMMIT || '',
+    previewId: process.env.WIKI_PREVIEW_ID || '',
+    previewExpires: process.env.WIKI_PREVIEW_EXPIRES || '',
     nav,
     sidebar,
     outline: { level: [2, 3], label: '本页目录' },

@@ -1,3 +1,5 @@
+import { createBuildRuntime } from './build-runtime.mjs'
+import { publicJob } from './build-coordinator.mjs'
 import { createDocumentDefaults } from './document-defaults.mjs'
 import {
   checkDocument,
@@ -145,6 +147,7 @@ export function createKnowledgeServer({
   ledgerURL = process.env.CIM_WIKI_LEDGER_URL,
   ledgerToken = process.env.CIM_WIKI_LEDGER_TOKEN,
   organizedRoot = process.env.CIM_WIKI_ORGANIZED_ROOT,
+  buildRuntime,
 } = {}) {
   validateCredentials(token, reviewerTokens, ledgerToken)
   projectRoot = resolve(projectRoot)
@@ -597,9 +600,17 @@ export function createKnowledgeServer({
     return bundle
   }
 
-  async function compileSubmittedBundle(data) {
+  function validateCompileOptions(data) {
     if (data.preview !== undefined && typeof data.preview !== 'boolean')
       fail('preview must be a boolean')
+    if (data.site !== undefined && typeof data.site !== 'boolean')
+      fail('site must be a boolean')
+    if (data.site === true && data.preview !== true)
+      fail('site requires preview=true')
+  }
+
+  async function compileSubmittedBundle(data) {
+    validateCompileOptions(data)
     const record = getBundle(data.bundle_id)
     if (!['auto', 'approved', 'published'].includes(record.state))
       fail('Bundle is not approved for publication', 409)
@@ -608,7 +619,10 @@ export function createKnowledgeServer({
       (record.state === 'approved' && record.review?.digest !== record.digest)
     )
       fail('Bundle changed after review', 409)
-    if (record.publication_pending) return recoverQualityPublication(record)
+    if (record.publication_pending) {
+      if (data.preview) fail('Publication recovery must complete before preview', 409)
+      return recoverQualityPublication(record)
+    }
     verifyPublishedBaseline(record)
     const bundle = checkedPublicationBundle(record)
     if (record.review?.decision === 'approve')
@@ -617,16 +631,19 @@ export function createKnowledgeServer({
       bundle,
       record,
       data.preview === true,
+      data.site === true,
     )
     if (!data.preview) {
       record.state = 'published'
       record.compiled_at = now()
       writeJson(bundlePath(data.bundle_id), record)
+      if (buildRuntime) result.site_build = buildRuntime.settled(record)
     }
     return result
   }
 
-  async function compileQualityBundle(bundle, record, preview) {
+  async function compileQualityBundle(bundle, record, preview, site = false) {
+    if (site && !buildRuntime) fail('Wiki build service is not enabled', 503)
     if (!record.document_artifacts?.length)
       await quality.bindings(
         bundle.project,
@@ -647,11 +664,13 @@ export function createKnowledgeServer({
           'start',
           publicationKey,
         )
+    const hooks = buildHooks(bundle, record, preview, site)
     let result
     try {
       result = await compileBundle(bundle, {
         ...options,
         preview: preview === true,
+        ...hooks,
       })
     } catch (error) {
       if (publications.length)
@@ -685,6 +704,18 @@ export function createKnowledgeServer({
     return result
   }
 
+  function buildHooks(bundle, record, preview, site) {
+    const hooks = {}
+    if (!buildRuntime) return hooks
+    if (!preview) {
+      record.site_build_intent = buildRuntime.begin(record)
+      writeJson(bundlePath(bundle.bundle_id), record)
+      hooks.afterPublish = async () => { buildRuntime.captureFormal(record.site_build_intent) }
+    }
+    if (site) hooks.onCandidate = async (candidate, result) => { result.site_build = buildRuntime.preview(bundle.project, bundle.bundle_id, candidate) }
+    return hooks
+  }
+
   async function recoverQualityPublication(record) {
     const pending = record.publication_pending
     for (const file of pending.files) {
@@ -708,6 +739,7 @@ export function createKnowledgeServer({
     record.state = 'published'
     record.compiled_at = now()
     writeJson(bundlePath(record.bundle.bundle_id), record)
+    if (buildRuntime) pending.result.site_build = buildRuntime.settled(record)
     return pending.result
   }
 
@@ -884,6 +916,34 @@ export function createKnowledgeServer({
     return work
   }
 
+  async function internalBuilds(req, url) {
+    if (!buildRuntime) fail('Wiki build service is not enabled', 503)
+    const action = url.pathname.slice('/internal/wiki-builds'.length)
+    if (req.method === 'GET' && action === '/access') {
+      const id = identifier(url.searchParams.get('preview'), bundlePattern)
+      return { allowed: buildRuntime.coordinator.accessible(id) }
+    }
+    const project = identifier(url.searchParams.get('project'))
+    if (req.method === 'GET' && !action) return { data: buildRuntime.list(project) }
+    const data = await body(req)
+    if (req.method !== 'POST') fail('Operation not found', 404)
+    if (action === '/build') return mutate(() => ({ data: buildRuntime.buildCurrent(project) }))
+    if (action === '/preview') {
+      const record = getBundle(data.bundle_id)
+      if (record.bundle.project !== project) fail('Bundle belongs to another project', 404)
+      return mutate(() => compileSubmittedBundle({ bundle_id: data.bundle_id, preview: true, site: true }))
+    }
+    const job = buildRuntime.coordinator.get(data.id)
+    if (job.project !== project) fail('Build job not found in project', 404)
+    if (action === '/retry') return { data: publicJob(buildRuntime.retry(job.id)) }
+    if (action === '/revoke') return { data: publicJob(buildRuntime.coordinator.cancel(job.id)) }
+    fail('Operation not found', 404)
+  }
+
+  function authenticateInternal(req) {
+    if (!ledgerToken || ledgerToken.length < 32 || ledgerToken === token || !sameToken(req.headers.authorization, ledgerToken)) fail('Administrator service authentication required', 403)
+  }
+
   function authenticateAgent(req, url) {
     const reviewerIdentity = Object.entries(reviewerTokens).find(
       ([, credential]) => sameToken(req.headers.authorization, credential),
@@ -916,14 +976,13 @@ export function createKnowledgeServer({
         send(200, { status: 'ok' })
         return
       }
+      if (url.pathname.startsWith('/internal/wiki-builds')) {
+        authenticateInternal(req)
+        send(200, await internalBuilds(req, url))
+        return
+      }
       if (url.pathname.startsWith('/internal/document-defaults')) {
-        if (
-          !ledgerToken ||
-          ledgerToken.length < 32 ||
-          ledgerToken === token ||
-          !sameToken(req.headers.authorization, ledgerToken)
-        )
-          fail('Administrator service authentication required', 403)
+        authenticateInternal(req)
         send(200, await internalSettings(req, url))
         return
       }
@@ -946,7 +1005,10 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  const server = createKnowledgeServer()
+  const buildRuntime = process.env.CIM_WIKI_BUILD_ENABLED === 'true' ? createBuildRuntime({ projectRoot: process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, wikiRoot: process.env.WIKI_ROOT || join(process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT, 'data/wiki'), roots: sharedRoots() }) : null
+  if (buildRuntime) await buildRuntime.start()
+  const server = createKnowledgeServer({ buildRuntime })
+  for (const name of ['SIGTERM', 'SIGINT']) process.once(name, () => { buildRuntime?.close(); server.close(); server.closeAllConnections() })
   server.requestTimeout = 15 * 60 * 1000
   server.listen(
     Number(process.env.KNOWLEDGE_PORT || 8090),

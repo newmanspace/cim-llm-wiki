@@ -396,10 +396,7 @@
             /></label>
             <button @click="preview">查看候选正文与原文转换稿</button>
             <template v-if="previewData"
-              ><h4>候选正文</h4>
-              <pre>{{ previewData.markdown }}</pre>
-              <h4>原文转换稿</h4>
-              <pre>{{ previewData.parsed }}</pre>
+              ><DocumentPreview :key="projectId + selected.id" :markdown="previewData.markdown" :parsed="previewData.parsed" :project="projectId" />
               <button @click="downloadOriginal">下载原件核对</button></template
             >
             <label>审核意见 <textarea v-model="reviewNote" /></label>
@@ -432,6 +429,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import client from '@/api/client'
+import DocumentPreview from './DocumentPreview.vue'
 const props = withDefaults(
   defineProps<{
     projectId: string
@@ -828,9 +826,11 @@ async function humanRequest(path: string, body?: Row) {
 }
 async function preview() {
   await run(async () => {
-    previewData.value = await humanRequest(
-      `document-result-preview?project=${encodeURIComponent(props.projectId)}&id=${selected.value!.id}`,
+    const project = props.projectId, id = selected.value!.id
+    const data = await humanRequest(
+      `document-result-preview?project=${encodeURIComponent(project)}&id=${id}`,
     )
+    if (props.projectId === project && selected.value?.id === id) previewData.value = data
   })
 }
 async function downloadOriginal() {

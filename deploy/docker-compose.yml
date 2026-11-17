@@ -7,7 +7,6 @@
 #   - 后端流水线/Admin API: http://<宿主机IP>:8099/api/v1/...
 # 直连调试端口 (各自独立，可选):
 #   - 后端流水线 API 服务: http://<宿主机IP>:8080
-#   - 知识库 Web 交互界面: http://<宿主机IP>:5174
 #   - Admin 控制台独立:   http://<宿主机IP>:8095/admin/
 # ==============================================================================
 
@@ -68,6 +67,7 @@ services:
     image: cim-wiki-knowledge:latest
     volumes:
       - ../data:/app/data
+      - wiki_build_socket:/run/cim-wiki-build
       - ${CIM_WIKI_SHARED_DIR:-../data/shared}:/shared
       - ${CIM_WIKI_ORGANIZED_DIR:-../data/organized}:/organized
     environment:
@@ -76,6 +76,13 @@ services:
       - CIM_WIKI_LEDGER_TOKEN=${CIM_WIKI_LEDGER_TOKEN:-}
       - CIM_WIKI_ORGANIZED_ROOT=/organized
       - WIKI_ROOT=/app/data/wiki
+      - CIM_WIKI_BUILD_ENABLED=${CIM_WIKI_BUILD_ENABLED:-true}
+      - CIM_WIKI_BUILD_SOCKET=/run/cim-wiki-build/coordinator.sock
+      - WIKI_GITOPS_ENABLED=${WIKI_GITOPS_ENABLED:-true}
+      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-cim-wiki-bot}
+      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-bot@cim-wiki.local}
+      - GIT_COMMITTER_NAME=${GIT_AUTHOR_NAME:-cim-wiki-bot}
+      - GIT_COMMITTER_EMAIL=${GIT_AUTHOR_EMAIL:-bot@cim-wiki.local}
       - CIM_WIKI_SHARED_ROOTS={"team":"/shared"}
       - CIM_WIKI_AUTO_PUBLISH=${CIM_WIKI_AUTO_PUBLISH:-false}
       - CIM_WIKI_API_TOKEN=${CIM_WIKI_API_TOKEN:-}
@@ -90,26 +97,37 @@ services:
       - markitdown
 
   # ── 2. 前端展示服务: VitePress 知识库 Web 交互站点 ──────────────────────────
-  wiki:
+  wiki-runtime:
     build:
       context: ..
       dockerfile: deploy/wiki/Dockerfile
     image: cim-wiki-web:latest
-    container_name: cim-wiki-web
-    ports:
-      - "5174:5174"
+    container_name: cim-wiki-runtime
     volumes:
-      - ../data/wiki:/data/wiki
-      - ../data:/app/data:ro
-      - ${CIM_WIKI_SHARED_DIR:-../data/shared}:/shared
-      - ${CIM_WIKI_ORGANIZED_DIR:-../data/organized}:/organized:ro
-    environment:
-      - PORT=5174
-      - WIKI_ROOT=/data/wiki
-      - CIM_WIKI_SHARED_ROOTS={"team":"/shared"}
+      - ../data/wiki-site:/data/wiki-site:ro
+      - ../data/wiki-previews:/data/wiki-previews:ro
     restart: unless-stopped
     depends_on:
-      - server
+      - knowledge
+
+  wiki-worker:
+    build:
+      context: ..
+      dockerfile: deploy/wiki-worker/Dockerfile
+    image: cim-wiki-worker:latest
+    volumes:
+      - ../data/wiki-builds/attempts:/app/data/wiki-builds/attempts
+      - ../data/wiki-builds/snapshots:/app/data/wiki-builds/snapshots:ro
+      - wiki_build_socket:/run/cim-wiki-build
+    environment:
+      - CIM_WIKI_WORKSPACE=/app
+      - CIM_WIKI_BUILD_SOCKET=/run/cim-wiki-build/coordinator.sock
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    depends_on:
+      - knowledge
 
   # ── 2b. Admin 管理控制台: Vue3 + Element Plus SPA (nginx 静态托管 + /api 反代) ────
   #     docker compose up -d 即随全栈启动，访问 http://<宿主机IP>:8095/admin/
@@ -216,10 +234,11 @@ services:
     depends_on:
       - knowledge
       - server
-      - wiki
+      - wiki-runtime
       - admin
 
 volumes:
+  wiki_build_socket:
   mineru_data:
   qdrant_data:
   meili_data:

@@ -136,6 +136,12 @@ func buildHandler(cfg *config.Config) (http.Handler, func(), error) {
 			slog.Warn("Auth disabled: /wiki/ and /admin/ gate is transparent (open)")
 		}
 
+		wikiBuilds := handler.NewWikiBuildHandler()
+		buildManagement := v1.Group("/admin/projects/:id/wiki-builds", auth.RequireSession())
+		buildManagement.GET("", wikiBuilds.Handle)
+		buildManagement.POST("/:action", wikiBuilds.Handle)
+		v1.GET("/admin/wiki-preview-access", auth.RequireSession(), wikiBuilds.PreviewAccess)
+
 		// Admin API (Project Registry management, requires PostgreSQL)
 		if adminStore != nil {
 			admin := handler.NewAdminHandler(adminStore)

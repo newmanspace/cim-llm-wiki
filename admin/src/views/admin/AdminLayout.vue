@@ -114,6 +114,7 @@ const menuItems = computed(() => [
   { path: '/projects', label: t('menu.projects'), icon: FolderIcon },
   { path: '/document-directories', label: '文档目录与评分', icon: FolderIcon },
   { path: '/document-results', label: '文档结果', icon: FolderIcon },
+  { path: '/wiki-builds', label: 'Wiki 构建与预览', icon: FolderIcon },
 ])
 
 function isActive(path: string) {
@@ -123,6 +124,7 @@ function isActive(path: string) {
 const currentTitle = computed(() => {
   if (route.path === '/document-directories') return '文档目录与评分'
   if (route.path === '/document-results') return '文档结果'
+  if (route.path === '/wiki-builds') return 'Wiki 构建与预览'
   if (route.path === '/settings/document-templates') return '全局项目文档模板定义'
   if (route.path.startsWith('/projects')) return t('menu.projects')
   if (route.path === '/dashboard') return t('menu.dashboard')
