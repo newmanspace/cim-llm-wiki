@@ -1,3 +1,4 @@
+import { namingPolicyErrors } from './document-naming.mjs'
 import {
   existsSync,
   mkdirSync,
@@ -412,6 +413,7 @@ export function checkDefinition(value) {
   const errors = []
   const add = (rule_id, message) =>
     errors.push({ rule_id, severity: 'error', message })
+  namingPolicyErrors(value).forEach(message => add('document_naming_policy', message))
   const paths = new Set()
   for (const d of value.directories) {
     if (d.node_types.some((t) => !Object.hasOwn(NODE_TYPES, t)))
@@ -499,6 +501,10 @@ export function createDefaultsStore(projectRoot) {
   }
   return {
     state,
+    binding(project) {
+      id(project)
+      return read().bindings[project] || null
+    },
     save(definition, revision, actor) {
       const s = read()
       if (s.revision !== revision) fail('Settings revision conflict', 409)
@@ -1009,7 +1015,7 @@ function validTimestamp(value) {
 
 function compareDefinitions(current, target) {
   if (!target) return []
-  return ['templates', 'directories', 'terms', 'delivery'].flatMap(
+  const changes = ['templates', 'directories', 'terms', 'delivery'].flatMap(
     (section) => {
       const key =
         section === 'directories'
@@ -1036,6 +1042,9 @@ function compareDefinitions(current, target) {
       )
     },
   )
+  if (JSON.stringify(current?.naming) !== JSON.stringify(target.naming))
+    changes.push({ section: 'naming', id: 'policy', action: current?.naming ? 'changed' : 'added' })
+  return changes
 }
 
 const sampleVariables = {

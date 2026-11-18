@@ -24,7 +24,8 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
   let socket, timer
   const sourceFor = project => projectWikis ? projectWikis.source(project) : wikiRoot
   const kindFor = project => projectWikis?.kind(project) || 'strict_nodes'
-  const snapshot = (source, project, candidate = false) => captureSnapshot({ projectRoot, wikiRoot: source, gitRoot: sourceFor(project), roots, contentKind: kindFor(project), buildsRoot: join(buildsRoot, 'snapshots'), ...(projectWikis ? { project, ...(!candidate ? { sourceRoot: source } : {}) } : {}) })
+  let namingProvider = () => null
+  const snapshot = (source, project, candidate = false) => captureSnapshot({ projectRoot, wikiRoot: source, gitRoot: sourceFor(project), roots, contentKind: kindFor(project), namingManifest: namingProvider(project), buildsRoot: join(buildsRoot, 'snapshots'), ...(projectWikis ? { project, ...(!candidate ? { sourceRoot: source } : {}) } : {}) })
   const projectPublishers = new Map()
   const publisherFor = project => {
     if (!projectWikis) return publisher
@@ -159,6 +160,7 @@ export function createBuildRuntime({ projectRoot, wikiRoot, roots, socketPath, p
     return [...coordinator.list(project), ...blocked].sort((a, b) => b.createdAt - a.createdAt)
   }
   return { coordinator, begin, captureFormal, settled, preview, buildCurrent, start, reconcile, retry, list,
+    setNamingProvider(provider) { namingProvider = provider },
     close() { clearInterval(timer); socket?.close(); socket?.closeAllConnections(); coordinator.close() },
   }
 }

@@ -9,6 +9,8 @@ import { atomicJson } from './build-job-store.mjs'
 import { toolchainIdentity } from './build-toolchain.mjs'
 import { parsePage } from './markdown.mjs'
 import { PROJECT_ROOT } from './contracts.mjs'
+import { createDefaultsStore } from './document-defaults.mjs'
+import { validateNamedTree } from './document-naming.mjs'
 
 export function copySafe(source, target) {
   const stat = lstatSync(source)
@@ -53,13 +55,15 @@ function snapshotPermissions(path) {
   chmodSync(path, stat.isDirectory() ? 0o750 : 0o640)
   if (stat.isDirectory()) for (const name of readdirSync(path)) snapshotPermissions(join(path, name))
 }
-export function captureSnapshot({ projectRoot, wikiRoot, gitRoot = wikiRoot, roots, buildsRoot, project, sourceRoot, contentKind = 'strict_nodes' }) {
-  if (contentKind === repositoryKind) return captureRepository({ gitRoot, project, buildsRoot })
+export function captureSnapshot({ projectRoot, wikiRoot, gitRoot = wikiRoot, roots, buildsRoot, project, sourceRoot, contentKind = 'strict_nodes', namingManifest }) {
+  requireNamingSnapshot(projectRoot, project, namingManifest)
+  if (contentKind === repositoryKind) return captureRepository({ gitRoot, project, buildsRoot, namingManifest })
   const gitCommit = gitIdentity(gitRoot), toolchainDigest = toolchainIdentity(PROJECT_ROOT), id = randomUUID(), target = join(buildsRoot, id)
   mkdirSync(target, { recursive: true })
   try {
     assertValidWiki({ projectRoot, wikiRoot, roots, project, sourceRoot })
     copyWikiInput({ wikiRoot, sourceRoot, project, target })
+    freezeNaming(target, project, namingManifest)
     for (const folder of ['documents', 'document-defaults']) {
       const path = join(projectRoot, 'data', folder)
       if (existsSync(path)) copySafe(path, join(target, 'state/data', folder))
@@ -89,6 +93,11 @@ export function snapshotContext(buildsRoot, id, digest) {
   const root = resolve(buildsRoot, id)
   const metadata = JSON.parse(readFileSync(join(root, 'snapshot.json'), 'utf8'))
   if (metadata.schemaVersion !== 1 || metadata.digest !== digest || treeDigest(root, ['snapshot.json']) !== digest) throw new Error('Build snapshot integrity check failed')
+  const namingPath = join(root, 'naming.json')
+  if (existsSync(namingPath)) {
+    const manifest = JSON.parse(readFileSync(namingPath, 'utf8'))
+    validateNamedTree(join(root, 'state/data/wiki', metadata.project || manifest.project), manifest)
+  }
   return { contentKind: metadata.contentKind, project: metadata.project, projectRoot: join(root, 'state'), wikiRoot: join(root, 'state/data/wiki'), roots: Object.fromEntries(metadata.rootIds.map(key => [key, join(root, 'shared', key)])) }
 }
 
@@ -120,16 +129,28 @@ function scopeSnapshotManifest(target, project, manifest) {
     }
 }
 
-function captureRepository({ gitRoot, project, buildsRoot }) {
+function captureRepository({ gitRoot, project, buildsRoot, namingManifest }) {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(project || '')) throw new Error('Invalid repository project')
   const gitCommit = repositoryCommit(gitRoot), toolchainDigest = toolchainIdentity(PROJECT_ROOT), id = randomUUID(), target = join(buildsRoot, id)
   mkdirSync(target, { recursive: true })
   try {
     exportCommittedDocs(gitRoot, gitCommit, join(target, 'state/data/wiki', project))
+    freezeNaming(target, project, namingManifest)
     if (repositoryCommit(gitRoot) !== gitCommit) throw new Error('Repository Git baseline changed during snapshot capture')
     const digest = treeDigest(target)
     atomicJson(join(target, 'snapshot.json'), { schemaVersion: 1, contentKind: repositoryKind, gitCommit, project, digest, rootIds: [], liveChecks: [] })
     snapshotPermissions(target)
     return { snapshot: id, digest, gitCommit, toolchainDigest, contentKind: repositoryKind }
   } catch (error) { rmSync(target, { recursive: true, force: true }); throw error }
+}
+
+function freezeNaming(target, project, manifest) {
+  if (!manifest) return
+  validateNamedTree(join(target, 'state/data/wiki', project || manifest.project), manifest)
+  atomicJson(join(target, 'naming.json'), manifest)
+}
+
+function requireNamingSnapshot(projectRoot, project, manifest) {
+  const defaults = createDefaultsStore(projectRoot)
+  if (project && defaults.binding(project) && defaults.effective(project).definition.naming && !manifest) throw new Error('NAMING_SNAPSHOT_REQUIRED')
 }

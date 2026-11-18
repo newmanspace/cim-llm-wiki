@@ -12,7 +12,9 @@ test('administrative settings require independent service authentication; contra
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const ledger = createServer((req, res) => {
     res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({ data: { items: [], next_cursor: null } }))
+    const project = new URL(req.url, 'http://localhost').pathname.split('/')[4]
+    const data = req.url.endsWith('/project') ? { id: project, repos: [], modules: ['pipeline'], docs: [] } : { items: [], next_cursor: null }
+    res.end(JSON.stringify({ data }))
   })
   ledger.listen(0, '127.0.0.1')
   await once(ledger, 'listening')
@@ -113,7 +115,9 @@ test('administrative settings require independent service authentication; contra
     undefined,
     'agent-token',
   )
-  assert.equal(missing.status, 409)
+  assert.equal(missing.status, 200)
+  assert.equal(missing.value.configuration_status.document_defaults, 'missing')
+  assert.equal(missing.value.capabilities.submit, false)
   assert.equal(
     (
       await call(endpoint + '/save', {

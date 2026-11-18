@@ -4,7 +4,7 @@
 
 ## 读取与执行
 
-以显式项目 ID 读取 `GET /api/v1/admin/projects/{project}/config`，使用该项目的 project-token；服务连接沿用 `ADMIN_URL`、`ADMIN_PROJECT_TOKEN`、`ADMIN_PROJECT_ID`。这些是服务 API 认证，不是 Git/SVN 账密，不能将 `CIM_WIKI_TOKEN` 当成 project-token。
+优先从 `context --project <project-id>` 的 `repos` 读取代码源，并检查 `configuration_status.project`；注册表未启用或读取失败时不能把 null 当成无仓库。也可用显式项目 ID 读取 `GET /api/v1/admin/projects/{project}/config`，使用该项目的 project-token；服务连接沿用 `ADMIN_URL`、`ADMIN_PROJECT_TOKEN`、`ADMIN_PROJECT_ID`。这些是服务 API 认证，不是 Git/SVN 账密，不能将 `CIM_WIKI_TOKEN` 当成 project-token。
 
 读取 `repos` 中的 `name`、`type`、`url`、`subpath`、`revision_selector`、`enabled`、`config_revision` 和 `module_mapping`。缺项时回到项目设置补齐；停用源跳过。按配置在独立本地工作区获取或 checkout，不能在主项目或其他项目工作区误执行 fetch、switch 或 update。
 

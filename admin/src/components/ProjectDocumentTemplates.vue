@@ -7,6 +7,13 @@
       <template v-if="binding?.current">
         <p>绑定版本：{{ binding.from_version }} · 模板数量：{{ binding.current.templates.length }}</p>
         <p class="digest">绑定摘要：{{ binding.from_digest }}</p>
+        <aside v-if="binding.current.naming" aria-label="文档命名规则">
+          <h3>文档命名规则</h3>
+          <p><code>{项目缩写}-{文档类型}-{模块}-{主题}-{序号}.md</code></p>
+          <p>序号按项目内的模块递增，跨文档类型和主题共用；文档修订保持编号不变。</p>
+          <p>项目、类型、模块、主题的组合唯一，不能通过更换序号重复创建。</p>
+          <p>文档类型：{{ binding.current.naming.types.map(item => item.code).join('、') }}</p>
+        </aside>
         <label>
           文档模板
           <select v-model="selected" aria-label="文档模板">
@@ -49,7 +56,7 @@ type ProjectTemplate = {
 type ProjectBinding = {
   from_version: string | null
   from_digest: string | null
-  current: { templates: ProjectTemplate[] } | null
+  current: { templates: ProjectTemplate[]; naming?: { format: string; types: { code: string; template_ids: string[] }[] } } | null
 }
 const props = defineProps<{ projectId: string }>()
 const binding = ref<ProjectBinding | null>(null)

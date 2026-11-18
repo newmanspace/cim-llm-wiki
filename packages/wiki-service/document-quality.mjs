@@ -85,6 +85,7 @@ export function createDocumentQuality({
   roots,
   registeredDocument,
   wikiRoot,
+  namingCheck,
 }) {
   const enabled = Boolean(ledgerURL && ledgerToken)
   if (Boolean(ledgerURL) !== Boolean(ledgerToken))
@@ -131,9 +132,13 @@ export function createDocumentQuality({
     } catch {
       fail('Document ledger is unavailable', 503)
     }
-    const value = await response.json()
-    if (!response.ok)
-      fail(value.error || 'Document ledger request failed', response.status)
+    let value
+    try {
+      value = await response.json()
+    } catch {
+      fail('Document ledger returned an invalid response', 503)
+    }
+    if (!response.ok) throw Object.assign(new Error(value.error || 'Document ledger request failed'), { status: response.status, code: value.code, existing: value.existing })
     return value.data
   }
   async function all(project, resource) {
@@ -148,43 +153,34 @@ export function createDocumentQuality({
     } while (cursor)
     return items
   }
+  async function sources(project) {
+    const [sources, configs] = await Promise.all([all(project, 'data-sources'), all(project, 'source-revisions')])
+    return sources.map(source => {
+      const config = configs.find(config => config.id === source.config_id && config.source_id === source.id)
+      if (!config) fail('Data source configuration is missing', 409)
+      return { ...source, ...config, id: source.id, config_id: source.config_id, enabled: source.enabled, revision: source.revision }
+    })
+  }
+  async function directories(project, definition) {
+    return (await all(project, 'document-directories')).map(directory => ({
+      ...directory,
+      node_types: definition ? documentDirectoryRule(definition, directory.path)?.node_types || [] : null,
+    }))
+  }
   async function context(project) {
     if (!enabled) return { document_quality: { enabled: false } }
-    const [sources, configs, directories] = await Promise.all([
-      all(project, 'data-sources'),
-      all(project, 'source-revisions'),
-      all(project, 'document-directories'),
-    ])
     const definition = createDefaultsStore(projectRoot).effective(project).definition
+    const [data_sources, document_directories] = await Promise.all([sources(project), directories(project, definition)])
+    return { data_sources, document_directories, document_quality: info() }
+  }
+  function info() {
     return {
-      document_directories: directories.map((d) => ({
-        ...d,
-        node_types: documentDirectoryRule(definition, d.path)?.node_types || [],
-      })),
-      data_sources: sources.map((s) => ({
-        ...s,
-        ...configs.find((c) => c.id === s.config_id),
-        id: s.id,
-        config_id: s.config_id,
-        enabled: s.enabled,
-        revision: s.revision,
-      })),
-      document_quality: {
-        enabled: true,
-        rule_scope: 'classified-markdown-directory',
-        document_dimensions: [
-          'fidelity',
-          'completeness',
-          'traceability',
-          'consistency',
-          'structure',
-          'usability',
-          'validity',
-        ],
-        organized_export_enabled: Boolean(organizedRoot),
-        requires_human: false,
-        approval_policy: 'directory-quality-policy',
-      },
+      enabled,
+      rule_scope: 'classified-markdown-directory',
+      document_dimensions: ['fidelity', 'completeness', 'traceability', 'consistency', 'structure', 'usability', 'validity'],
+      organized_export_enabled: Boolean(organizedRoot),
+      requires_human: false,
+      approval_policy: 'directory-quality-policy',
     }
   }
   async function find(project, resource, id) {
@@ -251,6 +247,7 @@ export function createDocumentQuality({
     )
       fail('Parsed document is not frozen at its registered version', 409)
     if(!artifact.document_contract_digest)fail('Artifact contract binding is missing',409)
+    if (namingCheck) await namingCheck(project, artifact.document_id, { ...artifact, document: readFileSync(artifact.snapshot_path, 'utf8') })
     checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'))
     return artifact
   }
@@ -270,7 +267,16 @@ export function createDocumentQuality({
     artifact.document_contract_digest=binding.digest
   }
 
+  async function prepareNamingIdentity(project, data) {
+    const naming = namingCheck ? await namingCheck(project, data.document_id, { ...data, document: readFileSync(resolveShared(data.content_uri, roots), 'utf8') }) : null
+    if (naming?.identity) {
+      if (data.logical_key && data.logical_key !== data.document_id) fail('logical_key must be the document identity', 422)
+      data.logical_key = data.document_id
+      data.naming_digest = naming.digest
+    }
+  }
   async function prepareArtifact(project, data) {
+    await prepareNamingIdentity(project, data)
     checkArtifactDirectory(project, data)
     const doc = registeredDocument(data.parsed_uri)
     if (doc.project !== project)
@@ -571,6 +577,9 @@ export function createDocumentQuality({
   }
   return {
     enabled,
+    info,
+    sources,
+    directories,
     context,
     call,
     all,

@@ -5,18 +5,48 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"cim-llm-wiki/internal/documentquality"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-var qualityTables = map[string]bool{"directory_events": true, "directories": true, "ingest_sources": true, "ingest_artifacts": true, "data_sources": true, "source_revisions": true, "ingest_runs": true, "source_versions": true, "artifact_versions": true, "quality_policies": true, "evaluations": true, "quality_issues": true, "review_tasks": true, "review_events": true, "publications": true, "command_receipts": true}
+var qualityTables = map[string]bool{"naming_settings": true, "document_counters": true, "document_identities": true, "directory_events": true, "directories": true, "ingest_sources": true, "ingest_artifacts": true, "data_sources": true, "source_revisions": true, "ingest_runs": true, "source_versions": true, "artifact_versions": true, "quality_policies": true, "evaluations": true, "quality_issues": true, "review_tasks": true, "review_events": true, "publications": true, "command_receipts": true}
 
 type qualityTx struct {
 	ctx            context.Context
 	tx             pgx.Tx
 	project, actor string
+}
+
+func (q *qualityTx) ProjectModules() ([]string, error) {
+	rows, err := q.tx.Query(q.ctx, "SELECT module_id FROM project_modules WHERE project_id=$1 ORDER BY module_id", q.project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	modules := []string{}
+	for rows.Next() {
+		var module string
+		if err = rows.Scan(&module); err != nil {
+			return nil, err
+		}
+		modules = append(modules, module)
+	}
+	return modules, rows.Err()
+}
+
+func (q *qualityTx) SetProjectModules(modules []string) error {
+	if _, err := q.tx.Exec(q.ctx, "DELETE FROM project_modules WHERE project_id=$1", q.project); err != nil {
+		return err
+	}
+	for _, module := range modules {
+		if _, err := q.tx.Exec(q.ctx, "INSERT INTO project_modules(project_id,module_id) VALUES($1,$2)", q.project, module); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func qualityError(err error) error {
@@ -25,6 +55,9 @@ func qualityError(err error) error {
 	}
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) {
+		if pg.Code == "23505" && strings.Contains(pg.ConstraintName, "dq_document_identities") {
+			return &documentquality.Error{Status: 409, Code: "DOCUMENT_NAME_CONFLICT", Message: "Document business key, module sequence or filename is already reserved"}
+		}
 		switch pg.Code {
 		case "23505", "40001", "40P01":
 			return &documentquality.Error{Status: 409, Message: "Concurrent change or duplicate document record"}
@@ -127,7 +160,7 @@ func (q *qualityTx) Insert(kind string, r documentquality.Record) (documentquali
 	return q.Get(kind, id)
 }
 func (q *qualityTx) Update(kind, id string, revision int, r documentquality.Record) (documentquality.Record, error) {
-	if kind != "directories" && kind != "data_sources" && kind != "ingest_runs" && kind != "review_tasks" && kind != "publications" {
+	if kind != "document_counters" && kind != "naming_settings" && kind != "directories" && kind != "data_sources" && kind != "ingest_runs" && kind != "review_tasks" && kind != "publications" {
 		return nil, fmt.Errorf("history cannot be updated")
 	}
 	table, _ := q.table(kind)

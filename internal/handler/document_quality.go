@@ -16,12 +16,13 @@ import (
 
 type DocumentQualityHandler struct {
 	service   documentquality.Service
+	store     projectContextReader
 	token     string
 	reviewers map[string]string
 }
 
 func NewDocumentQualityHandler(s *store.Store) *DocumentQualityHandler {
-	h := &DocumentQualityHandler{service: documentquality.Service{Repository: s}, token: os.Getenv("CIM_WIKI_LEDGER_TOKEN"), reviewers: map[string]string{}}
+	h := &DocumentQualityHandler{store: s, service: documentquality.Service{Repository: s}, token: os.Getenv("CIM_WIKI_LEDGER_TOKEN"), reviewers: map[string]string{}}
 	_ = json.Unmarshal([]byte(os.Getenv("CIM_WIKI_REVIEW_TOKENS")), &h.reviewers)
 	return h
 }
@@ -44,7 +45,7 @@ func qualityReply(c *gin.Context, v any, err error) {
 	}
 	var typed *documentquality.Error
 	if errors.As(err, &typed) {
-		c.JSON(typed.Status, gin.H{"error": typed.Message})
+		c.JSON(typed.Status, gin.H{"error": typed.Message, "code": typed.Code, "existing": typed.Existing})
 		return
 	}
 	c.JSON(503, gin.H{"error": "Document ledger unavailable"})
@@ -56,12 +57,12 @@ func (h *DocumentQualityHandler) Command(c *gin.Context) {
 		actor = "project-administrator"
 	}
 	internal := strings.HasPrefix(c.FullPath(), "/internal/")
-	if !internal && op != "data-sources" && op != "quality-policies" && op != "document-directories" && op != "quality-policy-preview" {
+	if !internal && op != "naming-settings" && op != "data-sources" && op != "quality-policies" && op != "document-directories" && op != "quality-policy-preview" {
 		qualityReply(c, nil, &documentquality.Error{Status: 403, Message: "Administrative sessions may only edit configuration; use the verified knowledge workflow for document mutations"})
 		return
 	}
 
-	if internal && (op == "data-sources" || op == "quality-policies" || op == "document-directories" || op == "quality-policy-preview") {
+	if internal && (op == "naming-settings" || op == "data-sources" || op == "quality-policies" || op == "document-directories" || op == "quality-policy-preview") {
 		qualityReply(c, nil, &documentquality.Error{Status: 403, Message: "Configuration requires a human administrator session"})
 		return
 	}
@@ -93,9 +94,13 @@ func (h *DocumentQualityHandler) Command(c *gin.Context) {
 	qualityReply(c, v, e)
 }
 
-var qualityResources = map[string]string{"directory-events": "directory_events", "document-directories": "directories", "ingest-source-links": "ingest_sources", "ingest-artifact-links": "ingest_artifacts", "data-sources": "data_sources", "source-revisions": "source_revisions", "ingest-runs": "ingest_runs", "source-observations": "source_versions", "document-results": "artifact_versions", "quality-policies": "quality_policies", "document-evaluations": "evaluations", "quality-issues": "quality_issues", "document-review-tasks": "review_tasks", "document-review-events": "review_events", "publications": "publications"}
+var qualityResources = map[string]string{"naming-settings": "naming_settings", "document-identities": "document_identities", "directory-events": "directory_events", "document-directories": "directories", "ingest-source-links": "ingest_sources", "ingest-artifact-links": "ingest_artifacts", "data-sources": "data_sources", "source-revisions": "source_revisions", "ingest-runs": "ingest_runs", "source-observations": "source_versions", "document-results": "artifact_versions", "quality-policies": "quality_policies", "document-evaluations": "evaluations", "quality-issues": "quality_issues", "document-review-tasks": "review_tasks", "document-review-events": "review_events", "publications": "publications"}
 
 func (h *DocumentQualityHandler) List(c *gin.Context) {
+	if c.Param("resource") == "project" && strings.HasPrefix(c.FullPath(), "/internal/") {
+		h.projectContext(c)
+		return
+	}
 	if c.Param("resource") == "directory-catalog" {
 		rows, e := h.service.DirectoryCatalog(c.Request.Context(), c.Param("id"))
 		if e != nil {
@@ -170,6 +175,9 @@ func (h *DocumentQualityHandler) List(c *gin.Context) {
 	cursor := c.Query("cursor")
 	started := cursor == ""
 	for _, r := range rows {
+		if !matchesIdentityQuery(c, resource, r) {
+			continue
+		}
 		if filters != nil && !filters(r) {
 			continue
 		}
@@ -261,4 +269,16 @@ func (h *DocumentQualityHandler) resultFilters(c *gin.Context, resource string) 
 		}
 		return qualityStatus == "" || qualityStatus == status
 	}, nil
+}
+
+func matchesIdentityQuery(c *gin.Context, resource string, r documentquality.Record) bool {
+	if resource != "document_identities" {
+		return true
+	}
+	for _, key := range []string{"doc_type", "module", "topic"} {
+		if value := c.Query(key); value != "" && documentquality.Text(r, key) != value {
+			return false
+		}
+	}
+	return c.Query("document_id") == "" || c.Query("document_id") == documentquality.Text(r, "id")
 }

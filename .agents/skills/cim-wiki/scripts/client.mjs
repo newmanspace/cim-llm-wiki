@@ -5,10 +5,10 @@ import { createHash } from 'node:crypto'
 
 try {
   const [command, ...args] = process.argv.slice(2)
-  const routes = { initialize: ['POST', 'initialize'], directories: ['GET', 'directories'], 'update-directories': ['POST', 'directories'], context: ['GET', 'context'], document: ['GET', 'document'], bundle: ['GET', 'bundle'],
+  const routes = { 'reserve-document-identity': ['POST', 'document-identities/reserve'], initialize: ['POST', 'initialize'], directories: ['GET', 'directories'], 'update-directories': ['POST', 'directories'], context: ['GET', 'context'], document: ['GET', 'document'], bundle: ['GET', 'bundle'],
     'render-document':['POST','render-document'], 'check-document': ['POST','check-document'], convert: ['POST', 'convert'], register: ['POST', 'register'], state: ['POST', 'state'],
     submit: ['POST', 'bundles'], review: ['POST', 'review'], compile: ['POST', 'compile'], validate: ['POST', 'validate'] }
-  for (const resource of ['data-sources','source-revisions','ingest-runs','source-observations','ingest-source-links','ingest-artifact-links','document-results','quality-policies','quality-policy-effective','document-evaluations','quality-issues','document-review-tasks','document-review-events','publications']) routes['list-'+resource] = ['GET',resource]
+  for (const resource of ['document-identities','naming-settings','data-sources','source-revisions','ingest-runs','source-observations','ingest-source-links','ingest-artifact-links','document-results','quality-policies','quality-policy-effective','document-evaluations','quality-issues','document-review-tasks','document-review-events','publications']) routes['list-'+resource] = ['GET',resource]
   for (const resource of ['ingest-runs','source-observations','artifacts','document-evaluations','document-review-decisions','publish-document']) routes[resource] = ['POST',resource]
   if (!routes[command]) throw new Error('Usage: client.mjs initialize|directories|update-directories|context|document|bundle|convert|register|state|submit|review|compile|validate [--project ID|--source URI|--id ID|--json-file FILE]')
   const base = process.env.CIM_WIKI_URL
@@ -20,10 +20,10 @@ try {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('CIM_WIKI_URL must be an HTTP(S) service origin without credentials')
   const options = {}
   for (let i = 0; i < args.length; i++) {
-    if (!['--project', '--source', '--id', '--json-file', '--path', '--cursor', '--limit', '--status', '--folder', '--source-id', '--quality-status', '--review-status', '--run-id'].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith('--')) throw new Error('Invalid client option')
+    if (!['--doc-type', '--module', '--topic', '--document-id', '--project', '--source', '--id', '--json-file', '--path', '--cursor', '--limit', '--status', '--folder', '--source-id', '--quality-status', '--review-status', '--run-id'].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith('--')) throw new Error('Invalid client option')
     options[args[i]] = args[++i]
   }
-  for (const flag of ['--project', '--source', '--id', '--path', '--cursor', '--limit', '--status', '--folder', '--source-id', '--quality-status', '--review-status', '--run-id']) if (options[flag]) url.searchParams.set(flag.slice(2).replaceAll('-', '_'), options[flag])
+  for (const flag of ['--doc-type', '--module', '--topic', '--document-id', '--project', '--source', '--id', '--path', '--cursor', '--limit', '--status', '--folder', '--source-id', '--quality-status', '--review-status', '--run-id']) if (options[flag]) url.searchParams.set(flag.slice(2).replaceAll('-', '_'), options[flag])
   const method = routes[command][0]
   let body
   if (method === 'POST') {
@@ -34,7 +34,7 @@ try {
   const response = await fetch(url, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(body ? { 'Idempotency-Key': command + '-' + createHash('sha256').update(body).digest('hex') } : {}) },
     body, redirect: 'error', signal: AbortSignal.timeout(15 * 60 * 1000) })
   const value = await response.json()
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${value.error || 'Request failed'}`)
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${value.error || 'Request failed'}` + (value.code ? ` [${value.code}]` : '') + (value.existing ? '\n' + JSON.stringify({ existing: value.existing }) : ''))
   console.log(JSON.stringify(value, null, 2))
   if (command === 'validate' && value.errors?.length) process.exitCode = 1
 } catch (e) { console.error(e.message); process.exitCode = 1 }

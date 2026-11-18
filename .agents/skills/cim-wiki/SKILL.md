@@ -22,9 +22,35 @@ export CIM_WIKI_URL=https://<cim-llm-wiki 服务地址>
 export CIM_WIKI_TOKEN=<服务端配置的访问令牌>
 ```
 
+`CIM_WIKI_URL` 应指向可路由到 knowledge 服务的入口：本项目宿主机统一网关为 `http://<部署主机>:8099`；同一 Compose 网络内可直连 `http://knowledge:8090`。Go 管理服务的 `8080` 不提供 v2 路由。遇到 404 先按[服务地址与路由排查](references/service-api.md#服务地址与路由排查)核对实际请求 origin，不能仅依据 Go 服务启动日志判定 v2 未部署或建议重启。远程 Agent 的 localhost 指向 Agent 自身，须使用其可达的部署主机地址。
+
 下文 `$SKILL` 为 skill 安装目录的绝对路径。令牌从环境读取，不写入文件或输出给用户。API 和请求格式见 [references/service-api.md](references/service-api.md)。
 
+## 获取项目上下文
+
+文档编写、修订、转换测试和摄取开始前，先读取指定项目已有配置：
+
+```bash
+node "$SKILL/scripts/client.mjs" context --project <project-id>
+```
+
+对应 `GET {CIM_WIKI_URL}/api/v2/knowledge/context?project=<project-id>`，使用环境中的 `CIM_WIKI_TOKEN`。`CIM_WIKI_URL` 只填写服务 origin，不包含 API 路径。
+
+先检查 `configuration_status`、`diagnostics` 和 `capabilities`，HTTP 200 只表示配置发现成功，不表示可以采集或发布。诊断的 `affected_operations` 列出配置影响；能力标志仅反映配置前提，实际操作继续由服务校验来源、内容、质量和审核。缺少交付契约时仍可读取数据源和生效模板；采集脚本在 `capabilities.collect` 不为 true 时停止，不开始下载。`repository_docs` 返回适用信息及 `not_applicable` 状态，文档仓继续使用 Git 构建。
+
+| 所需信息 | 返回位置 |
+| --- | --- |
+| 项目基本信息、关联原文、代码源及模块 | `project_info`；顶层 `repos`、`modules` 为同源展示，管理接口 `docs` 不是 SVN/Git 文档源列表 |
+| 文档源及当前配置 | `data_sources`；采集版本选择为 `revision_selector`，历史固定 revision/commit 从采集记录读取 |
+| 模板绑定与生效模板 | `template_binding`、`document_defaults.definition.templates`，按模板 `id` 选择；顶层 `templates` 是按 node_type 汇总的正文，不是完整模板清单 |
+| 通用格式、术语与目录类型规则 | `document_defaults.definition`；持久化归类目录为 `document_directories` |
+| 交付要求 | `delivery_contract` |
+
+`ready` 的空数组表示确实没有记录；`missing`、`invalid`、`disabled`、`unavailable`、`not_applicable` 分别表示未配置、无效、能力关闭、读取失败及不适用。不可用集合为 null，不能当成“没有配置”。未启用项目注册表时只返回本地已知项目的发现信息，`repos/modules` 为 null；无权限、不存在或注册表故障按 HTTP 错误处理。只停止确实依赖缺项的操作，不自动补齐绑定或发布规则。响应及诊断示例见 [服务调用契约](references/service-api.md#项目上下文响应)。
+
 ## 按任务选择流程
+
+项目启用 `context.document_naming.enabled` 后，受管业务文档采用 `{项目缩写}-{文档类型}-{模块}-{主题}-{序号}.md`。按[文档命名与身份登记](references/document-naming.md)先查询并取得身份；不得自行猜序号或通过换号重复创建同主题文档。原件、解析稿和模板不随业务文档改名。
 
 | 用户任务 | 执行入口 |
 | --- | --- |
@@ -98,7 +124,7 @@ export CIM_WIKI_TOKEN=<服务端配置的访问令牌>
 node "$SKILL/scripts/client.mjs" context --project <project-id>
 ```
 
-读取服务返回的交付契约、节点 Schema、类型规则和生效模板。模板采用项目显式覆盖 > 系统绑定的已发布版本 > 内置初始定义；系统初始化先发布内置初始定义，项目运行时必须绑定具体已发布版本，不读取旧配置兜底。项目缺少 document-contract.json 或未绑定已发布模板契约时，报告具体缺项；由管理员在系统设置中发布并绑定规则，不依据当前页面反推或放宽标准。读取 context.document_defaults 中的生效模板、契约及术语定义，按 contract.format 采用其通用格式；文档标题与文档信息名称保持一致，参考列表及修订记录依据返回的表格契约生成，不复用旧模板格式；专门模板候选文档生成后调用 check-document 检查正文及目标路径；无专门模板的文档执行通用格式检查，不伪造 template_id。提交和发布仍由服务重验。
+读取服务返回的交付契约、节点 Schema、类型规则和生效模板。模板采用项目显式覆盖 > 系统绑定的已发布版本 > 内置初始定义；系统初始化先发布内置初始定义，项目运行时必须绑定具体已发布版本，不读取旧配置兜底。原始资料采集不依赖 document-contract.json、模板绑定或文档数量；检查 collect 能力及来源配置后即可从零采集。后续文档整理和发布遇到项目缺少 document-contract.json 或未绑定已发布模板契约时，报告具体缺项；由管理员在系统设置中发布并绑定规则，不依据当前页面反推或放宽标准。先检查 context.configuration_status 和 capabilities，再读取 context.document_defaults 中的生效模板、契约及术语定义，按 contract.format 采用其通用格式；文档标题与文档信息名称保持一致，参考列表及修订记录依据返回的表格契约生成，不复用旧模板格式；专门模板候选文档生成后调用 check-document 检查正文及目标路径；无专门模板的文档执行通用格式检查，不伪造 template_id。提交和发布仍由服务重验。
 
 已有专门模板的文档类型按匹配的生效模板生成；没有专门模板的源资料按通用标准格式整理，不能据此认定资料不属于项目文档。FRD、模块导航、场景、交互、代码索引及复用方案为按需补充，避免与 URD／SDD／代码契约重复。测试、发布、部署和事件等记录区分计划、未执行与真实验证结果，不以模板示例作为完成证据。
 

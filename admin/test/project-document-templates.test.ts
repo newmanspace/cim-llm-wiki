@@ -42,6 +42,15 @@ test('an unbound project shows a binding action hint instead of global templates
   expect(wrapper.find('select').exists()).toBe(false)
 })
 
+test('shows only the explicitly bound naming policy and explains module numbering and business uniqueness', async () => {
+  api.get.mockResolvedValue({ data: { ...binding, current: { ...binding.current, naming: { format: 'project-type-module-topic-sequence-v1', types: [{ code: 'sdd', template_ids: ['sdd'] }, { code: 'idd', template_ids: ['idd'] }] } } } })
+  await render()
+  expect(wrapper.find('[aria-label="文档命名规则"]').text()).toContain('sdd、idd')
+  expect(wrapper.text()).toContain('跨文档类型和主题共用')
+  expect(wrapper.text()).toContain('不能通过更换序号重复创建')
+  expect(api.post).not.toHaveBeenCalled()
+})
+
 test('load failure clears stale content and refresh recovers', async () => {
   api.get.mockRejectedValueOnce({ response: { data: { error: '模板服务不可用' } } })
   await render()

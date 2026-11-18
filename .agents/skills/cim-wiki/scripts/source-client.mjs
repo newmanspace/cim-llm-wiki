@@ -55,8 +55,14 @@ export async function runSourceCLI(collect, type) {
       throw new Error(`Knowledge service HTTP ${response.status}`)
     return value.data || value
   }
-  const context = await call('context?project=' + encodeURIComponent(project)),
-    source = context.data_sources?.find(
+  const context = await call('context?project=' + encodeURIComponent(project))
+  if (context.capabilities?.collect !== true) {
+    const reasons = (context.diagnostics || [])
+      .filter(diagnostic => diagnostic.affected_operations?.includes('collect'))
+      .map(diagnostic => diagnostic.code)
+    throw new Error('Project collection is not ready' + (reasons.length ? ': ' + reasons.join(', ') : ''))
+  }
+  const source = context.data_sources?.find(
       (s) => String(s.id) === options['--source-id'],
     )
   if (!source || !source.enabled || source.type !== type)

@@ -34,7 +34,7 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
   const ledgerToken = 'private-build-service-' + 'l'.repeat(32)
   let ledgerURL
   if (builds) {
-    const ledger = createServer((_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: { items: [], next_cursor: '' } })) })
+    const ledger = createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: req.url.endsWith('/project') ? { id: 'demo', repos: [], modules: ['terms'], docs: [] } : { items: [], next_cursor: '' } })) })
     ledger.listen(0, '127.0.0.1'); await once(ledger, 'listening')
     ledgerURL = `http://127.0.0.1:${ledger.address().port}`
     t.after(() => { ledger.closeAllConnections(); ledger.close() })

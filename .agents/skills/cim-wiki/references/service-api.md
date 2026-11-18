@@ -22,6 +22,63 @@
 
 所有写操作请求为 JSON；`--json-file -` 从 stdin 读取。客户端显示服务响应，HTTP 失败或完整校验发现 errors 时以非零状态退出，不自动重复写入请求。
 
+## 服务地址与路由排查
+
+本项目知识 API 由独立 Node `knowledge` 服务提供；Go `server` 提供 `/api/v1/admin` 等管理 API。版本路径不表示两套 API 必须注册到同一个进程。
+
+| 调用位置 | CIM_WIKI_URL | 用途 |
+| --- | --- | --- |
+| 宿主机或可访问部署主机的远程 Agent | `http://<部署主机>:8099`，或运维提供的统一域名 | 网关将 `/api/v2/knowledge/` 转发到 knowledge |
+| 同一 Compose 网络内的容器 | `http://knowledge:8090` | 直接访问知识服务 |
+| Go 管理服务 | `http://<部署主机>:8080` | 不提供 `/api/v2/knowledge`，不能作为此 skill 的入口 |
+
+先查看当前环境中的 CIM_WIKI_URL（不输出令牌），运行 `client.mjs context --project <ID>` 并检查 HTTP 结果。404 时核对实际 host/port、网关是否包含 knowledge 转发及项目是否存在；401 时检查知识服务令牌；连接失败或 502 时检查网络和 knowledge 上游。context 成功但 collect=false 时再看返回的配置诊断。
+
+Go 启动日志只列出 admin 路由是正常现象，不能据此判断知识服务没有加载。`docker restart cim-wiki-server` 只重启 Go 进程，不更新镜像、不加载 Node 路由。Compose 服务名是 server、knowledge，不存在 wiki-server；文档处理 skill 不自行重建、重启服务。需要运维处理时报告已验证的请求 origin、状态码与响应诊断，隐藏凭据。
+
+独立安装时同步整个 `.agents/skills/cim-wiki/` 目录，保留 scripts 和 references；主仓库中其他同名简版或旧副本不能代替这个客户端包。
+
+## 项目上下文响应
+
+`context --project ID` 用于发现已有配置，不执行写入或自动修复。返回 `configuration_status`、`diagnostics`、`capabilities`；操作前根据能力标志判断配置是否就绪，不能只判断 HTTP 200。`collect`、`check_document`、`submit`、`compile`、`publish_document` 仍受对应操作的实际来源、契约、质量及审核校验约束。
+
+完整项的状态为 ready；缺项及失败状态包括 missing、invalid、disabled、unavailable、not_applicable。关联字段在不可读或不适用时为 null；成功读到的列表可为 []。`template_binding` 表示持久化绑定，`document_defaults` 仅在有效定义可读取时有值。缺少模板时目录项 `node_types` 为 null，不能推测类型。模块配置与绑定清单不同时返回 MODULE_INVENTORY_MISMATCH 诊断，不自动同步。
+
+以下为缺少交付契约的响应节选，不是可直接用于摄取的完整响应：
+
+```json
+{
+  "project": "example-project",
+  "content_kind": "strict_nodes",
+  "configuration_status": {
+    "project": "ready",
+    "document_defaults": "ready",
+    "delivery_contract": "missing",
+    "directory": "missing",
+    "data_sources": "ready",
+    "document_directories": "ready"
+  },
+  "delivery_contract": null,
+  "data_sources": [],
+  "document_directories": [],
+  "diagnostics": [{
+    "component": "delivery_contract",
+    "code": "DELIVERY_CONTRACT_MISSING",
+    "message": "Project configuration is not set",
+    "affected_operations": ["submit", "compile", "publish_document"]
+  }],
+  "capabilities": {
+    "collect": false,
+    "check_document": true,
+    "submit": false,
+    "compile": false,
+    "publish_document": false
+  }
+}
+```
+
+独立 `list-data-sources --project ID` 和 `list-source-revisions --project ID` 也不依赖交付契约。无配置权限时报告诊断，不通过临时参数或默认最新版绕过配置。认证不匹配返回 401；独立权限拒绝返回 403；项目不存在返回 404；项目注册表不可用返回 503；非法项目参数返回 400。项目令牌与知识服务令牌的认证契约仍分别处理。
+
 ## 受控枚举与机器契约
 
 绑定项目后调用 `context --project <project-id>`，读取 `vocabulary`、节点 Schema 和模板契约。结构化字段使用当次服务允许的值：
@@ -40,7 +97,7 @@
 
 ## 可选：初始化产品展示目录
 
-initialize 复用现有 project 命名空间，只接受 project、name、product_version、modules，采用系统已发布的模板、文档契约及默认目录。不接受旧 version/delivery_contract 参数或自动化配置覆盖。系统模板需先由管理员登录后台“系统设置 · 文档模板”检查并发布。directories 返回当前 revision 和目录映射，update-directories 提交完整目录数组并检查 expected_revision。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 document_defaults 返回项目绑定版本、有效模板及契约摘要，document_defaults_schema 返回定义的机器结构。未绑定有效版本时返回409，必须由管理员明确绑定，不根据已有页面生成标准。
+initialize 复用现有 project 命名空间，只接受 project、name、product_version、modules，采用系统已发布的模板、文档契约及默认目录。不接受旧 version/delivery_contract 参数或自动化配置覆盖。系统模板需先由管理员登录后台“系统设置 · 文档模板”检查并发布。directories 返回当前 revision 和目录映射，update-directories 提交完整目录数组并检查 expected_revision。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 document_defaults 返回项目绑定版本、有效模板及契约摘要，document_defaults_schema 返回定义的机器结构。context 在未绑定有效版本时返回明确的缺项或无效诊断；依赖绑定的操作仍拒绝，必须由管理员明确绑定，不根据已有页面生成标准。
 
 生成前读取 document_defaults.definition.templates，按模板正文和 contract 填充；check-document 可提前检查，服务提交与发布仍独立重验。术语全称从有效 definition.terms 读取，受控节点枚举仍来自 vocabulary。归类产物登记须指定 template_id，document_contract_digest 由服务计算。
 
@@ -138,3 +195,5 @@ render-document 使用已绑定模板的正文骨架和显式 values 填充元�
 路径路由规则见 [document-routing.md](document-routing.md)。check-document 传入 target_path 时检查该路径是否允许所选模板的 node_type；省略时只检查正文，不能声称目录已验证。类型映射唯一来源是 Project 绑定的 document_defaults.definition.directories，context.document_directories 的 node_types 是按路径派生的展示值。
 
 artifacts 登记、复核及 publish-document 始终检查路由，不能省略。非法路径返回 document_target_invalid，无适用规则返回 document_directory_unmapped，类型不匹配返回 document_directory_mismatch，诊断包含模板、类型、目标路径、命中目录和允许目录。服务导出保留 artifact.target_path 的平面前缀，不根据正文重新选目录。
+
+采集可以从零份文档开始：collect 仅依赖可读取的项目登记、来源台账及至少一个启用源，不依赖模板绑定、交付契约、文档目录或已交付数量。ingest-runs 与 source-observations 保留认证、项目归属、源配置/版本及证据校验；后续文档登记和发布仍执行各自的契约门禁。

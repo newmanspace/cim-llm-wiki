@@ -61,7 +61,7 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 		return
 	}
 	action := c.Param("action")
-	allowed := map[string]bool{"": true, "save": true, "publish": true, "check": true, "render": true, "preview": true, "bind": true, "project": true}
+	allowed := map[string]bool{"": true, "save": true, "publish": true, "check": true, "render": true, "preview": true, "bind": true, "bind-naming": true, "project": true}
 	if !allowed[action] {
 		c.JSON(404, gin.H{"error": "Unknown template operation"})
 		return
@@ -82,7 +82,7 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 	var bindingRequest struct {
 		Project string `json:"project"`
 	}
-	if action == "/bind" && h.Store != nil {
+	if (action == "/bind" || action == "/bind-naming") && h.Store != nil {
 		if err := json.Unmarshal(payload, &bindingRequest); err != nil {
 			c.JSON(422, gin.H{"error": "Invalid project binding"})
 			return

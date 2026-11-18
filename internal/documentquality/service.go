@@ -20,12 +20,14 @@ type Repository interface {
 }
 type Service struct{ Repository Repository }
 type Error struct {
-	Status  int
-	Message string
+	Status   int
+	Message  string
+	Code     string
+	Existing Record
 }
 
 func (e *Error) Error() string                 { return e.Message }
-func problem(status int, message string) error { return &Error{status, message} }
+func problem(status int, message string) error { return &Error{Status: status, Message: message} }
 func Text(r Record, key string) string         { v, _ := r[key].(string); return v }
 func number(r Record, key string) float64 {
 	switch v := r[key].(type) {
@@ -112,7 +114,7 @@ func (s Service) Execute(ctx context.Context, project, actor, operation, key str
 		if e != nil {
 			return e
 		}
-		digest := Digest(input)
+		digest := commandDigest(operation, input)
 		for _, r := range receipts {
 			if Text(r, "operation") == operation && Text(r, "key") == key {
 				if Text(r, "request_digest") != digest {
@@ -122,7 +124,7 @@ func (s Service) Execute(ctx context.Context, project, actor, operation, key str
 				return nil
 			}
 		}
-		out, e = s.mutate(tx, actor, operation, input)
+		out, e = s.executeOperation(tx, actor, operation, input)
 		if e != nil {
 			return e
 		}
@@ -130,6 +132,13 @@ func (s Service) Execute(ctx context.Context, project, actor, operation, key str
 		return e
 	})
 	return out, err
+}
+
+func commandDigest(operation string, input Record) string {
+	if operation == "reserve-document-identity" {
+		return Digest(Record{"doc_type": input["doc_type"], "module": input["module"], "topic": input["topic"]})
+	}
+	return Digest(input)
 }
 func (s Service) Read(ctx context.Context, project, actor, resource string) ([]Record, error) {
 	var rows []Record
@@ -149,6 +158,16 @@ func (s Service) Policy(ctx context.Context, project, actor, path string) (Effec
 	var p Effective
 	e := s.Repository.WithProject(ctx, project, actor, func(tx Tx) error { var err error; p, err = effective(tx, path); return err })
 	return p, e
+}
+func (s Service) executeOperation(tx Tx, actor, operation string, input Record) (Record, error) {
+	handlers := map[string]func(Tx, Record) (Record, error){"naming-settings": saveNamingSettings, "reserve-document-identity": reserveDocumentIdentity}
+	if handler := handlers[operation]; handler != nil {
+		if err := nonPublishing(tx); err != nil {
+			return nil, err
+		}
+		return handler(tx, input)
+	}
+	return s.mutate(tx, actor, operation, input)
 }
 func (s Service) mutate(tx Tx, actor, op string, r Record) (Record, error) {
 	if op != "publication-start" && op != "publication-finish" && op != "ingest-runs" {
@@ -470,7 +489,7 @@ func saveArtifact(tx Tx, r Record) (Record, error) {
 		}
 	}
 	out := Record{}
-	for _, field := range []string{"run_id", "logical_key", "target_path", "content_uri", "content_sha256", "snapshot_path", "parsed_uri", "recipe_version", "source_links", "template_id", "document_contract_digest"} {
+	for _, field := range []string{"document_id", "naming_digest", "run_id", "logical_key", "target_path", "content_uri", "content_sha256", "snapshot_path", "parsed_uri", "recipe_version", "source_links", "template_id", "document_contract_digest"} {
 		out[field] = r[field]
 	}
 	out["version"] = version

@@ -341,6 +341,44 @@
         ],
         "additionalProperties": false
       }
+    },
+    "naming": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "project-type-module-topic-sequence-v1"
+        },
+        "types": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              "template_ids": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "code",
+              "template_ids"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "format",
+        "types"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

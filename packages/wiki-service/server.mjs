@@ -1,3 +1,4 @@
+import { createDocumentNaming } from './document-naming.mjs'
 import { createProjectWiki } from './project-wiki.mjs'
 import { createBuildRuntime } from './build-runtime.mjs'
 import { publicJob } from './build-coordinator.mjs'
@@ -5,10 +6,9 @@ import { createDocumentDefaults } from './document-defaults.mjs'
 import {
   checkDocument,
   templateFor,
-  definitionSchema,
-  templateVariables,
 } from '../wiki-core/document-defaults.mjs'
 import { createDocumentQuality } from './document-quality.mjs'
+import { createProjectContext } from './project-context.mjs'
 import {
   readDirectory,
   updateDirectory,
@@ -30,8 +30,6 @@ import { pathToFileURL } from 'node:url'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   PROJECT_ROOT,
-  CONTRACT_ROOT,
-  NODE_TYPES,
   schemaErrors,
   readContractJson,
   nodeLocation,
@@ -172,9 +170,11 @@ export function createKnowledgeServer({
     existsSync(bundlePath(id))
       ? json(bundlePath(id))
       : fail('Bundle not found', 404)
+  let naming
   const quality = createDocumentQuality({
     ledgerURL,
     ledgerToken,
+    namingCheck: (...args) => naming.requireIdentity(...args),
     organizedRoot,
     projectRoot,
     roots,
@@ -182,9 +182,11 @@ export function createKnowledgeServer({
     wikiRoot,
   })
   const defaults = createDocumentDefaults(projectRoot, wikiRoot, sourceFor)
+  naming = createDocumentNaming({ defaults, quality })
+  connectNamingToBuild(buildRuntime, naming)
   let queue = Promise.resolve()
 
-  function context(project) {
+  function requireProjectContract(project) {
     identifier(project)
     if (projectWikis?.kind(project) === 'repository_docs') fail('Documentation repositories use Git builds and do not accept strict-node compilation', 409)
     const contractPath = wikiPath(project, 'document-contract.json')
@@ -194,44 +196,13 @@ export function createKnowledgeServer({
     const errors = schemaErrors('documentSet', contract)
     if (errors.length || contract.project !== project)
       fail(`Invalid delivery contract: ${errors.join('; ')}`, 409)
-    const effective = defaults.store.effective(project)
-    const contracts = {},
-      templates = {}
-    for (const entry of effective.definition.templates) {
-      if (templates[entry.node_type]) continue
-      templates[entry.node_type] = entry.body
-      contracts[entry.node_type] = {
-        ...NODE_TYPES[entry.node_type],
-        requiredSections: [
-          ...new Set([
-            ...(NODE_TYPES[entry.node_type].requiredSections || []),
-            ...entry.contract.sections.map((s) => '## ' + s),
-          ]),
-        ],
-        tables: [
-          ...(NODE_TYPES[entry.node_type].tables || []),
-          ...entry.contract.tables.map((t) => ({
-            section: '## ' + t.section,
-            columns: t.columns,
-          })),
-        ],
-      }
-    }
-    return {
-      schema_version: '1.0',
-      document_defaults: effective,
-      document_defaults_schema: definitionSchema,
-      template_variables: templateVariables,
-      project,
-      delivery_contract: contract,
-      directory: readDirectory(project, projectOptions(project)),
-      node_types: NODE_TYPES,
-      node_schema: json(join(CONTRACT_ROOT, 'node.schema.json')),
-      vocabulary: json(join(CONTRACT_ROOT, 'vocabulary.json')),
-      template_contracts: contracts,
-      templates,
-    }
+    defaults.store.effective(project)
+    readDirectory(project, projectOptions(project))
   }
+
+  const discovery = createProjectContext({ defaults, quality, naming, projectWikis, wikiPath,
+    readDirectory: project => readDirectory(project, projectOptions(project)),
+  })
 
   function prepareRegistration(data, convert) {
     identifier(data.project)
@@ -439,12 +410,14 @@ export function createKnowledgeServer({
     const value = readContractJson(resolveShared(data.uri, roots))
     identifier(value.bundle_id, bundlePattern)
     identifier(value.project)
-    context(value.project)
+    requireProjectContract(value.project)
     if (!Array.isArray(value.nodes) || !value.nodes.length)
       fail('A versioned bundle with nodes is required')
     const effective = defaults.store.effective(value.project)
     const manifest = docs()
     for (const node of value.nodes) {
+      const checked = await naming.requireIdentity(value.project, node.document_id, { ...node, template_id: templateFor(effective.definition, node).id, node_id: node.id, document: '# ' + node.title + '\n\n' + node.content })
+      if (checked.identity) node.naming_digest = checked.digest
       const diagnostics = checkDocument(
         templateFor(effective.definition, node),
         '# ' + node.title + '\n\n' + node.content,
@@ -630,6 +603,7 @@ export function createKnowledgeServer({
     }
     verifyPublishedBaseline(record)
     const bundle = checkedPublicationBundle(record)
+    for (const node of bundle.nodes) await naming.requireIdentity(bundle.project, node.document_id, { ...node, template_id: templateFor(defaults.store.effective(bundle.project).definition, node).id, node_id: node.id, document: '# ' + node.title + '\n\n' + node.content })
     if (record.review?.decision === 'approve')
       for (const node of bundle.nodes) node.reviewer = record.review.reviewer
     const result = await compileQualityBundle(
@@ -710,14 +684,17 @@ export function createKnowledgeServer({
   }
 
   function buildHooks(bundle, record, preview, site) {
-    const hooks = {}
+    const hooks = { onCandidate: async (candidate, result) => {
+      await naming.prepareBuild(bundle.project)
+      naming.validateTree(bundle.project, join(candidate, bundle.project))
+      if (site) result.site_build = buildRuntime.preview(bundle.project, bundle.bundle_id, candidate)
+    } }
     if (!buildRuntime) return hooks
     if (!preview) {
       record.site_build_intent = buildRuntime.begin(record)
       writeJson(bundlePath(bundle.bundle_id), record)
-      hooks.afterPublish = async () => { buildRuntime.captureFormal(record.site_build_intent) }
+      hooks.afterPublish = async () => { await naming.prepareBuild(bundle.project); buildRuntime.captureFormal(record.site_build_intent) }
     }
-    if (site) hooks.onCandidate = async (candidate, result) => { result.site_build = buildRuntime.preview(bundle.project, bundle.bundle_id, candidate) }
     return hooks
   }
 
@@ -751,10 +728,7 @@ export function createKnowledgeServer({
   const getRoutes = {
     '/directories': (url) =>
       readDirectory(url.searchParams.get('project'), projectOptions(url.searchParams.get('project'))),
-    '/context': async (url) => {
-      const project = url.searchParams.get('project')
-      return { ...context(project), ...(await quality.context(project)) }
-    },
+    '/context': url => discovery.discover(identifier(url.searchParams.get('project'))),
     '/document': (url) => {
       const rec = getDoc(url.searchParams.get('source'))
       return {
@@ -775,7 +749,12 @@ export function createKnowledgeServer({
       if (projectWikis) projectWikis.initialize(data.project)
       return defaults.initialize(data)
     },
-    '/check-document': (data) => defaults.check(data),
+    '/check-document': async data => {
+      const result = defaults.check(data)
+      const checked = await naming.check(identifier(data.project), data.document_id, data)
+      result.errors.push(...checked.errors)
+      return result
+    },
     '/render-document': (data) => defaults.render(data),
     '/directories': (data) => updateDirectory(data, projectOptions(data.project)),
     '/convert': (data) => register(data, true),
@@ -789,6 +768,8 @@ export function createKnowledgeServer({
 
   async function qualityRoute(req, url, data, reviewerIdentity, path) {
     const reads = [
+      'naming-settings',
+      'document-identities',
       'data-sources',
       'source-revisions',
       'ingest-runs',
@@ -816,7 +797,7 @@ export function createKnowledgeServer({
       ['/document-result-preview', '/document-result-original'].includes(path)
     ) {
       const project = url.searchParams.get('project')
-      context(project)
+      await discovery.projectInfo(identifier(project))
       return {
         data: await quality.preview(
           project,
@@ -827,7 +808,7 @@ export function createKnowledgeServer({
     }
     if (req.method === 'GET' && reads.includes(path.slice(1))) {
       const project = url.searchParams.get('project')
-      context(project)
+      await discovery.projectInfo(identifier(project))
       return {
         data: await quality.call(project, path.slice(1), {
           query: Object.fromEntries(
@@ -837,7 +818,9 @@ export function createKnowledgeServer({
       }
     }
     if (req.method === 'POST' && writes.includes(path.slice(1))) {
-      context(data.project)
+      if (['/ingest-runs', '/source-observations'].includes(path))
+        await discovery.projectInfo(identifier(data.project))
+      else requireProjectContract(data.project)
       if (path === '/document-review-decisions' && !reviewerIdentity)
         fail('Independent human reviewer authentication required', 403)
       return {
@@ -850,7 +833,7 @@ export function createKnowledgeServer({
       }
     }
     if (req.method === 'POST' && path === '/publish-document') {
-      context(data.project)
+      requireProjectContract(data.project)
       return {
         data: await quality.publish(data, req.headers['idempotency-key']),
       }
@@ -859,6 +842,10 @@ export function createKnowledgeServer({
 
   async function route(req, url, data, reviewerIdentity) {
     const path = url.pathname.slice(PREFIX.length)
+    if (path === '/document-identities/reserve' && req.method === 'POST') {
+      await discovery.projectInfo(identifier(data.project))
+      return { data: await naming.reserve(data, req.headers['idempotency-key']) }
+    }
     const qualityResult = await qualityRoute(
       req,
       url,
@@ -892,6 +879,20 @@ export function createKnowledgeServer({
       'POST /preview': () =>
         defaults.store.preview(data.project, data.overrides || {}),
       'POST /render': () => defaults.render(data),
+      'POST /bind-naming': async () => {
+        const project = identifier(data.project), current = defaults.store.binding(project)
+        if ((current?.digest || null) !== data.expected_digest) fail('Project binding changed; preview again', 409)
+        const preview = defaults.store.preview(project, current?.overrides || {})
+        if (Object.keys(data).some(key => !['project', 'version', 'expected_digest'].includes(key))) fail('Unknown naming binding field')
+        if (data.version !== preview.to_version || !preview.target?.naming) fail('Explicit published naming version required', 409)
+        if (current) {
+          const oldDefinition = { ...defaults.store.effective(project).definition }, nextDefinition = { ...preview.target }
+          delete oldDefinition.naming; delete nextDefinition.naming
+          if (hashValue(oldDefinition) !== hashValue(nextDefinition)) fail('Naming-only binding cannot change document templates or directory rules', 409)
+        }
+        const info = await discovery.projectInfo(project)
+        return defaults.store.bind(project, info.modules, current?.overrides || {}, data.version, true, true, actor)
+      },
       'POST /bind': () => {
         if (projectWikis && data.wiki_source_directory) projectWikis.configure(data.project, { sourceDirectory: data.wiki_source_directory })
         if (projectWikis) projectWikis.initialize(data.project)
@@ -936,7 +937,7 @@ export function createKnowledgeServer({
     if (req.method === 'GET' && !action) return { data: buildRuntime.list(project) }
     const data = await body(req)
     if (req.method !== 'POST') fail('Operation not found', 404)
-    if (action === '/build') return mutate(() => ({ data: buildRuntime.buildCurrent(project) }))
+    if (action === '/build') return mutate(async () => { await naming.prepareBuild(project); return { data: buildRuntime.buildCurrent(project) } })
     if (action === '/preview') {
       const record = getBundle(data.bundle_id)
       if (record.bundle.project !== project) fail('Bundle belongs to another project', 404)
@@ -1024,6 +1025,8 @@ export function createKnowledgeServer({
     } catch (e) {
       send(e.status || (e instanceof SyntaxError ? 400 : 422), {
         error: e.message,
+        ...(e.code ? { code: e.code } : {}),
+        ...(e.existing ? { existing: e.existing } : {}),
       })
     }
   })
@@ -1060,4 +1063,8 @@ function projectStorage(options, projectWikis) {
 
 function resolveProjectWikis(value, { projectRoot, wikiRoot }) {
   return value === undefined ? createProjectWiki({ projectRoot, legacyRoot: wikiRoot }) : value
+}
+
+function connectNamingToBuild(runtime, naming) {
+  if (runtime) runtime.setNamingProvider(project => naming.buildManifest(project))
 }
