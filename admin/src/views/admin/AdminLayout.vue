@@ -7,17 +7,17 @@
           {{ t('common.appName') }}
         </span>
         <t-tooltip :content="collapsed ? t('menu.expandSidebar') : t('menu.collapseSidebar')" placement="right">
-          <div class="sidebar-toggle" @click="collapsed = !collapsed">
+          <button type="button" class="sidebar-toggle" :aria-label="collapsed ? t('menu.expandSidebar') : t('menu.collapseSidebar')" :aria-expanded="!collapsed" @click="collapsed = !collapsed">
             <ChevronRightIcon v-if="collapsed" class="icon" />
             <ChevronLeftIcon v-else class="icon" />
-          </div>
+          </button>
         </t-tooltip>
       </div>
 
       <div class="menu_top">
         <div class="menu_box" v-for="item in menuItems" :key="item.path">
           <t-tooltip :content="item.label" placement="right" :disabled="!collapsed">
-            <router-link :to="{ path: item.path, query: route.query.project || route.params.id ? { project: String(route.query.project || route.params.id) } : {} }" class="menu_item" :class="{ menu_item_active: isActive(item.path) }">
+            <router-link :to="{ path: item.path, query: route.query.project || route.params.id ? { project: String(route.query.project || route.params.id) } : {} }" class="menu_item" :class="{ menu_item_active: isActive(item.path) }" :aria-current="isActive(item.path) ? 'page' : undefined">
               <div class="menu_item-box">
                 <div class="menu_icon"><component :is="item.icon" class="icon" /></div>
                 <span v-if="!collapsed" class="menu_title" :title="item.label">{{ item.label }}</span>
@@ -29,11 +29,11 @@
       </div>
     </div>
 
-    <div class="admin-body">
+    <div class="admin-body" :inert="drawerOpen || undefined">
       <!-- 顶栏：面包屑 + 语言 + 主题 -->
       <div class="admin-topbar">
         <div class="topbar-left">
-          <div v-if="isMobile" class="hamburger" @click="drawerOpen = true"><MenuIcon class="icon" /></div>
+          <button v-if="isMobile" ref="menuTrigger" type="button" class="hamburger" aria-label="打开导航" :aria-expanded="drawerOpen" aria-controls="mobile-navigation" @click="drawerOpen = true"><MenuIcon class="icon" /></button>
           <t-breadcrumb max-item-width="160">
             <t-breadcrumb-item :to="{ path: '/dashboard' }">{{ t('common.appName') }}</t-breadcrumb-item>
             <t-breadcrumb-item v-if="route.path.startsWith('/settings/')">系统设置</t-breadcrumb-item>
@@ -42,10 +42,10 @@
         </div>
         <div class="topbar-right">
           <t-tooltip :content="isDark ? t('menu.lightMode') : t('menu.darkMode')" placement="bottom">
-            <div class="icon-btn" @click="toggleTheme">
+            <button type="button" class="icon-btn" :aria-label="isDark ? t('menu.lightMode') : t('menu.darkMode')" @click="toggleTheme">
               <SunnyIcon v-if="isDark" class="icon" />
               <MoonIcon v-else class="icon" />
-            </div>
+            </button>
           </t-tooltip>
           <t-select v-model="localeValue" size="small" class="lang-select" @change="onLocaleChange">
             <t-option value="zh-CN" label="简体中文" />
@@ -60,15 +60,15 @@
     </div>
 
     <!-- 移动端抽屉导航 -->
-    <div v-if="isMobile && drawerOpen" class="drawer-mask" @click="drawerOpen = false">
-      <div class="admin-sidebar admin-drawer" @click.stop>
+    <div v-if="isMobile && drawerOpen" class="drawer-mask" @click="drawerOpen = false" @keydown="drawerKeydown">
+      <div id="mobile-navigation" ref="drawerPanel" class="admin-sidebar admin-drawer" role="dialog" aria-modal="true" aria-label="导航菜单" @click.stop>
         <div class="logo_row">
           <span class="logo-text">{{ t('common.appName') }}</span>
-          <div class="sidebar-toggle" @click="drawerOpen = false"><CloseIcon class="icon" /></div>
+          <button type="button" class="sidebar-toggle" aria-label="关闭导航" @click="drawerOpen = false"><CloseIcon class="icon" /></button>
         </div>
         <div class="menu_top">
           <div class="menu_box" v-for="item in menuItems" :key="item.path">
-            <router-link :to="{ path: item.path, query: route.query.project || route.params.id ? { project: String(route.query.project || route.params.id) } : {} }" class="menu_item" :class="{ menu_item_active: isActive(item.path) }" @click="drawerOpen = false">
+            <router-link :to="{ path: item.path, query: route.query.project || route.params.id ? { project: String(route.query.project || route.params.id) } : {} }" class="menu_item" :class="{ menu_item_active: isActive(item.path) }" :aria-current="isActive(item.path) ? 'page' : undefined" @click="drawerOpen = false">
               <div class="menu_item-box">
                 <div class="menu_icon"><component :is="item.icon" class="icon" /></div>
                 <span class="menu_title">{{ item.label }}</span>
@@ -83,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -108,6 +108,22 @@ const { isMobile } = useBreakpoint()
 
 const collapsed = ref(false)
 const drawerOpen = ref(false)
+const menuTrigger = ref<HTMLButtonElement>()
+const drawerPanel = ref<HTMLElement>()
+watch(drawerOpen, async open => {
+  await nextTick()
+  if (open) drawerPanel.value?.querySelector<HTMLButtonElement>('button')?.focus()
+  else menuTrigger.value?.focus()
+})
+watch(isMobile, mobile => { if (!mobile) drawerOpen.value = false })
+function drawerKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); drawerOpen.value = false; return }
+  if (event.key !== 'Tab') return
+  const controls = Array.from(drawerPanel.value?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),[tabindex="0"]') || [])
+  const first = controls[0], last = controls.at(-1)
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+}
 
 const menuItems = computed(() => [
   { path: '/dashboard', label: t('menu.dashboard'), icon: DashboardIcon },
@@ -150,8 +166,12 @@ function applyTheme(dark: boolean) {
 }
 function toggleTheme() {
   applyTheme(!isDark.value)
+  localStorage.setItem('cim_admin_theme', isDark.value ? 'dark' : 'light')
 }
-onMounted(() => applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches))
+onMounted(() => {
+  const saved = localStorage.getItem('cim_admin_theme')
+  applyTheme(saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches)
+})
 </script>
 
 <style scoped>
@@ -203,8 +223,11 @@ onMounted(() => applyTheme(window.matchMedia('(prefers-color-scheme: dark)').mat
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  padding: 0;
   border-radius: var(--td-radius-default);
   color: var(--td-text-color-secondary);
   cursor: pointer;
@@ -280,7 +303,7 @@ onMounted(() => applyTheme(window.matchMedia('(prefers-color-scheme: dark)').mat
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
+  height: 48px;
   padding: 0 20px;
   background: var(--td-bg-color-container);
   border-bottom: 1px solid var(--td-component-stroke);
@@ -301,7 +324,7 @@ onMounted(() => applyTheme(window.matchMedia('(prefers-color-scheme: dark)').mat
 .admin-content {
   flex: 1;
   overflow: auto;
-  padding: 24px;
+  padding: 16px;
 }
 
 @media (max-width: 767px) {

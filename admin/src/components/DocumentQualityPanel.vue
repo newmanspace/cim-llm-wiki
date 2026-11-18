@@ -297,7 +297,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="item in visibleArtifacts" :key="item.id">
+                <tr v-for="item in pagedArtifacts" :key="item.id">
                   <td>{{ item.target_path }}</td>
                   <td>{{ item.version }}</td>
                   <td>
@@ -319,6 +319,7 @@
               </tbody>
             </table>
           </div>
+          <ListPagination v-model:page="resultPage" v-model:page-size="resultPageSize" :total="visibleArtifacts.length" />
           <div v-if="!busy && !visibleArtifacts.length" class="results-empty">
             <span class="empty-symbol">▤</span>
             <h4>{{ hasFilters ? '没有匹配的文档' : '此目录暂无文档' }}</h4>
@@ -426,6 +427,8 @@
 </template>
 
 <script setup lang="ts">
+import ListPagination from '@/components/ListPagination.vue'
+import { usePagination } from '@/composables/usePagination'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import client from '@/api/client'
@@ -790,6 +793,7 @@ const visibleArtifacts = computed(() =>
       (!statusFilter.value || taskFor(a.id)?.status === statusFilter.value),
   ),
 )
+const { page: resultPage, pageSize: resultPageSize, paged: pagedArtifacts } = usePagination(visibleArtifacts, [searchText, folderFilter, statusFilter, sourceFilter, qualityFilter])
 const selectedSources = computed(() =>
   originals.value.filter((s) =>
     selected.value?.source_links.some(
@@ -926,7 +930,7 @@ h4 {
 .document-browser {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
-  min-height: 640px;
+  min-height: 0;
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-stroke);
   border-radius: 10px;
@@ -1023,14 +1027,14 @@ h4 {
 }
 .directory-content {
   min-width: 0;
-  padding: 24px;
+  padding: 12px 16px;
 }
 .workspace-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 20px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--td-component-stroke);
   margin-bottom: 20px;
 }
@@ -1038,6 +1042,9 @@ h4 {
   font-size: 18px;
 }
 .directory-path {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   color: var(--td-text-color-secondary);
   font-size: 12px;
   margin-top: 4px;
@@ -1104,7 +1111,7 @@ button:disabled {
 button.primary {
   background: var(--td-brand-color);
   border-color: var(--td-brand-color);
-  color: white;
+  color: var(--cim-brand-on-color);
 }
 button.text-action {
   padding: 2px 0;
@@ -1225,6 +1232,7 @@ summary {
 }
 .results-table {
   overflow: auto;
+  max-height: 60vh;
 }
 table {
   width: 100%;
@@ -1233,7 +1241,7 @@ table {
 }
 th,
 td {
-  padding: 13px 12px;
+  padding: 5px 12px;
   border-bottom: 1px solid var(--td-component-stroke);
   text-align: left;
 }

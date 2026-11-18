@@ -31,7 +31,7 @@
         row-key="id"
         stripe
         hover
-        size="medium"
+        size="small"
       >
         <template #name="{ row }">
           <t-link theme="primary" hover="color" @click="router.push(`/projects/${row.id}`)">
@@ -63,22 +63,14 @@
           </t-space>
         </template>
         <template #empty>
-          <t-empty :description="t('project.emptyTitle')">
-            <t-button theme="primary" variant="base" @click="openCreate">{{ t('project.create') }}</t-button>
+          <t-empty :description="searchQuery.trim() ? '没有匹配的项目' : t('project.emptyTitle')">
+            <t-button v-if="!searchQuery.trim()" theme="primary" variant="base" @click="openCreate">{{ t('project.create') }}</t-button>
+          <t-button v-if="searchQuery.trim()" variant="outline" @click="searchQuery = ''">清空搜索</t-button>
           </t-empty>
         </template>
       </t-table>
 
-      <div v-if="filtered.length > pageSize" class="pagination">
-        <t-pagination
-          v-model="page"
-          :total="filtered.length"
-          :page-size="pageSize"
-          :page-size-options="[10, 20, 50]"
-          :show-page-size="!isMobile"
-          @page-size-change="(v: number) => { pageSize = v; page = 1 }"
-        />
-      </div>
+      <ListPagination v-model:page="page" v-model:page-size="pageSize" :total="filtered.length" />
     </t-card>
 
     <t-dialog
@@ -124,6 +116,8 @@ import {
   ChevronDownIcon,
 } from 'tdesign-icons-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
+import ListPagination from '@/components/ListPagination.vue'
+import { usePagination } from '@/composables/usePagination'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { getProjectWiki, type ProjectWikiStatus, listProjects, createProject, updateProject, deleteProject, type ProjectBasics } from '@/api/projects'
 import type { ProjectSummary } from '@/api/types'
@@ -137,8 +131,7 @@ const projects = ref<ProjectSummary[]>([])
 const wikiStatuses = ref<Record<string, ProjectWikiStatus>>({})
 const wikiErrors = ref<Record<string, boolean>>({})
 const searchQuery = ref('')
-const page = ref(1)
-const pageSize = ref(10)
+
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -177,10 +170,7 @@ const filtered = computed(() => {
   )
 })
 
-const paged = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filtered.value.slice(start, start + pageSize.value)
-})
+const { page, pageSize, paged } = usePagination(filtered, [searchQuery])
 
 function onIdInput(value: string) {
   const cleaned = (value || '').toLowerCase().replace(/[^a-z0-9-]/g, '')

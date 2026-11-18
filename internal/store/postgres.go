@@ -336,27 +336,31 @@ func (s *Store) RecordSync(ctx context.Context, projectID, repoName, fromSHA, to
 	return nil
 }
 
-func (s *Store) GetSyncLogs(ctx context.Context, projectID string, limit int) ([]SyncLog, error) {
+func (s *Store) GetSyncLogs(ctx context.Context, projectID string, limit, offset int) ([]SyncLog, int, error) {
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM sync_logs WHERE project_id = $1`, projectID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, project_id, COALESCE(repo_name,''), COALESCE(from_sha,''), COALESCE(to_sha,''),
 		 changed_files, affected_modules, status, COALESCE(error_message,''), COALESCE(duration_ms,0), synced_at
-		 FROM sync_logs WHERE project_id = $1 ORDER BY synced_at DESC LIMIT $2`,
-		projectID, limit)
+		 FROM sync_logs WHERE project_id = $1 ORDER BY synced_at DESC, id DESC LIMIT $2 OFFSET $3`,
+		projectID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var out []SyncLog
+	out := make([]SyncLog, 0)
 	for rows.Next() {
 		var l SyncLog
 		if err := rows.Scan(&l.ID, &l.ProjectID, &l.RepoName, &l.FromSHA, &l.ToSHA,
 			&l.ChangedFiles, &l.AffectedModules, &l.Status, &l.ErrorMessage, &l.DurationMs, &l.SyncedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, l)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 type SyncLog struct {

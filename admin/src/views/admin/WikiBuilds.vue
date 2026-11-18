@@ -4,22 +4,29 @@ import { useRoute, useRouter } from 'vue-router'
 import client from '@/api/client'
 import ProjectWikiSettings from '@/components/ProjectWikiSettings.vue'
 import { listProjects } from '@/api/projects'
+import { Button as TButton, Input as TInput, Select as TSelect, Option as TOption, Tag as TTag } from 'tdesign-vue-next'
+import PageHeader from '@/components/PageHeader.vue'
+import ListPagination from '@/components/ListPagination.vue'
+import { usePagination } from '@/composables/usePagination'
 
 type Job = { id: string; mode: string; gitCommit: string; state: string; bundleId?: string; error?: string; diagnostics?: { code: string; message: string; issues?: { code: string; path?: string; message: string }[] }[]; expiresAt?: number; attempts: { stage: string; error?: string }[]; result?: { previewUrl?: string; updated?: boolean; reason?: string } }
 const route = useRoute(), router = useRouter()
 const project = ref(String(route.query.project || ''))
 const projects = ref<{id: string; name: string}[]>([]), jobs = ref<Job[]>([])
-const bundleId = ref(''), error = ref(''), busy = ref(false)
+const bundleId = ref(''), error = ref(''), busy = ref(false), fetching = ref(false)
 const endpoint = computed(() => `/admin/projects/${encodeURIComponent(project.value)}/wiki-builds`)
+const { page, pageSize, paged: pagedJobs } = usePagination(jobs, [project])
 let generation = 0, poll: ReturnType<typeof setInterval> | undefined
 let disposed = false
 async function load() {
   if (!project.value) { jobs.value = []; return }
   const current = ++generation
+  fetching.value = true
   try {
     const response = await client.get(endpoint.value)
     if (generation === current) { jobs.value = response.data.data; error.value = '' }
   } catch (e: any) { if (generation === current) error.value = e.response?.data?.error || '构建任务读取失败' }
+  finally { if (generation === current) fetching.value = false }
 }
 async function action(operation: string, data: Record<string, string>) {
   const selected = project.value
@@ -29,7 +36,7 @@ async function action(operation: string, data: Record<string, string>) {
   finally { busy.value = false }
 }
 watch(project, async value => {
-  ++generation; jobs.value = []; bundleId.value = ''; error.value = ''
+  ++generation; fetching.value = false; jobs.value = []; bundleId.value = ''; error.value = ''
   await router.replace({ query: { ...route.query, project: value || undefined } })
   await load()
 })
@@ -45,25 +52,34 @@ onUnmounted(() => { disposed = true; generation++; clearInterval(poll) })
 
 <template>
   <section class="wiki-builds">
-    <h2>Wiki 构建与预览</h2>
-    <p>内容版本由 Git 管理；构建成功后更新唯一正式站点。</p>
-    <label>项目 <select v-model="project"><option value="">请选择项目</option><option v-for="item in projects" :key="item.id" :value="item.id">{{ item.name || item.id }}</option></select></label>
-    <button :disabled="!project || busy" @click="load">刷新任务</button>
-    <button :disabled="!project || busy" @click="action('build', {})">构建当前 Wiki</button>
-    <p v-if="project">首次构建或重新生成站点可直接构建当前 Wiki；服务会检查已发布内容、Git 基线和完整库，不会自动提交未审核变更。</p>
+    <PageHeader title="Wiki 构建与预览" subtitle="构建已提交内容，跟踪任务与站点状态。">
+      <template #actions>
+        <TSelect v-model="project" aria-label="项目" placeholder="请选择项目" clearable class="project-select">
+          <TOption v-for="item in projects" :key="item.id" :value="item.id" :label="item.name || item.id" />
+        </TSelect>
+        <TButton variant="outline" :loading="fetching" :disabled="!project || busy" @click="load">刷新任务</TButton>
+        <TButton theme="primary" :disabled="!project" :loading="busy" @click="action('build', {})">构建当前 Wiki</TButton>
+      </template>
+    </PageHeader>
+    <p v-if="project" class="hint">首次构建或重新生成站点可直接构建当前 Wiki；服务会检查已发布内容、Git 基线和完整库，不会自动提交未审核变更。</p>
     <ProjectWikiSettings :project="project" />
-    <form v-if="project" @submit.prevent="action('preview', { bundle_id: bundleId })">
-      <label>已审核 Bundle <input v-model="bundleId" required placeholder="Bundle ID" /></label>
-      <button :disabled="busy || !bundleId">预览完整 Wiki</button>
-      <small>服务会重新核验审核、来源、质量及完整候选库。</small>
-    </form>
+    <details v-if="project" class="preview-settings">
+      <summary>高级操作 · 预览已审核 Bundle</summary>
+      <form @submit.prevent="action('preview', { bundle_id: bundleId })">
+        <label for="preview-bundle">已审核 Bundle</label>
+        <TInput id="preview-bundle" v-model="bundleId" required placeholder="Bundle ID" class="bundle-input" />
+        <TButton type="submit" :disabled="!bundleId" :loading="busy">预览完整 Wiki</TButton>
+        <small class="hint">服务会重新核验审核、来源、质量及完整候选库。</small>
+      </form>
+    </details>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="project && !jobs.length && !error">暂无构建任务。点击“构建当前 Wiki”发起首次构建；正式节点发布成功后也会自动创建任务。</p>
+    <p v-if="fetching" role="status" class="hint">正在加载构建任务…</p>
+    <p v-if="project && !jobs.length && !error && !fetching">暂无构建任务。点击“构建当前 Wiki”发起首次构建；正式节点发布成功后也会自动创建任务。</p>
     <div class="table-scroll"><table v-if="jobs.length">
       <thead><tr><th>任务</th><th>类型 / Bundle</th><th>来源 Git commit</th><th>状态 / 阶段</th><th>尝试</th><th>诊断</th><th>操作</th></tr></thead>
-      <tbody><tr v-for="job in jobs" :key="job.id">
+      <tbody><tr v-for="job in pagedJobs" :key="job.id">
         <td>{{ job.id }}</td><td>{{ job.mode }}<br />{{ job.bundleId }}</td><td><code>{{ job.gitCommit }}</code></td>
-        <td>{{ job.state === 'blocked' ? '构建受阻' : job.state }}<br />{{ job.attempts.at(-1)?.stage }}<br /><small v-if="job.expiresAt">失效：{{ new Date(job.expiresAt).toLocaleString() }}</small></td>
+        <td><TTag size="small" variant="light" :theme="job.state === 'succeeded' ? 'success' : ['failed', 'blocked'].includes(job.state) ? 'danger' : 'default'">{{ ({ succeeded: '成功', failed: '失败', blocked: '构建受阻', queued: '排队中', running: '运行中', revoked: '已撤销', expired: '已过期' } as Record<string, string>)[job.state] || job.state }}</TTag><br />{{ job.attempts.at(-1)?.stage }}<br /><small v-if="job.expiresAt">失效：{{ new Date(job.expiresAt).toLocaleString() }}</small></td>
         <td>{{ job.attempts.length }}</td><td>
           {{ job.error || job.result?.reason || '—' }}
           <details v-for="diagnostic in job.diagnostics" :key="diagnostic.code"><summary>{{ diagnostic.message }}</summary>
@@ -72,19 +88,29 @@ onUnmounted(() => { disposed = true; generation++; clearInterval(poll) })
         </td>
         <td>
           <a v-if="job.state === 'succeeded' && job.result?.previewUrl" :href="job.result.previewUrl" target="_blank" rel="noopener">打开预览</a>
-          <button v-if="job.state === 'failed'" :disabled="busy" @click="action('retry', { id: job.id })">重试原 Git 输入</button>
-          <button v-if="job.mode === 'preview' && !['revoked', 'expired'].includes(job.state)" :disabled="busy" @click="action('revoke', { id: job.id })">撤销预览</button>
+          <TButton size="small" variant="outline" v-if="job.state === 'failed'" :disabled="busy" @click="action('retry', { id: job.id })">重试原 Git 输入</TButton>
+          <TButton size="small" variant="outline" v-if="job.mode === 'preview' && !['revoked', 'expired'].includes(job.state)" :disabled="busy" @click="action('revoke', { id: job.id })">撤销预览</TButton>
         </td>
       </tr></tbody>
     </table></div>
+    <ListPagination v-if="project" v-model:page="page" v-model:page-size="pageSize" :total="jobs.length" :disabled="fetching || busy" />
   </section>
 </template>
 
 <style scoped>
-form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 20px 0; }
-input, select, button { padding: 8px; margin: 4px; }
-.table-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 10px; border: 1px solid #ccc; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
-[role='alert'] { color: #b42318; }
+.wiki-builds { color: var(--td-text-color-primary); font: var(--td-font-body-medium); }
+.project-select { width: 220px; }
+.hint { color: var(--td-text-color-secondary); margin: 8px 0; }
+.preview-settings { margin: 8px 0; }
+summary { cursor: pointer; padding: 8px 0; font-weight: 500; }
+form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; }
+.bundle-input { width: 240px; }
+.table-scroll { overflow: auto; max-height: 60vh; background: var(--td-bg-color-container); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 6px 12px; border-bottom: 1px solid var(--td-component-stroke); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th { position: sticky; top: 0; background: var(--td-bg-color-secondarycontainer); z-index: 1; white-space: nowrap; }
+td { max-width: 320px; }
+a { color: var(--td-text-color-link); }
+[role='alert'] { color: var(--td-error-color); }
+@media (max-width:767px) { .project-select, .bundle-input { width: 100%; } :deep(.page-header__actions) { flex-wrap: wrap; } }
 </style>

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -297,7 +298,7 @@ func (h *AdminHandler) RecordSyncStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "recorded", "project_id": id})
 }
 
-// GetSyncLogs GET /api/v1/admin/projects/:id/sync-logs?limit=20
+// GetSyncLogs GET /api/v1/admin/projects/:id/sync-logs?limit=20&offset=0
 func (h *AdminHandler) GetSyncLogs(c *gin.Context) {
 	id := c.Param("id")
 	limit := 20
@@ -306,12 +307,21 @@ func (h *AdminHandler) GetSyncLogs(c *gin.Context) {
 			limit = n
 		}
 	}
-	logs, err := h.store.GetSyncLogs(c.Request.Context(), id, limit)
+	offset := 0
+	if value := c.Query("offset"); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "offset must be a non-negative integer"})
+			return
+		}
+		offset = n
+	}
+	logs, total, err := h.store.GetSyncLogs(c.Request.Context(), id, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"project_id": id, "logs": logs, "count": len(logs)})
+	c.JSON(http.StatusOK, gin.H{"project_id": id, "logs": logs, "count": len(logs), "total": total})
 }
 
 func parseInt(s string) (int, error) {

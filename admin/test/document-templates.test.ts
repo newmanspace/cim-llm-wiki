@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import DocumentTemplates from '../src/views/admin/DocumentTemplates.vue'
 import { components } from './ui-stubs'
+import { getProject, listProjects } from '../src/api/projects'
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 vi.mock('../src/api/client', () => ({ default: api }))
 vi.mock('../src/api/projects', () => ({
@@ -202,4 +203,56 @@ test('saves edited directory and terminology entries and supports removing them'
   await click('移除')
   await click('保存草稿')
   expect(api.post.mock.calls.at(-1)![1].definition).toMatchObject({ directories: [], terms: [] })
+})
+
+test('checks definition and checks sample document against selected template', async () => {
+  api.post.mockResolvedValueOnce({ data: { errors: [] } })
+  await click('检查模板契约')
+  expect(api.post).toHaveBeenLastCalledWith(
+    '/admin/system/document-templates/check',
+    { definition: expect.any(Object) },
+  )
+
+  api.post.mockResolvedValueOnce({ data: { errors: [] } })
+  await click('检查文档')
+  expect(api.post).toHaveBeenLastCalledWith(
+    '/admin/system/document-templates/check',
+    {
+      definition: expect.any(Object),
+      template_id: expect.any(String),
+      document: expect.any(String),
+    },
+  )
+})
+
+test('previews project overrides and binds project to global templates', async () => {
+  vi.mocked(listProjects).mockResolvedValue([{ id: 'mes', name: 'MES' }] as any)
+  vi.mocked(getProject).mockResolvedValue({
+    id: 'mes',
+    name: 'MES',
+    version: 'v1',
+    modules: [],
+  } as any)
+  api.post.mockResolvedValueOnce({
+    data: { from_version: 'v1', to_version: 'v2', from_digest: 'd1' },
+  })
+
+  const selects = wrapper.findAllComponents({ name: 'TSelect' })
+  const projectSelect = selects.at(-1)!
+  projectSelect.vm.$emit('update:modelValue', 'mes')
+  projectSelect.vm.$emit('change', 'mes')
+  await flushPromises()
+
+  expect(api.post).toHaveBeenLastCalledWith(
+    '/admin/system/document-templates/preview',
+    expect.objectContaining({ project: 'mes' }),
+  )
+
+  api.post.mockResolvedValueOnce({ data: {} })
+  api.get.mockResolvedValueOnce({ data: { from_version: 'v2', to_version: 'v2' } })
+  await click('采用系统已发布版本')
+  expect(api.post).toHaveBeenCalledWith(
+    '/admin/system/document-templates/bind',
+    expect.objectContaining({ project: 'mes' }),
+  )
 })

@@ -20,4 +20,16 @@ test('Admin history, redirects and project parameters survive router upgrades', 
   expect(router.currentRoute.value.query.tab).toBe('docs')
   expect(window.location.pathname).toContain('/admin/projects/')
   expect(router.resolve({ name: 'adminDashboard' }).href).toBe('/admin/dashboard')
+
+  await router.push('/wiki-builds')
+  expect(router.currentRoute.value.name).toBe('wikiBuilds')
+
+  await router.push('/settings/document-templates')
+  expect(router.currentRoute.value.name).toBe('documentTemplates')
+
+  await router.push('/document-directories')
+  expect(router.currentRoute.value.name).toBe('adminDocumentDirectories')
+
+  await router.push('/document-results')
+  expect(router.currentRoute.value.name).toBe('adminDocumentResults')
 })

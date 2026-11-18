@@ -143,7 +143,7 @@ beforeEach(() => {
   state.remove.mockResolvedValue(undefined)
   state.issue.mockResolvedValue({ token: 'issued-once' })
   state.revoke.mockResolvedValue(undefined)
-  state.logs.mockResolvedValue([
+  state.logs.mockResolvedValue({ logs: [
     {
       repo_name: 'service',
       status: 'success',
@@ -152,7 +152,7 @@ beforeEach(() => {
       synced_at: project.created_at,
     },
     { status: 'failed', affected_modules: [], synced_at: '' },
-  ])
+  ], total: 2 })
   state.nodes.mockResolvedValue([
     { plane: 'doc', path: 'data/wiki/mes/doc/a.md' },
     { plane: 'code', path: 'mes/code/b.md' },
@@ -230,6 +230,11 @@ test('project editing submits only changed basic fields; unchanged saves make no
   expect(state.save).toHaveBeenLastCalledWith({ id: 'mesnew', name: 'New MES', product: 'Semiconductor-MES', version: '' })
   await wrapper.find('input').setValue('does not exist')
   expect(wrapper.text()).not.toContain('MES Project')
+  const clearBtn = wrapper.findAll('button').find(b => b.text().includes('清空搜索'))
+  expect(clearBtn).toBeDefined()
+  await clearBtn!.trigger('click')
+  await flushPromises()
+  expect(wrapper.text()).toContain('MES Project')
 })
 
 test('project mutation failures remain visible and confirmation is released', async () => {
@@ -400,7 +405,22 @@ test('layout supports desktop and mobile navigation, language and theme preferen
   window.innerWidth = 500
   window.dispatchEvent(new Event('resize'))
   await flushPromises()
-  await wrapper.find('.hamburger').trigger('click')
+  const hamburger = wrapper.find('.hamburger')
+  expect(hamburger.attributes('aria-expanded')).toBe('false')
+  await hamburger.trigger('click')
+  await flushPromises()
+  expect(hamburger.attributes('aria-expanded')).toBe('true')
+  expect(wrapper.find('.admin-drawer').exists()).toBe(true)
+
+  const mask = wrapper.find('.drawer-mask')
+  await mask.trigger('keydown', { key: 'Tab' })
+  await mask.trigger('keydown', { key: 'Tab', shiftKey: true })
+  await mask.trigger('keydown', { key: 'Escape' })
+  await flushPromises()
+  expect(wrapper.find('.admin-drawer').exists()).toBe(false)
+
+  await hamburger.trigger('click')
+  await flushPromises()
   expect(wrapper.find('.admin-drawer').exists()).toBe(true)
   await wrapper.find('.drawer-mask').trigger('click')
   expect(wrapper.find('.admin-drawer').exists()).toBe(false)
