@@ -79,16 +79,11 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 			return
 		}
 	}
-	var bindingRequest struct {
-		Project string `json:"project"`
-	}
+	project := ""
 	if (action == "/bind" || action == "/bind-naming") && h.Store != nil {
-		if err := json.Unmarshal(payload, &bindingRequest); err != nil {
-			c.JSON(422, gin.H{"error": "Invalid project binding"})
-			return
-		}
-		if _, err := h.Store.GetProject(c.Request.Context(), bindingRequest.Project); err != nil {
-			c.JSON(404, gin.H{"error": "Project not found"})
+		var ok bool
+		project, ok = h.bindingProject(c, payload)
+		if !ok {
 			return
 		}
 	}
@@ -97,16 +92,8 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 		c.JSON(503, gin.H{"error": "Document template service unavailable"})
 		return
 	}
-	if status == 200 && action == "/bind" && h.Store != nil {
-		directories, err := bindingDirectories(data)
-		if err != nil {
-			c.JSON(503, gin.H{"error": "Invalid template service response"})
-			return
-		}
-		if err := h.Store.EnsureDocumentDirectories(c.Request.Context(), bindingRequest.Project, directories); err != nil {
-			c.JSON(503, gin.H{"error": "Project directories could not be synchronized; retry the binding"})
-			return
-		}
+	if !h.finishBinding(c, data, status, action, project) {
+		return
 	}
 	c.Data(status, "application/json", data)
 }
@@ -156,3 +143,35 @@ func bindingDirectories(data []byte) ([]map[string]string, error) {
 type templateError string
 
 func (e templateError) Error() string { return string(e) }
+
+func (h *DocumentDefaultsHandler) bindingProject(c *gin.Context, payload []byte) (string, bool) {
+	var request struct {
+		Project string `json:"project"`
+	}
+
+	if err := json.Unmarshal(payload, &request); err != nil {
+		c.JSON(422, gin.H{"error": "Invalid project binding"})
+		return "", false
+	}
+	if _, err := h.Store.GetProject(c.Request.Context(), request.Project); err != nil {
+		c.JSON(404, gin.H{"error": "Project not found"})
+		return "", false
+	}
+	return request.Project, true
+}
+
+func (h *DocumentDefaultsHandler) finishBinding(c *gin.Context, data []byte, status int, action, project string) bool {
+	if status != 200 || action != "/bind" || h.Store == nil {
+		return true
+	}
+	directories, err := bindingDirectories(data)
+	if err != nil {
+		c.JSON(503, gin.H{"error": "Invalid template service response"})
+		return false
+	}
+	if err := h.Store.EnsureDocumentDirectories(c.Request.Context(), project, directories); err != nil {
+		c.JSON(503, gin.H{"error": "Project directories could not be synchronized; retry the binding"})
+		return false
+	}
+	return true
+}

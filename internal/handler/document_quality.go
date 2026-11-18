@@ -57,12 +57,12 @@ func (h *DocumentQualityHandler) Command(c *gin.Context) {
 		actor = "project-administrator"
 	}
 	internal := strings.HasPrefix(c.FullPath(), "/internal/")
-	if !internal && op != "naming-settings" && op != "data-sources" && op != "quality-policies" && op != "document-directories" && op != "quality-policy-preview" {
+	if !internal && !configurationOperation(op) {
 		qualityReply(c, nil, &documentquality.Error{Status: 403, Message: "Administrative sessions may only edit configuration; use the verified knowledge workflow for document mutations"})
 		return
 	}
 
-	if internal && (op == "naming-settings" || op == "data-sources" || op == "quality-policies" || op == "document-directories" || op == "quality-policy-preview") {
+	if internal && configurationOperation(op) {
 		qualityReply(c, nil, &documentquality.Error{Status: 403, Message: "Configuration requires a human administrator session"})
 		return
 	}
@@ -102,43 +102,7 @@ func (h *DocumentQualityHandler) List(c *gin.Context) {
 		return
 	}
 	if c.Param("resource") == "directory-catalog" {
-		rows, e := h.service.DirectoryCatalog(c.Request.Context(), c.Param("id"))
-		if e != nil {
-			qualityReply(c, nil, e)
-			return
-		}
-		items := []documentquality.Record{}
-		for _, row := range rows {
-			if c.Request.URL.Query().Has("parent") && documentquality.Text(row, "parent_path") != c.Query("parent") {
-				continue
-			}
-			if q := strings.ToLower(c.Query("q")); q != "" && !strings.Contains(strings.ToLower(documentquality.Text(row, "path")+documentquality.Text(row, "display_name")), q) {
-				continue
-			}
-			items = append(items, row)
-		}
-		limit := 200
-		if raw := c.Query("limit"); raw != "" {
-			value, err := strconv.Atoi(raw)
-			if err != nil || value < 1 || value > 200 {
-				c.JSON(422, gin.H{"error": "Invalid page limit"})
-				return
-			}
-			limit = value
-		}
-		page := []documentquality.Record{}
-		cursor := c.Query("cursor")
-		for _, row := range items {
-			if documentquality.Text(row, "path") > cursor {
-				page = append(page, row)
-			}
-		}
-		next := ""
-		if len(page) > limit {
-			next = documentquality.Text(page[limit-1], "path")
-			page = page[:limit]
-		}
-		qualityReply(c, gin.H{"items": page, "next_cursor": next}, nil)
+		h.listDirectoryCatalog(c)
 		return
 	}
 
@@ -157,53 +121,17 @@ func (h *DocumentQualityHandler) List(c *gin.Context) {
 		qualityReply(c, nil, e)
 		return
 	}
-	limit := 50
-	if c.Query("limit") != "" {
-		n, err := strconv.Atoi(c.Query("limit"))
-		if err != nil || n < 1 || n > 200 {
-			c.JSON(422, gin.H{"error": "Invalid page limit"})
-			return
-		}
-		limit = n
+	limit, err := qualityPageLimit(c, 50)
+	if err != nil {
+		c.JSON(422, gin.H{"error": "Invalid page limit"})
+		return
 	}
 	filters, e := h.resultFilters(c, resource)
 	if e != nil {
 		qualityReply(c, nil, e)
 		return
 	}
-	filtered := []documentquality.Record{}
-	cursor := c.Query("cursor")
-	started := cursor == ""
-	for _, r := range rows {
-		if !matchesIdentityQuery(c, resource, r) {
-			continue
-		}
-		if filters != nil && !filters(r) {
-			continue
-		}
-		if run := c.Query("run_id"); run != "" && documentquality.Text(r, "run_id") != run {
-			continue
-		}
-		if !started {
-			if documentquality.Text(r, "id") == cursor {
-				started = true
-			}
-			continue
-		}
-		if status := c.Query("status"); status != "" && documentquality.Text(r, "status") != status {
-			continue
-		}
-		if folder := c.Query("folder"); folder != "" && !strings.HasPrefix(documentquality.Text(r, "target_path"), folder+"/") {
-			continue
-		}
-		filtered = append(filtered, r)
-	}
-	next := ""
-	if len(filtered) > limit {
-		next = documentquality.Text(filtered[limit-1], "id")
-		filtered = filtered[:limit]
-	}
-	qualityReply(c, gin.H{"items": filtered, "next_cursor": next}, nil)
+	qualityReply(c, qualityRecordPage(c, resource, rows, filters, limit), nil)
 }
 
 func (h *DocumentQualityHandler) resultFilters(c *gin.Context, resource string) (func(documentquality.Record) bool, error) {
@@ -241,34 +169,8 @@ func (h *DocumentQualityHandler) resultFilters(c *gin.Context, resource string) 
 	for _, r := range sources {
 		sourceIDs[documentquality.Text(r, "id")] = documentquality.Text(r, "source_id")
 	}
-	return func(r documentquality.Record) bool {
-		if sourceID != "" {
-			found := false
-			links, _ := r["source_links"].([]any)
-			for _, raw := range links {
-				link, _ := raw.(map[string]any)
-				if sourceIDs[documentquality.Text(documentquality.Record(link), "source_version_id")] == sourceID {
-					found = true
-				}
-			}
-			if !found {
-				return false
-			}
-		}
-		evaluation := latest[documentquality.Text(r, "id")]
-		if reviewStatus != "" && taskStatus[documentquality.Text(evaluation, "id")] != reviewStatus {
-			return false
-		}
-		status := "qualified"
-		if evaluation == nil || evaluation["total"] == nil {
-			status = "not_assessed"
-		} else if evaluation["blocking"] == true {
-			status = "blocked"
-		} else if evaluation["needs_review"] == true {
-			status = "needs_review"
-		}
-		return qualityStatus == "" || qualityStatus == status
-	}, nil
+	criteria := artifactFilterIndex{sourceID: sourceID, qualityStatus: qualityStatus, reviewStatus: reviewStatus, latest: latest, taskStatus: taskStatus, sourceIDs: sourceIDs}
+	return criteria.matches, nil
 }
 
 func matchesIdentityQuery(c *gin.Context, resource string, r documentquality.Record) bool {
@@ -281,4 +183,148 @@ func matchesIdentityQuery(c *gin.Context, resource string, r documentquality.Rec
 		}
 	}
 	return c.Query("document_id") == "" || c.Query("document_id") == documentquality.Text(r, "id")
+}
+
+func configurationOperation(op string) bool {
+	return map[string]bool{"naming-settings": true, "data-sources": true, "quality-policies": true, "document-directories": true, "quality-policy-preview": true}[op]
+}
+
+func (h *DocumentQualityHandler) listDirectoryCatalog(c *gin.Context) {
+	rows, e := h.service.DirectoryCatalog(c.Request.Context(), c.Param("id"))
+	if e != nil {
+		qualityReply(c, nil, e)
+		return
+	}
+	items := []documentquality.Record{}
+	for _, row := range rows {
+		if c.Request.URL.Query().Has("parent") && documentquality.Text(row, "parent_path") != c.Query("parent") {
+			continue
+		}
+		if q := strings.ToLower(c.Query("q")); q != "" && !strings.Contains(strings.ToLower(documentquality.Text(row, "path")+documentquality.Text(row, "display_name")), q) {
+			continue
+		}
+		items = append(items, row)
+	}
+	limit := 200
+	if raw := c.Query("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 200 {
+			c.JSON(422, gin.H{"error": "Invalid page limit"})
+			return
+		}
+		limit = value
+	}
+	page := []documentquality.Record{}
+	cursor := c.Query("cursor")
+	for _, row := range items {
+		if documentquality.Text(row, "path") > cursor {
+			page = append(page, row)
+		}
+	}
+	next := ""
+	if len(page) > limit {
+		next = documentquality.Text(page[limit-1], "path")
+		page = page[:limit]
+	}
+	qualityReply(c, gin.H{"items": page, "next_cursor": next}, nil)
+	return
+}
+
+func qualityRecordPage(c *gin.Context, resource string, rows []documentquality.Record, filters func(documentquality.Record) bool, limit int) gin.H {
+	filtered := []documentquality.Record{}
+	cursor := c.Query("cursor")
+	started := cursor == ""
+	for _, r := range rows {
+		if !matchesQualityRecord(c, resource, r, filters) {
+			continue
+		}
+		if !started {
+			if documentquality.Text(r, "id") == cursor {
+				started = true
+			}
+			continue
+		}
+		if !matchesStatusAndFolder(c, r) {
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+	next := ""
+	if len(filtered) > limit {
+		next = documentquality.Text(filtered[limit-1], "id")
+		filtered = filtered[:limit]
+	}
+	return gin.H{"items": filtered, "next_cursor": next}
+}
+func matchesQualityRecord(c *gin.Context, resource string, r documentquality.Record, filters func(documentquality.Record) bool) bool {
+	if !matchesIdentityQuery(c, resource, r) {
+		return false
+	}
+	if filters != nil && !filters(r) {
+		return false
+	}
+	if run := c.Query("run_id"); run != "" && documentquality.Text(r, "run_id") != run {
+		return false
+	}
+	return true
+}
+func matchesStatusAndFolder(c *gin.Context, r documentquality.Record) bool {
+	if status := c.Query("status"); status != "" && documentquality.Text(r, "status") != status {
+		return false
+	}
+	if folder := c.Query("folder"); folder != "" && !strings.HasPrefix(documentquality.Text(r, "target_path"), folder+"/") {
+		return false
+	}
+	return true
+}
+func qualityPageLimit(c *gin.Context, fallback int) (int, error) {
+	if raw := c.Query("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 200 {
+			return 0, &documentquality.Error{Status: 422, Message: "Invalid page limit"}
+		}
+		return n, nil
+	}
+	return fallback, nil
+}
+
+type artifactFilterIndex struct {
+	sourceID, qualityStatus, reviewStatus string
+	latest                                map[string]documentquality.Record
+	taskStatus, sourceIDs                 map[string]string
+}
+
+func (f artifactFilterIndex) matches(r documentquality.Record) bool {
+	if !f.matchesSource(r) {
+		return false
+	}
+	evaluation := f.latest[documentquality.Text(r, "id")]
+	if f.reviewStatus != "" && f.taskStatus[documentquality.Text(evaluation, "id")] != f.reviewStatus {
+		return false
+	}
+	status := "qualified"
+	if evaluation == nil || evaluation["total"] == nil {
+		status = "not_assessed"
+	} else if evaluation["blocking"] == true {
+		status = "blocked"
+	} else if evaluation["needs_review"] == true {
+		status = "needs_review"
+	}
+	return f.qualityStatus == "" || f.qualityStatus == status
+}
+func (f artifactFilterIndex) matchesSource(r documentquality.Record) bool {
+	if f.sourceID != "" {
+		found := false
+		links, _ := r["source_links"].([]any)
+		for _, raw := range links {
+			link, _ := raw.(map[string]any)
+			if f.sourceIDs[documentquality.Text(documentquality.Record(link), "source_version_id")] == f.sourceID {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }

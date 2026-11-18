@@ -5,12 +5,12 @@ import { mermaidMarkdown } from '../.vitepress/mermaid-markdown.mjs'
 import { decodeSource } from '../.vitepress/theme/mermaid-renderer.mjs'
 
 test('Chinese diagrams and template-like text survive as data, never Vue markup', () => {
-  const source = 'flowchart LR\nA["中文 {{ 7 * 7 }} </MermaidDiagram><script>alert(1)</script>"]\n'
+  const source = 'flowchart LR\nA["中文 {{ 7 * 7 }} </MermaidDiagram><script>alert(1)</script><SCRIPT>alert(2)</SCRIPT>"]\n'
   const md = new MarkdownIt().use(mermaidMarkdown)
   const rendered = md.render('```mermaid\n' + source + '```')
   const encoded = rendered.match(/source="([A-Za-z0-9+/=]+)"/)[1]
   assert.equal(decodeSource(encoded), source)
-  assert.doesNotMatch(rendered, /<script>|\{\{|中文/)
+  assert.doesNotMatch(rendered, /<script\b|\{\{|中文/i)
 })
 
 test('only Mermaid fences change; ordinary code keeps its escaping and renderer', () => {

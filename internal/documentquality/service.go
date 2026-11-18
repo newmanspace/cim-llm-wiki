@@ -282,44 +282,17 @@ func savePolicy(tx Tx, r Record) (Record, error) {
 		}
 		ps = append(ps, Policy{path, n, patch})
 	}
-	for _, p := range ps {
-		if _, e = Resolve(ps, p.Path); e != nil {
-			return nil, problem(422, fmt.Sprintf("Invalid effective policy at %s: %v", p.Path, e))
-		}
+	if e := validateEffectivePolicies(ps); e != nil {
+		return nil, e
 	}
 	return tx.Insert("quality_policies", Record{"path": path, "patch": patch, "policy_revision": n})
 }
 func saveRun(tx Tx, r Record) (Record, error) {
 	if Text(r, "id") != "" {
-		old, e := tx.Get("ingest_runs", Text(r, "id"))
-		if e != nil {
-			return nil, e
-		}
-		status := Text(r, "status")
-		if status != "completed" && status != "partial" && status != "failed" && status != "cancelled" {
-			return nil, problem(422, "Invalid terminal run status")
-		}
-		if Text(old, "status") != "running" {
-			return nil, problem(409, "Run is already finished")
-		}
-		next := copyRecord(old)
-		next["status"] = status
-		next["error_code"] = r["error_code"]
-		return tx.Update("ingest_runs", id(old), revision(old), next)
+		return finishRun(tx, r)
 	}
-	if Text(r, "status") == "failed" && Text(r, "error_code") != "" && Text(r, "operative_revision") == "" && Text(r, "commit_sha") == "" {
-		source, e := tx.Get("data_sources", Text(r, "source_id"))
-		if e != nil {
-			return nil, e
-		}
-		cfg, e := tx.Get("source_revisions", Text(r, "source_config_id"))
-		if e != nil {
-			return nil, e
-		}
-		if Text(cfg, "source_id") != id(source) {
-			return nil, problem(409, "Source configuration does not match")
-		}
-		return tx.Insert("ingest_runs", Record{"source_id": id(source), "source_config_id": id(cfg), "recipe_version": r["recipe_version"], "status": "failed", "error_code": r["error_code"], "source_type": Text(source, "type"), "failure_phase": Text(source, "type") + "_collection"})
+	if failedCollection(r) {
+		return saveCollectionFailure(tx, r)
 	}
 	if e := required(r, "source_id", "source_config_id", "recipe_version"); e != nil {
 		return nil, e
@@ -336,28 +309,8 @@ func saveRun(tx Tx, r Record) (Record, error) {
 		return nil, problem(409, "Data source configuration is disabled or stale")
 	}
 	out := Record{"source_id": id(source), "source_config_id": id(cfg), "source_type": Text(source, "type"), "recipe_version": r["recipe_version"], "status": "running"}
-	if Text(source, "type") == "git" {
-		if !gitCommit.MatchString(Text(r, "commit_sha")) {
-			return nil, problem(422, "Git collection requires a full pinned commit SHA")
-		}
-		remote, e := normalizeGitURL(Text(r, "repository_url"))
-		if e != nil {
-			return nil, e
-		}
-		if remote != Text(cfg, "url") {
-			return nil, problem(409, "Git repository does not match the bound source configuration")
-		}
-		out["repository_url"] = remote
-		out["commit_sha"] = r["commit_sha"]
-	} else {
-		if e := required(r, "operative_revision", "repository_uuid"); e != nil {
-			return nil, e
-		}
-		if _, e := strconv.ParseUint(Text(r, "operative_revision"), 10, 64); e != nil {
-			return nil, problem(422, "SVN revision must be fixed")
-		}
-		out["operative_revision"] = r["operative_revision"]
-		out["repository_uuid"] = r["repository_uuid"]
+	if e := pinCollectionRevision(out, source, cfg, r); e != nil {
+		return nil, e
 	}
 	return tx.Insert("ingest_runs", out)
 }
@@ -382,17 +335,8 @@ func saveObservation(tx Tx, r Record) (Record, error) {
 	if e != nil {
 		return nil, e
 	}
-	if sourceType(run) == "git" {
-		if e := required(r, "git_info_uri", "git_blob_oid"); e != nil {
-			return nil, e
-		}
-		if !gitCommit.MatchString(Text(r, "git_blob_oid")) {
-			return nil, problem(422, "A full Git blob object ID is required")
-		}
-	} else {
-		if e := required(r, "svn_info_uri"); e != nil {
-			return nil, e
-		}
+	if e := validateObservationEvidence(run, r); e != nil {
+		return nil, e
 	}
 	if Text(run, "status") != "running" {
 		return nil, problem(409, "Run is not active")
@@ -405,7 +349,7 @@ func saveObservation(tx Tx, r Record) (Record, error) {
 		return nil, e
 	}
 	for _, old := range rows {
-		if Text(old, "source_id") == Text(run, "source_id") && repositoryIdentity(old) == repositoryIdentity(run) && Text(old, "repository_path") == Text(r, "repository_path") && sourceRevision(old) == sourceRevision(run) {
+		if sameSourceVersion(old, run, r) {
 			if Text(old, "original_sha256") != Text(r, "original_sha256") {
 				return nil, problem(409, "Same repository source version has different content")
 			}
@@ -451,43 +395,21 @@ func saveArtifact(tx Tx, r Record) (Record, error) {
 	if Text(run, "status") != "running" {
 		return nil, problem(409, "Run is not active")
 	}
-	links, ok := r["source_links"].([]any)
-	if !ok || len(links) == 0 {
-		return nil, problem(422, "Source links are required")
-	}
-	for _, raw := range links {
-		link, ok := raw.(map[string]any)
-		if !ok {
-			return nil, problem(422, "Invalid source link")
-		}
-		source, e := tx.Get("source_versions", Text(Record(link), "source_version_id"))
-		if e != nil {
-			return nil, e
-		}
-		if Text(source, "source_id") != Text(run, "source_id") || sourceRevision(source) != sourceRevision(run) {
-			return nil, problem(409, "Source does not belong to the pinned run revision")
-		}
+	if e := validateArtifactSources(tx, r, run); e != nil {
+		return nil, e
 	}
 	rows, e := tx.List("artifact_versions")
 	if e != nil {
 		return nil, e
 	}
-	version := 1
-	parent := ""
-	for _, old := range rows {
-		if Text(old, "logical_key") == Text(r, "logical_key") {
-			if int(number(old, "version")) >= version {
-				version = int(number(old, "version")) + 1
-				parent = id(old)
-			}
-			if Text(old, "content_sha256") == Text(r, "content_sha256") && Text(old, "target_path") == Text(r, "target_path") && Text(old, "recipe_version") == Text(r, "recipe_version") && Text(old, "template_id") == Text(r, "template_id") && Text(old, "document_contract_digest") == Text(r, "document_contract_digest") && Digest(old["source_links"]) == Digest(r["source_links"]) {
-				if e := linkRun(tx, "ingest_artifacts", "artifact_id", run, old); e != nil {
-					return nil, e
-				}
-				return old, nil
-			}
+	previous, version, parent := artifactVersion(rows, r)
+	if previous != nil {
+		if e := linkRun(tx, "ingest_artifacts", "artifact_id", run, previous); e != nil {
+			return nil, e
 		}
+		return previous, nil
 	}
+
 	out := Record{}
 	for _, field := range []string{"document_id", "naming_digest", "run_id", "logical_key", "target_path", "content_uri", "content_sha256", "snapshot_path", "parsed_uri", "recipe_version", "source_links", "template_id", "document_contract_digest"} {
 		out[field] = r[field]
@@ -619,14 +541,8 @@ func saveDecision(tx Tx, actor string, r Record) (Record, error) {
 	if p.Digest != Text(task, "policy_digest") {
 		return nil, problem(409, "Quality policy changed; reassessment is required")
 	}
-	versions, err := tx.List("artifact_versions")
-	if err != nil {
-		return nil, err
-	}
-	for _, version := range versions {
-		if Text(version, "logical_key") == Text(artifact, "logical_key") && number(version, "version") > number(artifact, "version") {
-			return nil, problem(409, "Artifact version is superseded")
-		}
+	if e := ensureLatestArtifact(tx, artifact, "Artifact version is superseded"); e != nil {
+		return nil, e
 	}
 	evaluation, e := tx.Get("evaluations", Text(task, "evaluation_id"))
 	if e != nil {
@@ -671,43 +587,11 @@ func beginPublication(tx Tx, r Record) (Record, error) {
 	if Text(eval, "policy_digest") != p.Digest || eval["blocking"] == true {
 		return nil, problem(409, "Quality eligibility is stale or blocked")
 	}
-	artifacts, e := tx.List("artifact_versions")
-	if e != nil {
+	if e := ensureLatestArtifact(tx, artifact, "Artifact version has been superseded"); e != nil {
 		return nil, e
 	}
-	for _, a := range artifacts {
-		if Text(a, "logical_key") == Text(artifact, "logical_key") && number(a, "version") > number(artifact, "version") {
-			return nil, problem(409, "Artifact version has been superseded")
-		}
-	}
-	assessments, err := tx.List("evaluations")
-	if err != nil {
-		return nil, err
-	}
-	latest := ""
-	for _, assessment := range assessments {
-		if Text(assessment, "artifact_id") == id(artifact) {
-			latest = id(assessment)
-		}
-	}
-	if latest != id(eval) {
-		return nil, problem(409, "A newer quality assessment supersedes this approval")
-	}
-	tasks, e := tx.List("review_tasks")
-	if e != nil {
+	if e := verifyPublicationApproval(tx, artifact, eval, p); e != nil {
 		return nil, e
-	}
-	approved := false
-	for _, task := range tasks {
-		if Text(task, "evaluation_id") == id(eval) && Text(task, "status") == "approved" {
-			if Text(task, "approval_mode") == "auto" && (p.RequireHuman || eval["needs_review"] == true || eval["total"] == nil || number(eval, "total") < p.Threshold) {
-				return nil, problem(409, "Automatic document approval is no longer eligible")
-			}
-			approved = true
-		}
-	}
-	if !approved {
-		return nil, problem(409, "Document review approval is required")
 	}
 	pubs, e := tx.List("publications")
 	if e != nil {
@@ -739,4 +623,182 @@ func finishPublication(tx Tx, r Record) (Record, error) {
 
 func saveDirectory(tx Tx, r Record) (Record, error) {
 	return mutateDirectory(tx, r)
+}
+
+func validateEffectivePolicies(ps []Policy) error {
+	for _, p := range ps {
+		if _, e := Resolve(ps, p.Path); e != nil {
+			return problem(422, fmt.Sprintf("Invalid effective policy at %s: %v", p.Path, e))
+		}
+	}
+	return nil
+}
+
+func finishRun(tx Tx, r Record) (Record, error) {
+	old, e := tx.Get("ingest_runs", Text(r, "id"))
+	if e != nil {
+		return nil, e
+	}
+	status := Text(r, "status")
+	if status != "completed" && status != "partial" && status != "failed" && status != "cancelled" {
+		return nil, problem(422, "Invalid terminal run status")
+	}
+	if Text(old, "status") != "running" {
+		return nil, problem(409, "Run is already finished")
+	}
+	next := copyRecord(old)
+	next["status"] = status
+	next["error_code"] = r["error_code"]
+	return tx.Update("ingest_runs", id(old), revision(old), next)
+}
+func failedCollection(r Record) bool {
+	return Text(r, "status") == "failed" && Text(r, "error_code") != "" && Text(r, "operative_revision") == "" && Text(r, "commit_sha") == ""
+}
+func saveCollectionFailure(tx Tx, r Record) (Record, error) {
+	source, e := tx.Get("data_sources", Text(r, "source_id"))
+	if e != nil {
+		return nil, e
+	}
+	cfg, e := tx.Get("source_revisions", Text(r, "source_config_id"))
+	if e != nil {
+		return nil, e
+	}
+	if Text(cfg, "source_id") != id(source) {
+		return nil, problem(409, "Source configuration does not match")
+	}
+	return tx.Insert("ingest_runs", Record{"source_id": id(source), "source_config_id": id(cfg), "recipe_version": r["recipe_version"], "status": "failed", "error_code": r["error_code"], "source_type": Text(source, "type"), "failure_phase": Text(source, "type") + "_collection"})
+}
+func pinCollectionRevision(out, source, cfg, r Record) error {
+	if Text(source, "type") == "git" {
+		if !gitCommit.MatchString(Text(r, "commit_sha")) {
+			return problem(422, "Git collection requires a full pinned commit SHA")
+		}
+		remote, e := normalizeGitURL(Text(r, "repository_url"))
+		if e != nil {
+			return e
+		}
+		if remote != Text(cfg, "url") {
+			return problem(409, "Git repository does not match the bound source configuration")
+		}
+		out["repository_url"] = remote
+		out["commit_sha"] = r["commit_sha"]
+	} else {
+		if e := required(r, "operative_revision", "repository_uuid"); e != nil {
+			return e
+		}
+		if _, e := strconv.ParseUint(Text(r, "operative_revision"), 10, 64); e != nil {
+			return problem(422, "SVN revision must be fixed")
+		}
+		out["operative_revision"] = r["operative_revision"]
+		out["repository_uuid"] = r["repository_uuid"]
+	}
+	return nil
+}
+
+func validateObservationEvidence(run, r Record) error {
+	if sourceType(run) == "git" {
+		if e := required(r, "git_info_uri", "git_blob_oid"); e != nil {
+			return e
+		}
+		if !gitCommit.MatchString(Text(r, "git_blob_oid")) {
+			return problem(422, "A full Git blob object ID is required")
+		}
+	} else {
+		if e := required(r, "svn_info_uri"); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func sameArtifactVersion(old, r Record) bool {
+	return Text(old, "content_sha256") == Text(r, "content_sha256") && Text(old, "target_path") == Text(r, "target_path") && Text(old, "recipe_version") == Text(r, "recipe_version") && Text(old, "template_id") == Text(r, "template_id") && Text(old, "document_contract_digest") == Text(r, "document_contract_digest") && Digest(old["source_links"]) == Digest(r["source_links"])
+}
+
+func ensureLatestArtifact(tx Tx, artifact Record, message string) error {
+	rows, err := tx.List("artifact_versions")
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if Text(row, "logical_key") == Text(artifact, "logical_key") && number(row, "version") > number(artifact, "version") {
+			return problem(409, message)
+		}
+	}
+	return nil
+}
+
+func verifyPublicationApproval(tx Tx, artifact, eval Record, p Effective) error {
+	assessments, err := tx.List("evaluations")
+	if err != nil {
+		return err
+	}
+	latest := ""
+	for _, assessment := range assessments {
+		if Text(assessment, "artifact_id") == id(artifact) {
+			latest = id(assessment)
+		}
+	}
+	if latest != id(eval) {
+		return problem(409, "A newer quality assessment supersedes this approval")
+	}
+	tasks, e := tx.List("review_tasks")
+	if e != nil {
+		return e
+	}
+	approved := false
+	for _, task := range tasks {
+		if Text(task, "evaluation_id") == id(eval) && Text(task, "status") == "approved" {
+			if Text(task, "approval_mode") == "auto" && (p.RequireHuman || eval["needs_review"] == true || eval["total"] == nil || number(eval, "total") < p.Threshold) {
+				return problem(409, "Automatic document approval is no longer eligible")
+			}
+			approved = true
+		}
+	}
+	if !approved {
+		return problem(409, "Document review approval is required")
+	}
+	return nil
+}
+
+func sameSourceVersion(old, run, r Record) bool {
+	return Text(old, "source_id") == Text(run, "source_id") && repositoryIdentity(old) == repositoryIdentity(run) && Text(old, "repository_path") == Text(r, "repository_path") && sourceRevision(old) == sourceRevision(run)
+}
+
+func validateArtifactSources(tx Tx, r, run Record) error {
+	links, ok := r["source_links"].([]any)
+	if !ok || len(links) == 0 {
+		return problem(422, "Source links are required")
+	}
+	for _, raw := range links {
+		link, ok := raw.(map[string]any)
+		if !ok {
+			return problem(422, "Invalid source link")
+		}
+		source, e := tx.Get("source_versions", Text(Record(link), "source_version_id"))
+		if e != nil {
+			return e
+		}
+		if Text(source, "source_id") != Text(run, "source_id") || sourceRevision(source) != sourceRevision(run) {
+			return problem(409, "Source does not belong to the pinned run revision")
+		}
+	}
+	return nil
+}
+
+func artifactVersion(rows []Record, r Record) (Record, int, string) {
+	version := 1
+	parent := ""
+	for _, old := range rows {
+		if Text(old, "logical_key") == Text(r, "logical_key") {
+			if int(number(old, "version")) >= version {
+				version = int(number(old, "version")) + 1
+				parent = id(old)
+			}
+			if sameArtifactVersion(old, r) {
+				return old, version, parent
+			}
+		}
+	}
+	return nil, version, parent
 }

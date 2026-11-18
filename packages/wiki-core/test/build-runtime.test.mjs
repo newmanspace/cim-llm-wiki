@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, statSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
+import { chmodSync, openSync, closeSync, fstatSync, readSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -34,13 +34,22 @@ test('snapshot freezes sources and dependencies, rejects tampering and dirty Git
   const snapshot = captureSnapshot({ ...f, roots: {}, buildsRoot: captures })
   const context = snapshotContext(captures, snapshot.snapshot, snapshot.digest)
   const source = join(f.projectRoot, 'data/raw/ci-source.md')
-  assert.equal(statSync(join(context.projectRoot, 'data/raw/ci-source.md')).mode & 0o777, 0o640)
-  assert.equal(statSync(source).mode & 0o777, 0o600)
-  writeFileSync(source, 'changed source')
-  assert.notEqual(readFileSync(source, 'utf8'), readFileSync(join(context.projectRoot, 'data/raw/ci-source.md'), 'utf8'))
-  assert.equal(snapshotContext(captures, snapshot.snapshot, snapshot.digest).wikiRoot, context.wikiRoot)
-  writeFileSync(join(context.projectRoot, 'data/raw/ci-source.md'), 'tampered snapshot')
-  assert.throws(() => snapshotContext(captures, snapshot.snapshot, snapshot.digest), /integrity/)
+  const snapshotFile = openSync(join(context.projectRoot, 'data/raw/ci-source.md'), 'r+')
+  try {
+    assert.equal(fstatSync(snapshotFile).mode & 0o777, 0o640)
+    const snapshotText = readFileSync(snapshotFile, 'utf8')
+    const fd = openSync(source, 'r+')
+    try {
+      assert.equal(fstatSync(fd).mode & 0o777, 0o600)
+      writeFileSync(fd, 'changed source')
+      const changed = Buffer.alloc(fstatSync(fd).size)
+      assert.equal(readSync(fd, changed, 0, changed.length, 0), changed.length)
+      assert.notEqual(changed.toString('utf8'), snapshotText)
+    } finally { closeSync(fd) }
+    assert.equal(snapshotContext(captures, snapshot.snapshot, snapshot.digest).wikiRoot, context.wikiRoot)
+    writeFileSync(snapshotFile, 'tampered snapshot')
+    assert.throws(() => snapshotContext(captures, snapshot.snapshot, snapshot.digest), /integrity/)
+  } finally { closeSync(snapshotFile) }
   writeFileSync(join(f.wikiRoot, 'untracked.md'), 'unreviewed')
   assert.throws(() => gitIdentity(f.wikiRoot), /uncommitted/)
 })

@@ -73,28 +73,13 @@ func NormalizeSourceConfig(r Record) (Record, error) {
 	if kind != "svn" && kind != "git" {
 		return nil, problem(422, "Data source type must be svn or git")
 	}
-	remote := Text(r, "url")
-	auth := "svn_cache"
-	var e error
-	if kind == "git" {
-		remote, e = normalizeGitURL(remote)
-		auth = "git_local"
-	} else {
-		u, err := url.Parse(remote)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return nil, problem(422, "SVN URL must be HTTP or HTTPS without credentials, query or fragment")
-		}
-	}
+	remote, auth, e := normalizeSourceURL(kind, Text(r, "url"))
 	if e != nil {
 		return nil, e
 	}
 	sub := Text(r, "subpath")
-	if sub != "" {
-		for _, part := range strings.Split(sub, "/") {
-			if part == "." || part == ".." || part == "" || strings.ContainsAny(part, "\\@\x00%?#") {
-				return nil, problem(422, "Invalid repository subpath")
-			}
-		}
+	if e := validateSourceSubpath(sub); e != nil {
+		return nil, e
 	}
 	selector := Text(r, "revision_selector")
 	if kind == "git" {
@@ -107,4 +92,32 @@ func NormalizeSourceConfig(r Record) (Record, error) {
 		}
 	}
 	return Record{"name": Text(r, "name"), "type": kind, "url": remote, "auth": auth, "subpath": sub, "revision_selector": selector}, nil
+}
+
+func normalizeSourceURL(kind, remote string) (string, string, error) {
+	auth := "svn_cache"
+	var e error
+	if kind == "git" {
+		remote, e = normalizeGitURL(remote)
+		auth = "git_local"
+	} else {
+		u, err := url.Parse(remote)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return "", "", problem(422, "SVN URL must be HTTP or HTTPS without credentials, query or fragment")
+		}
+	}
+	if e != nil {
+		return "", "", e
+	}
+	return remote, auth, nil
+}
+func validateSourceSubpath(sub string) error {
+	if sub != "" {
+		for _, part := range strings.Split(sub, "/") {
+			if part == "." || part == ".." || part == "" || strings.ContainsAny(part, "\\@\x00%?#") {
+				return problem(422, "Invalid repository subpath")
+			}
+		}
+	}
+	return nil
 }

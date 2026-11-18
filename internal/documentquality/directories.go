@@ -65,25 +65,13 @@ func mutateDirectory(tx Tx, r Record) (Record, error) {
 		return nil, err
 	}
 	path := Text(r, "path")
-	action := Text(r, "action")
-	if action == "" {
-		action = "create"
+	action, err := directoryAction(r)
+	if err != nil {
+		return nil, err
 	}
-	if action != "create" && action != "update" && action != "delete" {
-		return nil, problem(422, "Invalid directory action")
-	}
-	var old Record
-	if action != "create" {
-		old, err = tx.Get("directories", Text(r, "id"))
-		if err != nil {
-			return nil, err
-		}
-		if !liveDirectory(old) || revision(old) != int(number(r, "expected_revision")) {
-			return nil, problem(409, "Directory changed; reload its properties")
-		}
-		if action == "delete" {
-			path = Text(old, "path")
-		}
+	old, path, err := directoryBeforeMutation(tx, r, action, path)
+	if err != nil {
+		return nil, err
 	}
 	if !ValidPath(path, false) {
 		return nil, problem(422, "Invalid document directory")
@@ -95,51 +83,18 @@ func mutateDirectory(tx Tx, r Record) (Record, error) {
 	if utf8.RuneCountInString(name) > 100 || strings.ContainsAny(name, "\r\n\t\x00") {
 		return nil, problem(422, "Invalid directory display name")
 	}
-	if old != nil && action == "update" && folder(path) != folder(Text(old, "path")) {
-		return nil, problem(422, "Only the path segment of an empty directory can change")
+	if err := validateDirectoryEdit(tx, old, action, path); err != nil {
+		return nil, err
 	}
-	if old != nil && (action == "delete" || path != Text(old, "path")) {
-		blocked, e := directoryBlocked(tx, Text(old, "path"))
-		if e != nil {
-			return nil, e
-		}
-		if blocked {
-			return nil, problem(409, "Directory has children, policy history or document references; only its display name can change")
-		}
-	}
-	for _, row := range rows {
-		if liveDirectory(row) && Text(row, "path") == path && id(row) != id(old) {
-			return nil, problem(409, "Document directory already exists")
-		}
+	if err := uniqueDirectoryPath(rows, old, path); err != nil {
+		return nil, err
 	}
 	if action == "create" {
-		parts := strings.Split(path, "/")
-		missing := []string{}
-		for i := 1; i < len(parts); i++ {
-			parent := strings.Join(parts[:i], "/")
-			found := false
-			for _, row := range rows {
-				if liveDirectory(row) && Text(row, "path") == parent {
-					found = true
-				}
-			}
-			if !found {
-				missing = append(missing, parent)
-			}
-		}
-		if len(missing) > 0 && r["create_parents"] != true {
-			return nil, problem(422, "Parent directory is missing; explicitly confirm creating missing parents")
-		}
-		for _, parent := range missing {
-			row, e := tx.Insert("directories", Record{"path": parent, "display_name": directoryName(parent)})
-			if e != nil {
-				return nil, e
-			}
-			if _, e = tx.Insert("directory_events", Record{"directory_id": id(row), "action": "create", "after": row}); e != nil {
-				return nil, e
-			}
+		if err := createDirectoryParents(tx, rows, r, path); err != nil {
+			return nil, err
 		}
 	}
+
 	next := Record{"path": path, "display_name": name}
 	if action == "delete" {
 		next = copyRecord(old)
@@ -180,18 +135,10 @@ func catalog(tx Tx) ([]Record, error) {
 	}
 	groups := map[string][]Record{"directories": dirs, "artifact_versions": artifacts, "quality_policies": policyRows, "publications": pubRows}
 	entries := map[string]Record{}
-	add := func(path string) {
-		parts := strings.Split(path, "/")
-		for i := 1; i <= len(parts); i++ {
-			p := strings.Join(parts[:i], "/")
-			if ValidPath(p, false) && entries[p] == nil {
-				entries[p] = Record{"path": p, "parent_path": folder(p), "display_name": directoryName(p), "virtual": true}
-			}
-		}
-	}
+
 	for _, r := range dirs {
 		if liveDirectory(r) {
-			add(Text(r, "path"))
+			addCatalogPath(entries, Text(r, "path"))
 			n := copyRecord(r)
 			n["parent_path"] = folder(Text(r, "path"))
 			entries[Text(r, "path")] = n
@@ -199,35 +146,18 @@ func catalog(tx Tx) ([]Record, error) {
 	}
 	for _, p := range ps {
 		if p.Path != "" {
-			add(p.Path)
+			addCatalogPath(entries, p.Path)
 		}
 	}
 	for _, r := range artifacts {
-		add(folder(Text(r, "target_path")))
+		addCatalogPath(entries, folder(Text(r, "target_path")))
 	}
 	out := []Record{}
 	for path, r := range entries {
-		childCount := 0
-		for p := range entries {
-			if folder(p) == path {
-				childCount++
-			}
-		}
-		documents := map[string]bool{}
-		for _, a := range artifacts {
-			if strings.HasPrefix(Text(a, "target_path"), path+"/") {
-				documents[Text(a, "target_path")] = true
-			}
-		}
-		mode := "inherit"
-		for _, p := range ps {
-			if p.Path == path {
-				mode = directoryMode(p.Patch)
-			}
-		}
+		childCount, documentCount, mode := catalogCounts(path, entries, artifacts, ps)
 		blocked := blockedDirectoryRows(path, groups)
 		r["child_count"] = childCount
-		r["document_count"] = len(documents)
+		r["document_count"] = documentCount
 		r["scoring_mode"] = mode
 		r["path_locked"] = blocked
 		r["can_delete"] = !blocked && r["virtual"] != true
@@ -273,38 +203,154 @@ func (s Service) PreviewPolicy(ctx context.Context, project string, r Record) (R
 		if e != nil {
 			return e
 		}
-		paths := map[string]bool{path: true}
-		for _, row := range rows {
-			p := Text(row, "path")
-			if path == "" || p == path || strings.HasPrefix(p, path+"/") {
-				paths[p] = true
-			}
-		}
-		changed := []string{}
-		for p := range paths {
-			before, e := Resolve(ps, p)
-			if e != nil {
-				return e
-			}
-			after, e := Resolve(next, p)
-			if e != nil {
-				return e
-			}
-			if before.Digest != after.Digest {
-				changed = append(changed, p)
-			}
-		}
-		sort.Strings(changed)
-		before, e := Resolve(ps, path)
-		if e != nil {
-			return e
-		}
-		after, e := Resolve(next, path)
-		if e != nil {
-			return e
-		}
-		result = Record{"changed_paths": changed, "effective": after, "expected_digest": before.Digest}
-		return nil
+		result, e = policyImpact(ps, next, rows, path)
+		return e
 	})
 	return result, err
+}
+
+func directoryAction(r Record) (string, error) {
+	action := Text(r, "action")
+	if action == "" {
+		action = "create"
+	}
+	if action != "create" && action != "update" && action != "delete" {
+		return "", problem(422, "Invalid directory action")
+	}
+	return action, nil
+}
+func directoryBeforeMutation(tx Tx, r Record, action, path string) (Record, string, error) {
+	var old Record
+	if action != "create" {
+		var err error
+		old, err = tx.Get("directories", Text(r, "id"))
+		if err != nil {
+			return nil, "", err
+		}
+		if !liveDirectory(old) || revision(old) != int(number(r, "expected_revision")) {
+			return nil, "", problem(409, "Directory changed; reload its properties")
+		}
+		if action == "delete" {
+			path = Text(old, "path")
+		}
+	}
+	return old, path, nil
+}
+func validateDirectoryEdit(tx Tx, old Record, action, path string) error {
+	if old != nil && action == "update" && folder(path) != folder(Text(old, "path")) {
+		return problem(422, "Only the path segment of an empty directory can change")
+	}
+	if old != nil && (action == "delete" || path != Text(old, "path")) {
+		blocked, e := directoryBlocked(tx, Text(old, "path"))
+		if e != nil {
+			return e
+		}
+		if blocked {
+			return problem(409, "Directory has children, policy history or document references; only its display name can change")
+		}
+	}
+	return nil
+}
+func uniqueDirectoryPath(rows []Record, old Record, path string) error {
+	for _, row := range rows {
+		if liveDirectory(row) && Text(row, "path") == path && id(row) != id(old) {
+			return problem(409, "Document directory already exists")
+		}
+	}
+	return nil
+}
+func createDirectoryParents(tx Tx, rows []Record, r Record, path string) error {
+	parts := strings.Split(path, "/")
+	missing := []string{}
+	for i := 1; i < len(parts); i++ {
+		parent := strings.Join(parts[:i], "/")
+		found := false
+		for _, row := range rows {
+			if liveDirectory(row) && Text(row, "path") == parent {
+				found = true
+			}
+		}
+		if !found {
+			missing = append(missing, parent)
+		}
+	}
+	if len(missing) > 0 && r["create_parents"] != true {
+		return problem(422, "Parent directory is missing; explicitly confirm creating missing parents")
+	}
+	for _, parent := range missing {
+		row, e := tx.Insert("directories", Record{"path": parent, "display_name": directoryName(parent)})
+		if e != nil {
+			return e
+		}
+		if _, e = tx.Insert("directory_events", Record{"directory_id": id(row), "action": "create", "after": row}); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func addCatalogPath(entries map[string]Record, path string) {
+	parts := strings.Split(path, "/")
+	for i := 1; i <= len(parts); i++ {
+		p := strings.Join(parts[:i], "/")
+		if ValidPath(p, false) && entries[p] == nil {
+			entries[p] = Record{"path": p, "parent_path": folder(p), "display_name": directoryName(p), "virtual": true}
+		}
+	}
+}
+func catalogCounts(path string, entries map[string]Record, artifacts []Record, ps []Policy) (int, int, string) {
+	childCount := 0
+	for p := range entries {
+		if folder(p) == path {
+			childCount++
+		}
+	}
+	documents := map[string]bool{}
+	for _, a := range artifacts {
+		if strings.HasPrefix(Text(a, "target_path"), path+"/") {
+			documents[Text(a, "target_path")] = true
+		}
+	}
+	mode := "inherit"
+	for _, p := range ps {
+		if p.Path == path {
+			mode = directoryMode(p.Patch)
+		}
+	}
+	return childCount, len(documents), mode
+}
+
+func policyImpact(ps, next []Policy, rows []Record, path string) (Record, error) {
+	paths := map[string]bool{path: true}
+	for _, row := range rows {
+		p := Text(row, "path")
+		if path == "" || p == path || strings.HasPrefix(p, path+"/") {
+			paths[p] = true
+		}
+	}
+	changed := []string{}
+	for p := range paths {
+		before, e := Resolve(ps, p)
+		if e != nil {
+			return nil, e
+		}
+		after, e := Resolve(next, p)
+		if e != nil {
+			return nil, e
+		}
+		if before.Digest != after.Digest {
+			changed = append(changed, p)
+		}
+	}
+	sort.Strings(changed)
+	before, e := Resolve(ps, path)
+	if e != nil {
+		return nil, e
+	}
+	after, e := Resolve(next, path)
+	if e != nil {
+		return nil, e
+	}
+	result := Record{"changed_paths": changed, "effective": after, "expected_digest": before.Digest}
+	return result, nil
 }

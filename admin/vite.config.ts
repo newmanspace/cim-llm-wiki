@@ -6,6 +6,7 @@ export default defineConfig({
   base: '/admin/',
   plugins: [vue()],
   resolve: {
+    dedupe: ['mermaid', 'dompurify'],
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },

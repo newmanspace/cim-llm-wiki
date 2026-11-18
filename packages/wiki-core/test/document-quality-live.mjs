@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { once } from 'node:events'
 import { createHash,randomUUID } from 'node:crypto'
 import { createKnowledgeServer } from '../../wiki-service/server.mjs'
@@ -11,13 +11,14 @@ import { createKnowledgeServer } from '../../wiki-service/server.mjs'
 test('live Node/Go/PostgreSQL document provenance, review, export and inherited policy invalidation',async t=>{
  const root=mkdtempSync(join(tmpdir(),'quality-live-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
  const projectRoot=join(root,'state'),wikiRoot=join(projectRoot,'data/wiki'),shared=join(root,'shared'),organizedRoot=join(root,'organized')
- const save=(path,value)=>{mkdirSync(join(path,'..'),{recursive:true});writeFileSync(path,typeof value==='string'?value:JSON.stringify(value))}
+ const save=(path,value)=>{assert.ok(resolve(path).startsWith(root+sep),'Fixture writes must stay in the temporary test root');mkdirSync(join(path,'..'),{recursive:true});writeFileSync(path,typeof value==='string'?value:JSON.stringify(value))}
  save(join(shared,'original.docx'),'source fixture');save(join(shared,'info.xml'),'<info><entry revision="42"><repository><uuid>repo</uuid></repository></entry></info>')
  const defaults=createDefaultsStore(projectRoot),definition=builtinDefaults()
  definition.delivery=[{id:'req',type:'requirement',scope:'project',min:1}]
  defaults.save(definition,0,'Test Administrator');defaults.publish(1,'Test Administrator');defaults.bind('demo',['docs'])
  const artifactDoc=definition.templates[0].example.replace('待指定','Reviewer').replaceAll('URD 用户需求定义','Source requirement')
  const ledgerURL=process.env.QUALITY_TEST_LEDGER_URL,ledgerToken=process.env.QUALITY_TEST_LEDGER_TOKEN,human=process.env.QUALITY_TEST_REVIEW_TOKEN
+ const fixtureLedger=new URL(ledgerURL);assert.equal(fixtureLedger.protocol,'http:');assert.equal(fixtureLedger.hostname,'127.0.0.1')
  const server=createKnowledgeServer({ projectWikis: null,projectRoot,wikiRoot,roots:{team:shared},token:'automation',reviewerTokens:{Reviewer:human},ledgerURL,ledgerToken,organizedRoot,parser:async()=>({md:'# Source\n\nSource-backed text.\n',images:[]})})
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve)}))
  const origin=`http://127.0.0.1:${server.address().port}`

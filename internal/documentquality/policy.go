@@ -124,38 +124,8 @@ func apply(e *Effective, p Policy) error {
 			e.RequireHuman = b
 			e.Origins[k] = origin
 		case "dimensions":
-			dims, ok := v.(map[string]any)
-			if !ok {
-				return problem(422, "invalid dimensions")
-			}
-			for id, raw := range dims {
-				target, ok := e.Dimensions[id]
-				if !ok {
-					return problem(422, "unknown quality dimension")
-				}
-				fields, ok := raw.(map[string]any)
-				if !ok {
-					return problem(422, "invalid dimension patch")
-				}
-				for key, value := range fields {
-					switch key {
-					case "weight":
-						n, ok := value.(float64)
-						if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > 1 {
-							return problem(422, "invalid dimension weight")
-						}
-						target[key] = n
-					case "rubric":
-						s, ok := value.(string)
-						if !ok || strings.TrimSpace(s) == "" || len(s) > 4000 {
-							return problem(422, "invalid rubric")
-						}
-						target[key] = s
-					default:
-						return problem(422, "unknown dimension field")
-					}
-					e.Origins["dimensions."+id+"."+key] = origin
-				}
+			if err := applyDimensions(e, v, origin); err != nil {
+				return err
 			}
 		default:
 			return problem(422, "unknown policy field")
@@ -175,13 +145,10 @@ func Assess(e Effective, dims map[string]Dimension, issues []Issue) (Assessment,
 
 	for _, id := range Dimensions {
 		d, ok := dims[id]
-		if d.Score != nil {
-			n := *d.Score
-			if math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > 100 {
-				return r, problem(422, "score must be between zero and 100")
-			}
+		if err := validateDimensionScore(d); err != nil {
+			return r, err
 		}
-		if !ok || d.Score == nil || !hasEvidence(d.Evidence) || strings.TrimSpace(d.Reason) == "" {
+		if !completeDimensionScore(d, ok) {
 			complete = false
 			continue
 		}
@@ -189,8 +156,8 @@ func Assess(e Effective, dims map[string]Dimension, issues []Issue) (Assessment,
 	}
 
 	for _, issue := range issues {
-		if (issue.Origin != "source" && issue.Origin != "conversion") || (issue.Severity != "blocking" && issue.Severity != "warning") || issue.Description == "" || issue.Code == "" {
-			return r, problem(422, "invalid quality issue")
+		if err := validateQualityIssue(issue); err != nil {
+			return r, err
 		}
 		switch issue.Code {
 		case "missing_source", "source_hash_mismatch", "critical_fact_error", "major_omission":
@@ -224,4 +191,67 @@ func hasEvidence(entries []any) bool {
 		}
 	}
 	return true
+}
+
+func applyDimensions(e *Effective, rawDimensions any, origin string) error {
+	dims, ok := rawDimensions.(map[string]any)
+	if !ok {
+		return problem(422, "invalid dimensions")
+	}
+	for id, raw := range dims {
+		target, ok := e.Dimensions[id]
+		if !ok {
+			return problem(422, "unknown quality dimension")
+		}
+		fields, ok := raw.(map[string]any)
+		if !ok {
+			return problem(422, "invalid dimension patch")
+		}
+		if err := applyDimensionFields(e, id, target, fields, origin); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func applyDimensionFields(e *Effective, id string, target, fields map[string]any, origin string) error {
+	for key, value := range fields {
+		switch key {
+		case "weight":
+			n, ok := value.(float64)
+			if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > 1 {
+				return problem(422, "invalid dimension weight")
+			}
+			target[key] = n
+		case "rubric":
+			s, ok := value.(string)
+			if !ok || strings.TrimSpace(s) == "" || len(s) > 4000 {
+				return problem(422, "invalid rubric")
+			}
+			target[key] = s
+		default:
+			return problem(422, "unknown dimension field")
+		}
+		e.Origins["dimensions."+id+"."+key] = origin
+	}
+	return nil
+}
+
+func validateDimensionScore(d Dimension) error {
+	if d.Score != nil {
+		n := *d.Score
+		if math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > 100 {
+			return problem(422, "score must be between zero and 100")
+		}
+	}
+	return nil
+}
+func validateQualityIssue(issue Issue) error {
+	if (issue.Origin != "source" && issue.Origin != "conversion") || (issue.Severity != "blocking" && issue.Severity != "warning") || issue.Description == "" || issue.Code == "" {
+		return problem(422, "invalid quality issue")
+	}
+	return nil
+}
+
+func completeDimensionScore(d Dimension, present bool) bool {
+	return present && d.Score != nil && hasEvidence(d.Evidence) && strings.TrimSpace(d.Reason) != ""
 }

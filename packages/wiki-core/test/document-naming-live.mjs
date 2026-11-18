@@ -16,6 +16,7 @@ test('real PostgreSQL numbering, uniqueness, retries, module registry, and Node 
   store.save(definition,0,'Administrator');store.publish(1,'Administrator');store.bind('demo',['chart','common'])
   mkdirSync(join(root,'data/wiki/demo'),{recursive:true})
   const ledgerURL=process.env.NAMING_TEST_LEDGER_URL,ledgerToken=process.env.NAMING_TEST_LEDGER_TOKEN
+  const fixtureLedger=new URL(ledgerURL);assert.equal(fixtureLedger.protocol,'http:');assert.equal(fixtureLedger.hostname,'127.0.0.1')
   async function setup(body,key=randomUUID()) {
     const r=await fetch(ledgerURL+'/setup/projects/demo/naming-settings',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify(body)})
     const value=await r.json();assert.equal(r.status,200,JSON.stringify(value));return value.data

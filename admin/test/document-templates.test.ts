@@ -158,3 +158,48 @@ test('other supplementary templates show general guidance rather than IDD entry 
   expect(note).toContain('以项目交付契约为准')
   expect(note).not.toContain('最上层后端 API')
 })
+
+test('removing a copied template preserves the original and refuses to remove the last template', async () => {
+  await wrapper.find('input[placeholder="新模板标识，如 module-guide"]').setValue('copy')
+  await wrapper.find('input[placeholder="新模板名称"]').setValue('Copy')
+  await click('复制当前模板')
+  await click('移除当前模板')
+  await click('保存草稿')
+  expect(api.post.mock.calls.at(-1)![1].definition.templates).toEqual(definition.templates)
+  await click('移除当前模板')
+  expect(wrapper.findComponent({ name: 'TAlert' }).attributes('message')).toBe('至少保留一个文档模板')
+})
+
+test('checks the entered document against the selected edited template', async () => {
+  api.post.mockResolvedValueOnce({ data: { errors: [] } })
+  await wrapper.find('textarea[placeholder="粘贴待检查的 Markdown 文档"]').setValue('# SPC glossary')
+  await wrapper.findAll('textarea')[2]!.setValue('# Valid SPC')
+  await wrapper.findAll('textarea')[3]!.setValue('# Invalid SPC')
+  await click('检查文档')
+  expect(api.post).toHaveBeenCalledWith('/admin/system/document-templates/check', {
+    definition: expect.objectContaining({ templates: [expect.objectContaining({ example: '# Valid SPC', invalid_example: '# Invalid SPC' })] }),
+    template_id: 'glossary', document: '# SPC glossary',
+  })
+  expect(wrapper.text()).toContain('检查通过。')
+})
+
+test('saves edited directory and terminology entries and supports removing them', async () => {
+  await click('添加目录')
+  await wrapper.find('input[placeholder="目录路径"]').setValue('doc/00-overview')
+  await wrapper.find('input[placeholder="显示名称"]').setValue('Overview')
+  await wrapper.find('input[placeholder="用途"]').setValue('Project glossary')
+  wrapper.findComponent('[placeholder="匹配文档类型"]').vm.$emit('update:modelValue', ['knowledge_article'])
+  await click('添加术语')
+  await wrapper.find('input[placeholder="缩写"]').setValue('SPC')
+  await wrapper.find('input[placeholder="英文全称"]').setValue('Statistical Process Control')
+  await wrapper.find('input[placeholder="中文名称"]').setValue('统计过程控制')
+  await click('保存草稿')
+  expect(api.post.mock.calls.at(-1)![1].definition).toMatchObject({
+    directories: [{ path: 'doc/00-overview', title: 'Overview', description: 'Project glossary', node_types: ['knowledge_article'] }],
+    terms: [{ abbreviation: 'SPC', english: 'Statistical Process Control', chinese: '统计过程控制' }],
+  })
+  await click('移除')
+  await click('移除')
+  await click('保存草稿')
+  expect(api.post.mock.calls.at(-1)![1].definition).toMatchObject({ directories: [], terms: [] })
+})
