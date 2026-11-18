@@ -8,6 +8,10 @@ const routes: RouteRecordRaw[] = [
     component: AdminLayout,
     redirect: '/dashboard',
     children: [
+      { path: 'wiki-builds', name: 'wikiBuilds', component: () => import('@/views/admin/WikiBuilds.vue'), meta: { title: 'Wiki 构建与预览' } },
+      { path: 'settings/document-templates', name: 'documentTemplates', component: () => import('@/views/admin/DocumentTemplates.vue'), meta: { title: '全局项目文档模板定义' } },
+      { path: 'document-directories', name: 'adminDocumentDirectories', component: () => import('@/views/admin/ProjectDocuments.vue'), props: { mode: 'directories' }, meta: { title: '文档目录与评分' } },
+      { path: 'document-results', name: 'adminDocumentResults', component: () => import('@/views/admin/ProjectDocuments.vue'), props: { mode: 'results' }, meta: { title: '文档结果' } },
       {
         path: 'dashboard',
         name: 'adminDashboard',

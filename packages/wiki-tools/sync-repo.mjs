@@ -106,6 +106,7 @@ function collectChangedFiles(repo, repoPath, headSHA, lastSHA, results) {
 }
 
 function scanRepository(repo, results) {
+  if (!repo.submodule) { results.errors.push(`${repo.name}: 本地代码工作区尚未绑定，请先通过项目 Skill 采集代码`); return }
   const repoPath = resolve(PROJECT_ROOT, repo.submodule)
   if (!existsSync(repoPath)) {
     results.errors.push(
@@ -115,7 +116,7 @@ function scanRepository(repo, results) {
   }
 
   // Fetch latest (fall back to local HEAD if remote unreachable)
-  const branch = repo.branch || 'main'
+  const branch = repo.revision_selector || repo.branch || 'HEAD'
   let fetchResult = gitCmd(repoPath, 'fetch', 'origin', branch)
   let useLocal = false
   if (fetchResult === null) {
@@ -124,7 +125,7 @@ function scanRepository(repo, results) {
   }
 
   const lastSHA = repo.last_sync_sha
-  const headRef = useLocal ? 'HEAD' : `origin/${branch}`
+  const headRef = useLocal ? 'HEAD' : 'FETCH_HEAD'
   const headSHA = gitCmd(repoPath, 'rev-parse', headRef)
 
   if (!headSHA) {
@@ -166,6 +167,8 @@ function detectChanges(project, projectId) {
   }
 
   for (const repo of project.repos || []) {
+    if (repo.enabled === false) continue
+    if (repo.type === 'svn') { results.errors.push(`${repo.name}: SVN code sources require the SVN Skill workflow`); continue }
     scanRepository(repo, results)
   }
 

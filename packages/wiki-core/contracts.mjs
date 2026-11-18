@@ -55,43 +55,12 @@ export function nodeLocation(node) {
 }
 
 export function loadTemplateContracts(wikiRoot) {
-  const load = dir => {
-    const path = join(dir, 'manifest.json')
-    if (!existsSync(path)) return {}
-    let value
-    try { value = readContractJson(path) }
-    catch (e) { throw new Error(`${path}: ${e.message}`, { cause: e }) }
-    const errors = schemaErrors('template', value)
-    if (errors.length) throw new Error(`${path}: ${errors.join('; ')}`)
-    for (const [type, entry] of Object.entries(value.templates)) {
-      const base = NODE_TYPES[type]
-      if ((entry.plane && entry.plane !== base.plane) ||
-        (entry.dir && entry.dir !== `${base.plane}/${base.dir}`)) {
-        throw new Error(`${path}: ${type} cannot override its canonical plane or directory`)
-      }
-      if (entry.file && !existsSync(join(dir, entry.file)) && !existsSync(join(wikiRoot, 'templates', entry.file))) {
-        // A manifest may reference a repository builtin template.
-        const builtin = join(PROJECT_ROOT, '.agents/skills/cim-wiki/assets', entry.file)
-        if (!existsSync(builtin)) throw new Error(`${path}: missing template file ${entry.file}`)
-      }
-    }
-    return value.templates
+  const rejectLegacy = dir => {
+    if (existsSync(join(dir,'manifest.json')))throw new Error('Legacy template manifests are not supported; use published global document template definitions')
   }
-  const global = load(join(wikiRoot, 'templates'))
-  const cache = new Map()
-  return project => {
-    if (cache.has(project)) return cache.get(project)
-    const local = project ? load(join(wikiRoot, project, 'templates')) : {}
-    const result = {}
-    for (const [type, base] of Object.entries(NODE_TYPES)) {
-      const entries = [base, global[type] || {}, local[type] || {}]
-      result[type] = {
-        ...base,
-        requiredSections: [...new Set(entries.flatMap(e => e.requiredSections || []))],
-        tables: entries.flatMap(e => e.tables || []),
-      }
-    }
-    cache.set(project, result)
-    return result
+  rejectLegacy(join(wikiRoot,'templates'))
+  return project=>{
+    if(project)rejectLegacy(join(wikiRoot,project,'templates'))
+    return NODE_TYPES
   }
 }

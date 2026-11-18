@@ -3,7 +3,7 @@ import client from '../src/api/client'
 import * as api from '../src/api/projects'
 
 vi.mock('../src/api/client', () => ({
-  default: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }))
 beforeEach(() => vi.resetAllMocks())
 
@@ -11,18 +11,20 @@ test('project registry, token and synchronization requests preserve their API co
   const project = {
     id: 'mes',
     name: 'MES',
-    docs: [],
-    repos: [],
-    modules: [],
-  } as unknown as Parameters<typeof api.upsertProject>[0]
+    product: 'MES',
+    version: 'v1',
+  }
+
   vi.mocked(client.get).mockResolvedValue({ data: { projects: [project] } })
   expect(await api.listProjects()).toEqual([project])
   vi.mocked(client.get).mockResolvedValue({ data: {} })
   expect(await api.listProjects()).toEqual([])
   vi.mocked(client.get).mockResolvedValue({ data: project })
   expect(await api.getProject('mes')).toEqual(project)
-  await api.upsertProject(project)
+  await api.createProject(project)
   expect(client.post).toHaveBeenLastCalledWith('/admin/projects', project)
+  await api.updateProject('mes', { name: 'Updated' })
+  expect(client.patch).toHaveBeenLastCalledWith('/admin/projects/mes', { name: 'Updated' })
   await api.deleteProject('mes')
   expect(client.delete).toHaveBeenLastCalledWith('/admin/projects/mes')
   vi.mocked(client.post).mockResolvedValue({ data: { token: 'issued-once' } })
@@ -49,4 +51,16 @@ test('project registry, token and synchronization requests preserve their API co
   vi.mocked(client.get).mockResolvedValue({ data: {} })
   expect(await api.getSyncLogs('mes', 50)).toEqual([])
   expect(await api.getWikiNodes('mes')).toEqual([])
+})
+
+test('project Wiki requests keep the URL project scope and return directory settings', async () => {
+  const status = { project: 'demo', initialized: true, siteUrl: '/wiki/demo/' }
+  vi.mocked(client.get).mockResolvedValue({ data: { data: status } })
+  expect(await api.getProjectWiki('demo')).toEqual(status)
+  expect(client.get).toHaveBeenLastCalledWith('/admin/projects/demo/wiki')
+  vi.mocked(client.post).mockResolvedValue({ data: { data: status } })
+  expect(await api.configureProjectWiki('demo', '/storage/projects/demo/wiki')).toEqual(status)
+  expect(client.post).toHaveBeenLastCalledWith('/admin/projects/demo/wiki/configure', { sourceDirectory: '/storage/projects/demo/wiki' })
+  expect(await api.initializeProjectWiki('demo')).toEqual(status)
+  expect(client.post).toHaveBeenLastCalledWith('/admin/projects/demo/wiki/initialize', {})
 })

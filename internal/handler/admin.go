@@ -2,12 +2,17 @@ package handler
 
 import (
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"cim-llm-wiki/internal/store"
 	"cim-llm-wiki/internal/types"
@@ -85,22 +90,79 @@ func (h *AdminHandler) GetProjectConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, p)
 }
 
-// UpsertProject POST /api/v1/admin/projects
-func (h *AdminHandler) UpsertProject(c *gin.Context) {
-	var p types.ProjectConfig
-	if err := c.ShouldBindJSON(&p); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// CreateProject POST /api/v1/admin/projects; existing projects use PATCH.
+func (h *AdminHandler) CreateProject(c *gin.Context) {
+	fields, ok := readProjectFields(c, true)
+	if !ok {
 		return
 	}
-	if p.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "project id is required"})
+	p := types.NewProject{ID: fields["id"], Name: fields["name"], Product: fields["product"], Version: fields["version"]}
+	if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Project id and name are required"})
 		return
 	}
-	if err := h.store.UpsertProject(c.Request.Context(), &p); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if _, err := h.store.GetProject(c.Request.Context(), p.ID); err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Project already exists; use PATCH to update basic information"})
+		return
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Project lookup failed"})
+		return
+	}
+	directories, err := NewDocumentDefaultsHandler(h.store).InitializeProject(c, p.ID, p.Name, p.Version, fields["wiki_source_directory"])
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Project document initialization failed", "detail": err.Error()})
+		return
+	}
+	if err := h.store.CreateProject(c.Request.Context(), &p, directories); err != nil {
+		var databaseError *pgconn.PgError
+		if errors.As(err, &databaseError) && databaseError.Code == "23505" {
+			c.JSON(http.StatusConflict, gin.H{"error": "Project already exists"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Project creation failed"})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "id": p.ID})
+}
+
+// UpdateProject PATCH /api/v1/admin/projects/:id changes basic information only.
+func (h *AdminHandler) UpdateProject(c *gin.Context) {
+	patch, ok := readProjectFields(c, false)
+	if !ok {
+		return
+	}
+	if err := h.store.UpdateProjectBasics(c.Request.Context(), c.Param("id"), patch); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Project basic information update failed"})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "id": c.Param("id")})
+}
+
+func readProjectFields(c *gin.Context, creating bool) (map[string]string, bool) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16*1024)
+	decoder := json.NewDecoder(c.Request.Body)
+	var input map[string]*string
+	if err := decoder.Decode(&input); err != nil || len(input) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "A non-empty project object is required"})
+		return nil, false
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "A single JSON object is required"})
+		return nil, false
+	}
+	patch := map[string]string{}
+	for field, value := range input {
+		if (field != "name" && field != "product" && field != "version" && !(creating && (field == "id" || field == "wiki_source_directory"))) || value == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Only allowed project string fields may be supplied"})
+			return nil, false
+		}
+		patch[field] = *value
+	}
+	return patch, true
 }
 
 // DeleteProject DELETE /api/v1/admin/projects/:id
@@ -282,4 +344,22 @@ func (h *AdminHandler) GetWikiNodes(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"project_id": id, "nodes": nodes, "count": len(nodes)})
+}
+
+// SaveCodeSource configures a code repository without replacing module mappings.
+func (h *AdminHandler) SaveCodeSource(c *gin.Context) {
+	var input struct {
+		types.RepoBinding
+		ExpectedRevision int `json:"expected_revision"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(422, gin.H{"error": "Code source JSON object required"})
+		return
+	}
+	if err := h.store.SaveCodeSource(c.Request.Context(), c.Param("id"), input.RepoBinding, input.ExpectedRevision); err != nil {
+		qualityReply(c, nil, err)
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
 }

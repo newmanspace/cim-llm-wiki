@@ -167,3 +167,25 @@ func (h *AuthHandler) clearSession(c *gin.Context) {
 		SameSite: http.SameSiteLaxMode,
 	})
 }
+
+// RequireSession protects administrative document configuration, including direct requests.
+func (h *AuthHandler) RequireSession() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !h.cfg.Enabled {
+			c.AbortWithStatusJSON(403, gin.H{"error": "Administrative sessions must be enabled"})
+			return
+		}
+		if c.Request.Method != http.MethodGet && !strings.HasPrefix(c.GetHeader("Content-Type"), "application/json") {
+			c.AbortWithStatusJSON(415, gin.H{"error": "Administrative writes require application/json"})
+			return
+		}
+		cookie, err := c.Cookie(h.cfg.CookieName)
+		user, valid := h.parseSession(cookie)
+		if err != nil || !valid {
+			c.AbortWithStatusJSON(401, gin.H{"error": "Valid administrator session required"})
+			return
+		}
+		c.Set("quality_actor", user)
+		c.Next()
+	}
+}

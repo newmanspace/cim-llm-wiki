@@ -74,17 +74,8 @@
         </t-tab-panel>
 
         <!-- Repos -->
-        <t-tab-panel :value="'repos'" :label="`${t('detail.repos')} (${project.repos?.length || 0})`">
-          <t-table :data="project.repos || []" :columns="repoColumns" row-key="name" bordered>
-            <template #mappings="{ row }">
-              <t-link theme="primary" @click="openMappings(row)">
-                {{ t('detail.mappingCount', { count: Object.keys(row.module_mapping || {}).length }) }}
-              </t-link>
-            </template>
-            <template #empty>
-              <t-empty :description="t('detail.reposEmpty')" />
-            </template>
-          </t-table>
+        <t-tab-panel value="repos" :label="`代码数据源 (${project.repos?.length || 0})`">
+          <CodeSourceSettings :project-id="project.id" :repos="project.repos || []" @saved="loadProject" @mappings="openMappings" />
         </t-tab-panel>
 
         <!-- Modules -->
@@ -153,6 +144,12 @@
               <t-empty :description="t('detail.wikiEmpty')" />
             </template>
           </t-table>
+        </t-tab-panel>
+        <t-tab-panel value="document-quality" label="文档数据源">
+          <DocumentQualityPanel v-if="activeTab === 'document-quality'" :project-id="project.id" mode="sources" />
+        </t-tab-panel>
+        <t-tab-panel value="document-templates" label="文档模板">
+          <ProjectDocumentTemplates v-if="activeTab === 'document-templates'" :project-id="project.id" />
         </t-tab-panel>
       </t-tabs>
 
@@ -237,7 +234,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import DocumentQualityPanel from '@/components/DocumentQualityPanel.vue'
+import CodeSourceSettings from '@/components/CodeSourceSettings.vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin, NotifyPlugin } from 'tdesign-vue-next'
@@ -258,6 +257,7 @@ import {
   getWikiNodes,
 } from '@/api/projects'
 import type { ProjectConfig, SyncLog, WikiNodeEntry, RepoBinding } from '@/api/types'
+import ProjectDocumentTemplates from '@/components/ProjectDocumentTemplates.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -268,6 +268,9 @@ const projectId = computed(() => String(route.params.id))
 const project = ref<ProjectConfig | null>(null)
 const loading = ref(false)
 const activeTab = ref('overview')
+watch(() => route.query.tab, tab => {
+  activeTab.value = tab === 'document-templates' ? 'document-templates' : 'overview'
+}, { immediate: true })
 
 const descColumn = computed(() => (isMobile.value ? 1 : 2))
 
@@ -309,10 +312,15 @@ function formatDate(s: string) {
   return d.toLocaleString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US')
 }
 
-// DB path (data/wiki/<project>/<plane>/...) → 渲染页 URL（VitePress base=/wiki/，cleanUrls 无扩展名）
+// Project checkout prefixes may vary; compiled atomic node entries end in plane/directory/file.
 function wikiUrl(dbPath: string) {
   if (!dbPath) return '#'
   let rel = dbPath
+  if (rel.startsWith(`data/projects/${projectId.value}/`)) {
+    const node = rel.split('/').slice(-3)
+    if (!['doc', 'code'].includes(node[0] || '')) return '#'
+    rel = `${projectId.value}/${node.join('/')}`
+  }
   if (rel.startsWith('data/wiki/')) rel = rel.slice('data/wiki/'.length)
   rel = rel.replace(/\.md$/, '')
   return `/wiki/${rel}`
@@ -327,14 +335,7 @@ const docColumns = computed<PrimaryTableCol[]>(() => [
   { colKey: 'bundles', title: t('detail.docBundles'), cell: 'bundles' },
 ])
 
-const repoColumns = computed<PrimaryTableCol[]>(() => [
-  { colKey: 'name', title: t('detail.repoName'), width: 140, ellipsis: true },
-  { colKey: 'branch', title: t('detail.repoBranch'), width: 160, ellipsis: true },
-  { colKey: 'url', title: t('detail.repoUrl'), ellipsis: true },
-  { colKey: 'last_sync_sha', title: t('detail.repoLastSyncSHA'), width: 130, ellipsis: true },
-  { colKey: 'synced_at', title: t('detail.repoSyncedAt'), width: 170, cell: (_h, { row }) => formatDate(row.synced_at) },
-  { colKey: 'mappings', title: t('detail.repoMappings'), width: 130, cell: 'mappings' },
-])
+
 
 const syncColumns = computed<PrimaryTableCol[]>(() => [
   { colKey: 'repo_name', title: t('detail.logRepo'), width: 130, ellipsis: true },
@@ -377,35 +378,41 @@ async function copyText(text: string) {
 }
 
 async function loadProject() {
+  const id = projectId.value
   loading.value = true
   try {
-    project.value = await getProject(projectId.value)
+    const result = await getProject(id)
+    if (id === projectId.value) project.value = result
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    loading.value = false
+    if (id === projectId.value) loading.value = false
   }
 }
 
 async function loadLogs() {
+  const id = projectId.value
   logsLoading.value = true
   try {
-    syncLogs.value = await getSyncLogs(projectId.value, 50)
+    const result = await getSyncLogs(id, 50)
+    if (id === projectId.value) syncLogs.value = result
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    logsLoading.value = false
+    if (id === projectId.value) logsLoading.value = false
   }
 }
 
 async function loadWikiNodes() {
+  const id = projectId.value
   wikiLoading.value = true
   try {
-    wikiNodes.value = await getWikiNodes(projectId.value)
+    const result = await getWikiNodes(id)
+    if (id === projectId.value) wikiNodes.value = result
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    wikiLoading.value = false
+    if (id === projectId.value) wikiLoading.value = false
   }
 }
 
@@ -418,15 +425,18 @@ async function handleIssueToken() {
     MessagePlugin.warning(t('detail.tokenScopes'))
     return
   }
+  const id = projectId.value
   issuing.value = true
   try {
-    issuedToken.value = await issueToken(projectId.value, tokenScopes.value, tokenExpiry.value)
+    const result = await issueToken(id, tokenScopes.value, tokenExpiry.value)
+    if (id !== projectId.value) return
+    issuedToken.value = result
     tokenDialogVisible.value = false
     tokenResultVisible.value = true
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    issuing.value = false
+    if (id === projectId.value) issuing.value = false
   }
 }
 
@@ -442,21 +452,35 @@ async function handleRevokeToken() {
     MessagePlugin.warning(t('detail.tokenPlaceholder'))
     return
   }
+  const id = projectId.value
   revoking.value = true
   try {
-    await revokeToken(projectId.value, token)
+    await revokeToken(id, token)
+    if (id !== projectId.value) return
     MessagePlugin.success(t('detail.revoked'))
     revokeDialogVisible.value = false
     revokeTokenValue.value = ''
     if (issuedToken.value?.token === token) acknowledgeToken()
   } catch (e: any) {
-    showError(e, t('common.error'))
+    if (id === projectId.value) showError(e, t('common.error'))
   } finally {
-    revoking.value = false
+    if (id === projectId.value) revoking.value = false
   }
 }
 
-onMounted(loadAll)
+watch(projectId, () => {
+  project.value = null
+  syncLogs.value = []
+  wikiNodes.value = []
+  tokenDialogVisible.value = false
+  revokeDialogVisible.value = false
+  revokeTokenValue.value = ''
+  mappingsVisible.value = false
+  acknowledgeToken()
+  issuing.value = false
+  revoking.value = false
+  void loadAll()
+}, { immediate: true })
 </script>
 
 <style scoped>

@@ -46,7 +46,7 @@ plane: code   # compile 按双平面路由自动写入：doc | code
 # endpoint: "POST /api/v1/wip/lots/track-in"
 # protocol: HTTP/REST
 # 仅 api（api card v1）追加以下字段：
-# operation: MoveInReservation        # vocabulary.md Operation 枚举，lint 校验
+# operation: <受控动作>               # 从 context.vocabulary.operation 读取
 # transaction_code: ODIS0001          # 事务码；全局唯一，compile 登记 data/documents/api-registry.json
 # domain_objects:                     # 操作的领域对象名列表
 #   - "Equipment"
@@ -61,7 +61,7 @@ plane: code   # compile 按双平面路由自动写入：doc | code
 # 仅 business_rule（rule card v2）追加以下字段：
 # rule_type: contract | business_rule   # contract=功能契约（带 applies_to，入 code/rules/）；business_rule=业务规则（入 doc/business/）
 # severity: Critical | High | Medium | Low    # Critical 强制 L2_arch 人审
-# rule_category: vocabulary.md 登记的 Rule Category 枚举值
+# rule_category: context.vocabulary.category 返回的枚举值
 # verification_status: AI-Candidate | Human-Verified | Deprecated   # 由 review_level 派生，非独立状态机
 # applies_to:                         # 规则生效接口（rule → api 图闭合），元素必须是 api 卡 wikilink
 #   - "[[code/apis/api-int-eap-001.md]]"
@@ -69,7 +69,7 @@ plane: code   # compile 按双平面路由自动写入：doc | code
 # 仅 business_object（domain card v1）追加以下字段：
 # domain_object: Equipment          # 核心领域对象名
 # primary_key: EquipmentId          # 主键（AI 实体解析键）
-# rule_tags: [STATE, RECIPE, …]     # 必须是 vocabulary.md Rule Category 枚举
+# rule_tags: [<受控分类>]            # 从 context.vocabulary.category 读取
 # synthesized: true                 # 跨文档聚合卡；source 可为列表；默认 L2_arch 人审
 # content 槽位模板见 extraction.md「business_object 结构化模板」
 product: Semiconductor-MES

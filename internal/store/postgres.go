@@ -6,9 +6,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"cim-llm-wiki/internal/types"
@@ -115,7 +118,7 @@ func (s *Store) loadProjectDocs(ctx context.Context, p *types.ProjectConfig) err
 func (s *Store) loadProjectRepos(ctx context.Context, p *types.ProjectConfig) error {
 	// Load repos with module mappings
 	repoRows, err := s.pool.Query(ctx,
-		`SELECT id, name, url, branch, COALESCE(submodule,''), COALESCE(last_sync_sha,''), synced_at
+		`SELECT id, name, url, branch, COALESCE(submodule,''), COALESCE(last_sync_sha,''), synced_at,source_type,source_subpath,revision_selector,enabled,config_revision
 		 FROM project_repos WHERE project_id = $1 ORDER BY name`, p.ID)
 	if err != nil {
 		return err
@@ -125,11 +128,15 @@ func (s *Store) loadProjectRepos(ctx context.Context, p *types.ProjectConfig) er
 		var r types.RepoBinding
 		var repoDBID int
 		var synced *time.Time
-		if err := repoRows.Scan(&repoDBID, &r.Name, &r.URL, &r.Branch, &r.Submodule, &r.LastSyncSHA, &synced); err != nil {
+		if err := repoRows.Scan(&repoDBID, &r.Name, &r.URL, &r.Branch, &r.Submodule, &r.LastSyncSHA, &synced, &r.Type, &r.Subpath, &r.RevisionSelector, &r.Enabled, &r.ConfigRevision); err != nil {
 			return err
 		}
 		if synced != nil {
 			r.SyncedAt = synced.Format(time.RFC3339)
+		}
+		r.Auth = "git_local"
+		if r.Type == "svn" {
+			r.Auth = "svn_cache"
 		}
 		// Load module mappings for this repo
 		mapRows, err := s.pool.Query(ctx,
@@ -198,87 +205,59 @@ func (s *Store) loadProjectWikiNodes(ctx context.Context, p *types.ProjectConfig
 	return wnRows.Err()
 }
 
-func (s *Store) UpsertProject(ctx context.Context, p *types.ProjectConfig) error {
+func (s *Store) CreateProject(ctx context.Context, p *types.NewProject, directories []map[string]string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	_, err = tx.Exec(ctx,
-		`INSERT INTO projects (id, name, product, version)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (id) DO UPDATE SET name=$2, product=$3, version=$4`,
-		p.ID, p.Name, p.Product, p.Version)
-	if err != nil {
-		return fmt.Errorf("upsert project: %w", err)
+	if _, err = tx.Exec(ctx, `INSERT INTO projects (id, name, product, version) VALUES ($1, $2, $3, $4)`, p.ID, p.Name, p.Product, p.Version); err != nil {
+		return fmt.Errorf("create project: %w", err)
 	}
-
-	// Upsert modules
-	_, _ = tx.Exec(ctx, `DELETE FROM project_modules WHERE project_id = $1`, p.ID)
-	for _, m := range p.Modules {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO project_modules (project_id, module_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-			p.ID, m)
-		if err != nil {
-			return fmt.Errorf("insert module %s: %w", m, err)
-		}
+	if err := insertDocumentDirectories(ctx, tx, p.ID, directories); err != nil {
+		return err
 	}
-
-	// Upsert docs
-	for _, d := range p.Docs {
-		var ingested *time.Time
-		if d.IngestedAt != "" {
-			t, _ := time.Parse(time.RFC3339, d.IngestedAt)
-			ingested = &t
-		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO project_docs (project_id, doc_id, path, type, submodule, sha256, ingested_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
-			 ON CONFLICT (project_id, doc_id) DO UPDATE SET
-			   path=$3, type=$4, submodule=$5, sha256=$6, ingested_at=$7`,
-			p.ID, d.DocID, d.Path, d.Type, d.Submodule, d.SHA256, ingested)
-		if err != nil {
-			return fmt.Errorf("upsert doc %s: %w", d.DocID, err)
-		}
-	}
-
-	// Upsert repos
-	for _, r := range p.Repos {
-		var synced *time.Time
-		if r.SyncedAt != "" {
-			t, _ := time.Parse(time.RFC3339, r.SyncedAt)
-			synced = &t
-		}
-		var repoID int
-		err = tx.QueryRow(ctx,
-			`INSERT INTO project_repos (project_id, name, url, branch, submodule, last_sync_sha, synced_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
-			 ON CONFLICT (project_id, name) DO UPDATE SET
-			   url=$3, branch=$4, submodule=$5, last_sync_sha=$6, synced_at=$7
-			 RETURNING id`,
-			p.ID, r.Name, r.URL, r.Branch, r.Submodule, r.LastSyncSHA, synced).Scan(&repoID)
-		if err != nil {
-			return fmt.Errorf("upsert repo %s: %w", r.Name, err)
-		}
-		// Replace module mappings
-		_, _ = tx.Exec(ctx, `DELETE FROM repo_module_mappings WHERE repo_id = $1`, repoID)
-		for prefix, modID := range r.ModuleMapping {
-			_, err = tx.Exec(ctx,
-				`INSERT INTO repo_module_mappings (repo_id, path_prefix, module_id) VALUES ($1, $2, $3)`,
-				repoID, prefix, modID)
-			if err != nil {
-				return fmt.Errorf("insert mapping %s→%s: %w", prefix, modID, err)
-			}
-		}
-	}
-
 	return tx.Commit(ctx)
 }
 
 func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
 	return err
+}
+
+// UpdateProjectBasics locks the row and writes only supplied values that changed.
+// Related configuration is managed through its own endpoints.
+func (s *Store) UpdateProjectBasics(ctx context.Context, id string, patch map[string]string) error {
+	for field := range patch {
+		if field != "name" && field != "product" && field != "version" {
+			return fmt.Errorf("unsupported project field: %s", field)
+		}
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var name, product, version string
+	if err := tx.QueryRow(ctx, `SELECT name, product, version FROM projects WHERE id=$1 FOR UPDATE`, id).Scan(&name, &product, &version); err != nil {
+		return err
+	}
+	current := map[string]string{"name": name, "product": product, "version": version}
+	assignments := []string{}
+	args := []any{id}
+	for _, field := range []string{"name", "product", "version"} {
+		value, supplied := patch[field]
+		if supplied && value != current[field] {
+			args = append(args, value)
+			assignments = append(assignments, fmt.Sprintf("%s=$%d", field, len(args)))
+		}
+	}
+	if len(assignments) > 0 {
+		if _, err := tx.Exec(ctx, "UPDATE projects SET "+strings.Join(assignments, ", ")+" WHERE id=$1", args...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // ─── Token Management ────────────────────────────────────────────────────────
@@ -441,4 +420,29 @@ func (s *Store) GetWikiNodes(ctx context.Context, projectID string) ([]WikiNodeE
 		out = append(out, n)
 	}
 	return out, rows.Err()
+}
+
+func insertDocumentDirectories(ctx context.Context, tx pgx.Tx, project string, entries []map[string]string) error {
+	for _, directory := range entries {
+		payload, err := json.Marshal(map[string]string{"path": directory["path"], "display_name": directory["title"]})
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO dq_directories(project_id,payload,created_by) VALUES($1,$2,'system:document-template') ON CONFLICT DO NOTHING`, project, payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) EnsureDocumentDirectories(ctx context.Context, project string, entries []map[string]string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = insertDocumentDirectories(ctx, tx, project, entries); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

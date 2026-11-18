@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os'
+import { createDefaultsStore, templateFor, checkDocument } from './document-defaults.mjs'
 import {
   sharedRoots,
   resolveSource,
@@ -5,7 +7,7 @@ import {
   hashFile,
   nodeProvenance,
 } from './sources.mjs'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, mkdirSync, cpSync, rmSync, lstatSync } from 'node:fs'
 import { join, resolve, relative, posix } from 'node:path'
 import { createHash } from 'node:crypto'
 import {
@@ -23,7 +25,7 @@ import {
   pageLinks,
   renderingErrors,
 } from './markdown.mjs'
-import { validateDirectories } from './product-directory.mjs'
+import { projectDeliveryContract } from './project-document-config.mjs'
 import { validateDocumentSets } from './document-set.mjs'
 
 const vocabulary = JSON.parse(
@@ -35,8 +37,12 @@ export function validateWiki({
   projectRoot = process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT,
   wikiRoot = join(projectRoot, 'data/wiki'),
   roots = sharedRoots(),
+  project,
+  sourceRoot,
 } = {}) {
+  if (sourceRoot) return validateProjectWiki({ projectRoot, wikiRoot, roots, project, sourceRoot })
   wikiRoot = resolve(wikiRoot)
+  const bindingCache = new Map()
   const errors = [],
     warnings = [],
     pages = new Map(),
@@ -52,13 +58,15 @@ export function validateWiki({
       scanned: 0,
     }
   }
+  if (project) projects.add(project)
+  else for (const bound of createDefaultsStore(projectRoot).projects()) projects.add(bound)
   collectRegisteredProjects()
   function isProjectDirectory(parent, path, name) {
     if (parent !== wikiRoot || name === 'templates') return false
     return (
       ['doc', 'code'].some((plane) =>
         statSync(join(path, plane), { throwIfNoEntry: false })?.isDirectory(),
-      ) || existsSync(join(path, 'document-contract.json'))
+      )
     )
   }
   function walk(dir) {
@@ -95,8 +103,19 @@ export function validateWiki({
     add('template_contract_error', wikiRoot, e.message)
   }
 
-  errors.push(...validateDirectories(wikiRoot))
   validatePages()
+
+  function checkBoundDocument(page,key,project) {
+    try {
+      if(!bindingCache.has(project))bindingCache.set(project,createDefaultsStore(projectRoot).effective(project))
+      const binding=bindingCache.get(project)
+      const diagnostics=checkDocument(templateFor(binding.definition,page.fm),page.body,{terms:binding.definition.terms,documentPath:key,phase:'publish',reviewer:page.fm.reviewer})
+      for(const d of diagnostics) {
+        const target=d.severity==='error'?errors:warnings
+        target.push({code:d.rule_id,path:key,message:d.message,line:d.line})
+      }
+    }catch(e){add('document_template_binding',key,e.message)}
+  }
 
   function resolveLink(target, key, wiki = true) {
     if (typeof target !== 'string') return null
@@ -142,10 +161,11 @@ export function validateWiki({
           typeof registry.projects !== 'object'
         )
           throw new Error('registry.projects must be an object')
-        for (const project of Object.keys(registry.projects)) {
-          if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(project))
-            throw new Error(`Invalid project ID: ${project}`)
-          projects.add(project)
+        for (const registered of Object.keys(registry.projects)) {
+          if (project && registered !== project) continue
+          if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(registered))
+            throw new Error(`Invalid project ID: ${registered}`)
+          projects.add(registered)
         }
       } catch (e) {
         add('project_registry_error', registryPath, e.message)
@@ -156,8 +176,6 @@ export function validateWiki({
   function validatePages() {
     for (const key of files) {
       if (!key.endsWith('.md')) continue
-      // Catalog pages are deterministic navigation, validated separately above.
-      if (/^[^/]+\/catalog\//.test(key)) continue
       let page
       try {
         page = parsePage(readFileSync(join(wikiRoot, key), 'utf8'))
@@ -192,6 +210,7 @@ export function validateWiki({
       checkPublication(fm, key)
       checkVocabulary(fm, key)
       checkApiPreconditions(page, key)
+      checkBoundDocument(page,key,project)
       if (
         fm.created_at &&
         fm.updated_at &&
@@ -344,7 +363,9 @@ export function validateWiki({
           issue('orphan_knowledge', key, 'Page has no incoming references'),
         )
     errors.push(
-      ...validateDocumentSets({ wikiRoot, projects, pages, resolveLink }),
+      ...validateDocumentSets({ wikiRoot, projects, pages, resolveLink,
+        contractFor: project => projectDeliveryContract(project, createDefaultsStore(projectRoot).effective(project)),
+      }),
     )
   }
 
@@ -357,6 +378,7 @@ export function validateWiki({
           throw new Error('manifest.docs must be an array')
         const byPath = new Map()
         for (const rec of manifest.docs) {
+          if (project && rec.project !== project && ![...pages.values()].some(page => (Array.isArray(page.fm.source) ? page.fm.source : [page.fm.source]).includes(rec.path))) continue
           byPath.set(rec.path, rec)
           let path
           try {
@@ -535,4 +557,20 @@ export function assertValidWiki(options) {
         .join('\n'),
     )
   return result
+}
+
+// A temporary project view preserves the strict node key contract (<project>/doc
+// or code) while the physical checkout itself starts with doc/ and code/.
+function validateProjectWiki(options) {
+  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(options.project || '')) throw new Error('Project is required for an isolated Wiki')
+  const stage = mkdtempSync(join(tmpdir(), 'wiki-project-check-'))
+  try {
+    mkdirSync(join(stage, options.project))
+    cpSync(options.sourceRoot, join(stage, options.project), { recursive: true, filter: path => {
+      if (['.git', '.vitepress'].includes(path.split('/').at(-1))) return false
+      if (lstatSync(path).isSymbolicLink()) throw new Error('Symbolic links are not permitted in Wiki content')
+      return true
+    } })
+    return validateWiki({ ...options, wikiRoot: stage, sourceRoot: undefined })
+  } finally { rmSync(stage, { recursive: true, force: true }) }
 }

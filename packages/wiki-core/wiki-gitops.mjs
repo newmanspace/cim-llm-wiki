@@ -25,7 +25,7 @@ export function gitopsEnabled() {
 
 
 function runGit(args, cwd) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf-8' })
+  const r = spawnSync('git', ['-c', 'safe.directory=' + cwd, ...args], { cwd, encoding: 'utf-8' })
   if (r.status !== 0) {
     const err = new Error((r.stderr || r.stdout || `git ${args.join(' ')} failed`).trim())
     err.gitArgs = args
@@ -55,7 +55,7 @@ export function ensureRepo(repoRoot) {
 export function commitWiki(repoRoot, message, options = {}) {
   assertValidWiki({ ...options, wikiRoot: repoRoot })
   runGit(['add', '-A'], repoRoot)
-  const hasStaged = spawnSync('git', ['diff', '--cached', '--quiet'], { cwd: repoRoot })
+  const hasStaged = spawnSync('git', ['-c', 'safe.directory=' + repoRoot, 'diff', '--cached', '--quiet'], { cwd: repoRoot })
   if (hasStaged.status === 0) {
     return { committed: false, reason: 'no-change' }
   }

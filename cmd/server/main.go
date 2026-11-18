@@ -136,14 +136,48 @@ func buildHandler(cfg *config.Config) (http.Handler, func(), error) {
 			slog.Warn("Auth disabled: /wiki/ and /admin/ gate is transparent (open)")
 		}
 
+		wikiBuilds := handler.NewWikiBuildHandler()
+		buildManagement := v1.Group("/admin/projects/:id/wiki-builds", auth.RequireSession())
+		buildManagement.GET("", wikiBuilds.Handle)
+		buildManagement.POST("/:action", wikiBuilds.Handle)
+		v1.GET("/admin/wiki-preview-access", auth.RequireSession(), wikiBuilds.PreviewAccess)
+
 		// Admin API (Project Registry management, requires PostgreSQL)
 		if adminStore != nil {
 			admin := handler.NewAdminHandler(adminStore)
+			projectWiki := v1.Group("/admin/projects/:id/wiki", auth.RequireSession())
+			projectWiki.Use(func(c *gin.Context) {
+				if _, err := adminStore.GetProject(c.Request.Context(), c.Param("id")); err != nil {
+					c.AbortWithStatusJSON(404, gin.H{"error": "Project not found"})
+					return
+				}
+				c.Next()
+			})
+			projectWiki.GET("", wikiBuilds.ProjectWiki)
+			projectWiki.GET("/:action", wikiBuilds.ProjectWiki)
+			projectWiki.POST("/:action", wikiBuilds.ProjectWiki)
+			documentDefaults := handler.NewDocumentDefaultsHandler(adminStore)
+			settings := v1.Group("/admin/system/document-templates", auth.RequireSession())
+			settings.GET("", documentDefaults.Handle)
+			settings.POST("/:action", documentDefaults.Handle)
+			settings.GET("/:action", documentDefaults.Handle)
+			quality := handler.NewDocumentQualityHandler(adminStore)
+			if quality.Ready() {
+				internal := r.Group("/internal/v1/projects/:id/document-quality", quality.InternalAuth())
+				internal.GET("/:resource", quality.List)
+				internal.POST("/:operation", quality.Command)
+				management := v1.Group("/admin/projects/:id/document-quality", auth.RequireSession())
+				management.GET("/:resource", quality.List)
+				management.POST("/:operation", quality.Command)
+			}
+
 			adminGroup := v1.Group("/admin")
 			{
 				// Public endpoints (no token required)
 				adminGroup.GET("/projects", admin.ListProjects)
-				adminGroup.POST("/projects", admin.UpsertProject)
+				adminGroup.POST("/projects", auth.RequireSession(), admin.CreateProject)
+				adminGroup.PATCH("/projects/:id", auth.RequireSession(), admin.UpdateProject)
+				adminGroup.POST("/projects/:id/code-sources", auth.RequireSession(), admin.SaveCodeSource)
 				adminGroup.GET("/projects/:id", admin.GetProject)
 				adminGroup.DELETE("/projects/:id", admin.DeleteProject)
 				adminGroup.POST("/projects/:id/token", admin.IssueToken)
@@ -177,13 +211,11 @@ func openAdminStore(cfg *config.Config) (*store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if migration, err := loadMigrations(cfg.Admin.MigrationDir); err == nil && migration != "" {
-		if err := adminStore.Migrate(ctx, migration); err != nil {
-			slog.Warn("migration failed (may already be applied)", "err", err)
-		} else {
-			slog.Info("migrations applied")
-		}
+	if err := applyAdminMigrations(ctx, adminStore, cfg.Admin.MigrationDir); err != nil {
+		adminStore.Close()
+		return nil, err
 	}
+
 	return adminStore, nil
 }
 
@@ -221,4 +253,24 @@ func loadMigrations(dir string) (string, error) {
 		sql += string(data) + "\n"
 	}
 	return sql, nil
+}
+
+func applyAdminMigrations(ctx context.Context, db *store.Store, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read migration directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return err
+		}
+		if err = db.ApplyMigration(ctx, entry.Name(), string(content)); err != nil {
+			return err
+		}
+	}
+	return nil
 }

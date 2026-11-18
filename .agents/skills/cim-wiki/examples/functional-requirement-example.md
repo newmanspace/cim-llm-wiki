@@ -1,7 +1,7 @@
 # 12寸晶圆制造 Dry ETCH (干法刻蚀工序) 功能需求规格书 (Functional Requirement Definition - FRD 样例)
 
 > **文档说明**: 本文档作为半导体 CIM/MES 领域标准 FRD（功能需求规格书）的**参考样例**，展示如何依据 `functional-requirement-template.md` 规范编写复杂多场景、跨系统协同的工程级业务功能需求。
-> **参考来源**: 京城芯星 12 寸晶圆厂 Dry ETCH MESFRD0000 规范标准及 AMAT 300Works 体系。
+> **使用说明**：本示例仅展示文档结构；业务术语与规则必须以绑定项目的有效材料为准。
 
 ---
 
@@ -53,7 +53,7 @@
 | 生产制造部 | REQ-ETCH-003 | 支持机械臂双指 SWAP 一次性完成 Dummy 进出置换 | Scenario 8: 机械臂 SWAP 置换 | Medium | 缩减非生产等待时间 |
 
 ### 1.6 术语与业务缩略词 (Terminology)
-| 编号 | To-Be 术语 | 中文命名 | 对照与 AMAT 300Works 用法 | 业务释义与工程定义 |
+| 编号 | To-Be 术语 | 中文命名 | 项目参考术语（可选） | 业务释义与工程定义 |
 |---|---|---|---|---|
 | 1 | Pilot Lot | 领跑生产批 | Pilot Lot | 从母批中分出用于工艺先行验证的生产晶圆批次 |
 | 2 | Pi-Run | 领跑加工 | Pilot Run / Pi-Run | 评估机台工艺稳定性与大批量加工可行性的先行验证流程 |

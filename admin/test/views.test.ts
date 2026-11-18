@@ -11,16 +11,18 @@ import App from '../src/App.vue'
 import PageHeader from '../src/components/PageHeader.vue'
 
 const state = vi.hoisted(() => ({
-  route: { path: '/projects/mes', params: { id: 'mes' } },
+  route: { path: '/projects/mes', query: {} as Record<string, string>, params: { id: 'mes' } },
   push: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
   save: vi.fn(),
+  update: vi.fn(),
   remove: vi.fn(),
   issue: vi.fn(),
   revoke: vi.fn(),
   logs: vi.fn(),
   nodes: vi.fn(),
+  wiki: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
   warning: vi.fn(),
@@ -28,17 +30,21 @@ const state = vi.hoisted(() => ({
   confirm: vi.fn(),
   destroy: vi.fn(),
 }))
+vi.mock('../src/components/ProjectDocumentTemplates.vue', () => ({ default: { props: ['projectId'], template: '<div data-test="project-templates">{{ projectId }}</div>' } }))
 vi.mock('../src/api/projects', () => ({
   listProjects: state.list,
+  getProjectWiki: state.wiki,
   getProject: state.get,
-  upsertProject: state.save,
+  createProject: state.save,
+  updateProject: state.update,
   deleteProject: state.remove,
   issueToken: state.issue,
   revokeToken: state.revoke,
   getSyncLogs: state.logs,
   getWikiNodes: state.nodes,
 }))
-vi.mock('tdesign-vue-next', () => ({
+vi.mock('tdesign-vue-next', async (original) => ({
+  ...(await original<typeof import('tdesign-vue-next')>()),
   MessagePlugin: {
     error: state.error,
     success: state.success,
@@ -47,11 +53,15 @@ vi.mock('tdesign-vue-next', () => ({
   NotifyPlugin: { error: state.notify },
   DialogPlugin: { confirm: state.confirm },
 }))
-vi.mock('vue-router', async (original) => ({
+vi.mock('vue-router', async (original) => {
+  const { reactive } = await import('vue')
+  state.route = reactive(state.route)
+  return ({
   ...(await original<typeof import('vue-router')>()),
   useRoute: () => state.route,
   useRouter: () => ({ push: state.push }),
-}))
+})
+})
 
 const project = {
   id: 'mes',
@@ -109,11 +119,13 @@ function dialog(wrapper: VueWrapper, key: string) {
   return result!
 }
 beforeEach(() => {
+  state.wiki.mockResolvedValue({ initialized: false, published: false })
   vi.clearAllMocks()
   localStorage.clear()
   i18n.global.locale.value = 'zh-CN'
   state.route.path = '/projects/mes'
   state.route.params.id = 'mes'
+  state.route.query = {}
   Object.defineProperty(window, 'innerWidth', {
     value: 1200,
     writable: true,
@@ -127,6 +139,7 @@ beforeEach(() => {
   state.list.mockResolvedValue([project])
   state.get.mockResolvedValue(structuredClone(project))
   state.save.mockResolvedValue(undefined)
+  state.update.mockResolvedValue(undefined)
   state.remove.mockResolvedValue(undefined)
   state.issue.mockResolvedValue({ token: 'issued-once' })
   state.revoke.mockResolvedValue(undefined)
@@ -143,6 +156,7 @@ beforeEach(() => {
   state.nodes.mockResolvedValue([
     { plane: 'doc', path: 'data/wiki/mes/doc/a.md' },
     { plane: 'code', path: 'mes/code/b.md' },
+    { plane: 'code', path: 'data/projects/mes/custom-markdown/code/apis/api-new.md' },
   ])
   state.confirm.mockReturnValue({ destroy: state.destroy })
   validateForm.mockResolvedValue(true)
@@ -183,20 +197,24 @@ test('dashboard aggregates available projects and reports load failures', async 
   await flushPromises()
 })
 
-test('project editing preserves document bindings and create validates input', async () => {
+test('project editing submits only changed basic fields; unchanged saves make no request', async () => {
   const wrapper = view(ProjectManagement)
   await flushPromises()
   await click(wrapper, 'common.edit')
   const edit = dialog(wrapper, 'project.edit')
   edit.vm.$emit('confirm')
   await flushPromises()
-  expect(state.save).toHaveBeenCalledWith(
-    expect.objectContaining({
-      id: 'mes',
-      docs: project.docs,
-      repos: project.repos,
-    }),
-  )
+  expect(state.update).not.toHaveBeenCalled()
+  expect(state.save).not.toHaveBeenCalled()
+  expect(state.get).not.toHaveBeenCalled()
+  await click(wrapper, 'common.edit')
+  const changed = dialog(wrapper, 'project.edit')
+  await changed.findAll('input')[1]!.setValue('Changed name')
+  changed.vm.$emit('confirm')
+  await flushPromises()
+  expect(state.update).toHaveBeenCalledExactlyOnceWith('mes', { name: 'Changed name' })
+  expect(state.save).not.toHaveBeenCalled()
+
   await click(wrapper, 'project.create')
   const create = dialog(wrapper, 'project.create')
   const inputs = create.findAll('input')
@@ -206,12 +224,10 @@ test('project editing preserves document bindings and create validates input', a
   validateForm.mockResolvedValueOnce(false)
   create.vm.$emit('confirm')
   await flushPromises()
-  expect(state.save).toHaveBeenCalledTimes(1)
+  expect(state.save).not.toHaveBeenCalled()
   create.vm.$emit('confirm')
   await flushPromises()
-  expect(state.save).toHaveBeenLastCalledWith(
-    expect.objectContaining({ id: 'mesnew', docs: [] }),
-  )
+  expect(state.save).toHaveBeenLastCalledWith({ id: 'mesnew', name: 'New MES', product: 'Semiconductor-MES', version: '' })
   await wrapper.find('input').setValue('does not exist')
   expect(wrapper.text()).not.toContain('MES Project')
 })
@@ -231,13 +247,14 @@ test('project mutation failures remain visible and confirmation is released', as
   confirmation = state.confirm.mock.calls.at(-1)![0]
   await confirmation.onConfirm()
   expect(state.error).toHaveBeenCalledWith('delete failed')
-  state.get.mockRejectedValue(new Error('offline'))
+  state.error.mockClear()
   await click(wrapper, 'common.edit')
-  expect(state.error).toHaveBeenCalled()
-  state.save.mockRejectedValue(new Error('offline'))
+  expect(state.get).not.toHaveBeenCalled()
+  state.update.mockRejectedValue({ response: { data: { error: 'update failed' } } })
+  await dialog(wrapper, 'project.edit').findAll('input')[1]!.setValue('Changed')
   dialog(wrapper, 'project.edit').vm.$emit('confirm')
   await flushPromises()
-  expect(state.error).toHaveBeenCalled()
+  expect(state.error).toHaveBeenCalledExactlyOnceWith('update failed')
   state.list.mockRejectedValue(new Error('offline'))
   await click(wrapper, 'common.refresh')
   expect(state.error).toHaveBeenCalled()
@@ -246,14 +263,15 @@ test('project mutation failures remain visible and confirmation is released', as
 test('detail view publishes source links and displays tokens once, then revokes them', async () => {
   const wrapper = view(ProjectDetail)
   await flushPromises()
+  expect(wrapper.find('a[href="/wiki/mes/code/apis/api-new"]').exists()).toBe(true)
   expect(
     wrapper
       .findAll('a')
       .some((node) => node.attributes('href') === '/wiki/mes/doc/a'),
   ).toBe(true)
   const mapping = wrapper
-    .findAll('a')
-    .find((node) => node.text().includes('1') && !node.attributes('href'))
+    .findAll('button')
+    .find((node) => node.text()==='模块映射')
   expect(mapping).toBeDefined()
   await mapping!.trigger('click')
   await flushPromises()
@@ -330,6 +348,41 @@ test('detail reload and token errors retain recoverable UI state', async () => {
   expect(state.notify).toHaveBeenCalled()
 })
 
+test('settings submenu expands from collapsed navigation and closes the mobile drawer on selection', async () => {
+  const wrapper = view(AdminLayout)
+  await flushPromises()
+  expect(wrapper.find('.settings-child').exists()).toBe(false)
+  await wrapper.find('.sidebar-toggle').trigger('click')
+  await wrapper.find('.settings-toggle').trigger('click')
+  expect(wrapper.find('.admin-sidebar').classes()).not.toContain('admin-sidebar--collapsed')
+  expect(wrapper.find('.settings-child').text()).toBe('文档模板')
+  expect(wrapper.findComponent({ name: 'SystemSettingsMenu' }).findComponent({ name: 'RouterLink' }).vm.$attrs.to).toEqual({
+    path: '/settings/document-templates',
+    query: { project: 'mes' },
+  })
+  await wrapper.find('.settings-toggle').trigger('click')
+  expect(wrapper.find('.settings-child').exists()).toBe(false)
+
+  window.innerWidth = 500
+  window.dispatchEvent(new Event('resize'))
+  await flushPromises()
+  await wrapper.find('.hamburger').trigger('click')
+  await wrapper.find('.settings-toggle').trigger('click')
+  expect(wrapper.find('.admin-drawer').exists()).toBe(true)
+  await wrapper.find('.settings-child').trigger('click')
+  expect(wrapper.find('.admin-drawer').exists()).toBe(false)
+})
+
+test('direct document template visits expand the parent and mark the child as current', async () => {
+  state.route.path = '/settings/document-templates'
+  const wrapper = view(AdminLayout)
+  await flushPromises()
+  expect(wrapper.find('.settings-toggle').attributes('aria-expanded')).toBe('true')
+  expect(wrapper.find('.settings-child').attributes('aria-current')).toBe('page')
+  expect(wrapper.find('.settings-child').classes()).toContain('settings-child-active')
+  expect(wrapper.find('.topbar-left').text()).toContain('系统设置')
+})
+
 test('layout supports desktop and mobile navigation, language and theme preferences', async () => {
   const wrapper = view(AdminLayout)
   await flushPromises()
@@ -367,4 +420,69 @@ test('layout supports desktop and mobile navigation, language and theme preferen
   })
   wrappers.push(header)
   expect(header.text()).toContain('Source')
+})
+
+ test('detail navigation selects the requested template tab and reloads the new project', async () => {
+  const wrapper = view(ProjectDetail)
+  await flushPromises()
+  expect(wrapper.find('[data-test="project-templates"]').exists()).toBe(false)
+  state.route.query = { tab: 'document-templates' }
+  await flushPromises()
+  expect(wrapper.find('[data-test="project-templates"]').text()).toBe('mes')
+  state.get.mockResolvedValue({ ...structuredClone(project), id: 'other', name: 'Other project' })
+  state.route.params.id = 'other'
+  await flushPromises()
+  expect(state.get).toHaveBeenLastCalledWith('other')
+  expect(wrapper.text()).toContain('Other project')
+  expect(wrapper.find('[data-test="project-templates"]').text()).toBe('other')
+ })
+
+test('late replies from the previous project do not overwrite its replacement or reveal its token', async () => {
+  let finishProject!: (value: typeof project) => void
+  let finishToken!: (value: { token: string }) => void
+  state.get.mockImplementationOnce(() => new Promise(resolve => { finishProject = resolve }))
+  const wrapper = view(ProjectDetail)
+  await flushPromises()
+  state.get.mockResolvedValue({ ...structuredClone(project), id: 'other', name: 'Other project' })
+  state.route.params.id = 'other'
+  await flushPromises()
+  finishProject(structuredClone(project))
+  await flushPromises()
+  expect(wrapper.text()).toContain('Other project')
+  expect(wrapper.text()).not.toContain('MES Project')
+  state.issue.mockImplementationOnce(() => new Promise(resolve => { finishToken = resolve }))
+  await click(wrapper, 'detail.issueToken')
+  dialog(wrapper, 'detail.issueToken').vm.$emit('confirm')
+  await flushPromises()
+  state.get.mockResolvedValue(structuredClone(project))
+  state.route.params.id = 'mes'
+  await flushPromises()
+  finishToken({ token: 'previous-project-token' })
+  await flushPromises()
+  expect(wrapper.findAll('textarea').some(node => node.element.value === 'previous-project-token')).toBe(false)
+})
+
+test('project Wiki column links published sites and shows initialization, build and fetch failure states', async () => {
+  state.list.mockResolvedValue([
+    { ...project, id: 'ready' }, { ...project, id: 'pending' }, { ...project, id: 'new' }, { ...project, id: 'offline' },
+  ])
+  state.wiki.mockImplementation(async (id: string) => {
+    if (id === 'offline') throw new Error('Wiki unavailable')
+    return { initialized: id !== 'new', published: id === 'ready', siteUrl: '/wiki/ready/' }
+  })
+  const wrapper = view(ProjectManagement)
+  await flushPromises()
+  expect(wrapper.find('a[href="/wiki/ready/"]').exists()).toBe(true)
+  expect(wrapper.text()).toContain('待构建')
+  expect(wrapper.text()).toContain('设置 Wiki')
+  expect(wrapper.text()).toContain('Wiki 设置读取失败')
+  await wrapper.findAll('a').find(a => a.text() === '待构建')!.trigger('click')
+  expect(state.push).toHaveBeenLastCalledWith({ path: '/wiki-builds', query: { project: 'pending' } })
+  await click(wrapper, 'project.create')
+  const form = dialog(wrapper, 'project.create'), inputs = form.findAll('input')
+  await inputs[0]!.setValue('custom')
+  await inputs[1]!.setValue('Custom Wiki')
+  await inputs[4]!.setValue('/app/data/projects/custom/markdown')
+  form.vm.$emit('confirm'); await flushPromises()
+  expect(state.save).toHaveBeenLastCalledWith({ id: 'custom', name: 'Custom Wiki', product: 'Semiconductor-MES', version: '', wiki_source_directory: '/app/data/projects/custom/markdown' })
 })

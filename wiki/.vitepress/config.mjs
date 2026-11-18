@@ -1,3 +1,4 @@
+import { assertRepositoryDocs, repositoryKind, repositoryMarkdown } from '../../packages/wiki-core/repository-docs.mjs'
 import { defineConfig } from 'vitepress'
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
@@ -5,34 +6,49 @@ import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sidebar, nav } from './sidebar-data.mjs'
 import { assertValidWiki } from '../../packages/wiki-core/validate.mjs'
+import { mermaidMarkdown } from './mermaid-markdown.mjs'
 
 const require = createRequire(import.meta.url)
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const srcDir = process.env.WIKI_ROOT || (existsSync(join(__dirname, '../../data/wiki')) ? '../data/wiki' : existsSync('/data/wiki') ? '/data/wiki' : 'data/wiki')
 
-assertValidWiki({ wikiRoot: resolve(__dirname, '..', srcDir) })
+const isRepository = process.env.WIKI_CONTENT_KIND === repositoryKind
+if (isRepository) assertRepositoryDocs(join(srcDir, process.env.WIKI_PROJECT))
+else assertValidWiki({ wikiRoot: resolve(__dirname, '..', srcDir), project: process.env.WIKI_PROJECT || undefined })
 
 export default defineConfig({
   lang: 'zh-CN',
   title: 'CIM 知识库',
   description: '泛半导体 CIM/MES 全生命周期原子化 Wiki',
-  srcDir,
+  srcDir: process.env.WIKI_SITE_ROOT || srcDir,
   // 自定义文档模板目录（全局 + 项目级）不作为 wiki 页面
   srcExclude: ['**/templates/**'],
   // 站点挂在 /wiki/ 前缀下，页面按项目分树：/<project>/<plane>/...
   // 完整 URL 形如 /wiki/xinshun-mes/doc/business/br-wip-001
-  base: '/wiki/',
+  base: process.env.WIKI_BASE || '/wiki/',
+  ...(process.env.WIKI_OUT_DIR ? { outDir: process.env.WIKI_OUT_DIR } : {}),
+  head: process.env.WIKI_PREVIEW_ID ? [['meta', { name: 'robots', content: 'noindex,nofollow' }]] : [],
   cleanUrls: true,
   ignoreDeadLinks: false,
   lastUpdated: false,
+  markdown: {
+    config: md => { mermaidMarkdown(md); if (isRepository) repositoryMarkdown(md, { root: process.env.WIKI_SITE_ROOT || join(srcDir, process.env.WIKI_PROJECT) }) }
+  },
   vite: {
+    // Vue's server compiler consumes entities from CommonJS. Bundle it during
+    // SSR so Node never receives a synthetic default import from its ESM entry.
+    ssr: { noExternal: ['entities'] },
     resolve: {
       alias: [
-        { find: /^vue$/, replacement: require.resolve('vue') },
+        { find: /^vue$/, replacement: require.resolve('vue/dist/vue.runtime.esm-bundler.js') },
         { find: /^vue\/server-renderer$/, replacement: require.resolve('vue/server-renderer') }
       ]
     },
+    preview: {
+      allowedHosts: true
+    },
     server: {
+      allowedHosts: true,
       fs: {
         allow: ['..', '/app']
       }
@@ -52,6 +68,9 @@ export default defineConfig({
     }
   },
   themeConfig: {
+    gitCommit: process.env.WIKI_GIT_COMMIT || '',
+    previewId: process.env.WIKI_PREVIEW_ID || '',
+    previewExpires: process.env.WIKI_PREVIEW_EXPIRES || '',
     nav,
     sidebar,
     outline: { level: [2, 3], label: '本页目录' },
