@@ -12,7 +12,6 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  const root=mkdtempSync(join(tmpdir(),'quality-live-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
  const projectRoot=join(root,'state'),wikiRoot=join(projectRoot,'data/wiki'),shared=join(root,'shared'),organizedRoot=join(root,'organized')
  const save=(path,value)=>{mkdirSync(join(path,'..'),{recursive:true});writeFileSync(path,typeof value==='string'?value:JSON.stringify(value))}
- save(join(wikiRoot,'demo/document-contract.json'),{schema_version:'1.0',project:'demo',documents:[{id:'req',type:'requirement',scope:'project',min:1}]})
  save(join(shared,'original.docx'),'source fixture');save(join(shared,'info.xml'),'<info><entry revision="42"><repository><uuid>repo</uuid></repository></entry></info>')
  const defaults=createDefaultsStore(projectRoot),definition=builtinDefaults()
  definition.delivery=[{id:'req',type:'requirement',scope:'project',min:1}]
@@ -55,10 +54,8 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  assert.equal(context.document_quality.approval_policy,'directory-quality-policy')
  assert.deepEqual(context.document_directories.find(item=>item.path==='doc/40-requirements/empty').node_types,['requirement','frd'])
  const source=context.data_sources[0]
- const contractPath=join(wikiRoot,'demo/document-contract.json'),savedContract=readFileSync(contractPath)
- rmSync(contractPath)
  const partial=await ok('context?project=demo')
- assert.equal(partial.configuration_status.delivery_contract,'missing')
+ assert.equal(partial.configuration_status.delivery_contract,'ready')
  assert.equal(partial.data_sources[0].id,source.id)
  assert.ok(partial.document_defaults.definition.templates.some(template=>template.id==='glossary'))
  assert.equal(partial.capabilities.collect,true)
@@ -68,7 +65,6 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  const run=await ok('ingest-runs',{project:'demo',source_id:source.id,source_config_id:source.config_id,operative_revision:'42',repository_uuid:'repo',recipe_version:'test-v1'})
  const sha=value=>createHash('sha256').update(value).digest('hex')
  const original=await ok('source-observations',{project:'demo',run_id:run.id,repository_path:'original.docx',original_uri:'shared://team/original.docx',original_sha256:sha('source fixture'),svn_info_uri:'shared://team/info.xml'})
- save(contractPath,savedContract.toString())
  const registration={project:'demo',system:'CIM',version:'v1',category:'design',source:'shared://team/original.docx',parsed:'shared://team/parsed.md'}
  await ok('convert',registration);await ok('state',{source:registration.parsed,action:'freeze',by:'skill'})
  save(join(shared,'classified.md'),artifactDoc)

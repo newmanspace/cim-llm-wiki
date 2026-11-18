@@ -36,7 +36,7 @@ node "$SKILL/scripts/client.mjs" context --project <project-id>
 
 对应 `GET {CIM_WIKI_URL}/api/v2/knowledge/context?project=<project-id>`，使用环境中的 `CIM_WIKI_TOKEN`。`CIM_WIKI_URL` 只填写服务 origin，不包含 API 路径。
 
-先检查 `configuration_status`、`diagnostics` 和 `capabilities`，HTTP 200 只表示配置发现成功，不表示可以采集或发布。诊断的 `affected_operations` 列出配置影响；能力标志仅反映配置前提，实际操作继续由服务校验来源、内容、质量和审核。缺少交付契约时仍可读取数据源和生效模板；采集脚本在 `capabilities.collect` 不为 true 时停止，不开始下载。`repository_docs` 返回适用信息及 `not_applicable` 状态，文档仓继续使用 Git 构建。
+目标包含摄取发布时，在登记、冻结和抽取前先检查 `capabilities.submit/compile`；不可用时先报告具体配置阻塞，只继续任务授权内可独立完成的材料准备。先检查 `configuration_status`、`diagnostics` 和 `capabilities`，HTTP 200 只表示配置发现成功，不表示可以采集或发布。诊断的 `affected_operations` 列出配置影响；能力标志仅反映配置前提，实际操作继续由服务校验来源、内容、质量和审核。缺少交付契约时仍可读取数据源和生效模板；采集脚本在 `capabilities.collect` 不为 true 时停止，不开始下载。`repository_docs` 返回适用信息及 `not_applicable` 状态，文档仓继续使用 Git 构建。
 
 | 所需信息 | 返回位置 |
 | --- | --- |
@@ -124,7 +124,7 @@ node "$SKILL/scripts/client.mjs" context --project <project-id>
 node "$SKILL/scripts/client.mjs" context --project <project-id>
 ```
 
-读取服务返回的交付契约、节点 Schema、类型规则和生效模板。模板采用项目显式覆盖 > 系统绑定的已发布版本 > 内置初始定义；系统初始化先发布内置初始定义，项目运行时必须绑定具体已发布版本，不读取旧配置兜底。原始资料采集不依赖 document-contract.json、模板绑定或文档数量；检查 collect 能力及来源配置后即可从零采集。后续文档整理和发布遇到项目缺少 document-contract.json 或未绑定已发布模板契约时，报告具体缺项；由管理员在系统设置中发布并绑定规则，不依据当前页面反推或放宽标准。先检查 context.configuration_status 和 capabilities，再读取 context.document_defaults 中的生效模板、契约及术语定义，按 contract.format 采用其通用格式；文档标题与文档信息名称保持一致，参考列表及修订记录依据返回的表格契约生成，不复用旧模板格式；专门模板候选文档生成后调用 check-document 检查正文及目标路径；无专门模板的文档执行通用格式检查，不伪造 template_id。提交和发布仍由服务重验。
+读取服务返回的交付契约、节点 Schema、类型规则和生效模板。模板采用项目显式覆盖 > 系统绑定的已发布版本 > 内置初始定义；系统初始化先发布内置初始定义，项目运行时必须绑定具体已发布版本，不读取旧配置兜底。原始资料采集不依赖模板绑定或文档数量；检查 collect 能力及来源配置后即可从零采集。交付契约和目录由 Project 当前有效绑定提供，不读取或生成独立配置文件。后续文档整理和发布遇到项目未绑定已发布模板契约或有效配置无效时，报告具体缺项；由管理员在系统设置中发布并绑定规则，不依据当前页面反推或放宽标准。先检查 context.configuration_status 和 capabilities，再读取 context.document_defaults 中的生效模板、契约及术语定义，按 contract.format 采用其通用格式；文档标题与文档信息名称保持一致，参考列表及修订记录依据返回的表格契约生成，不复用旧模板格式；专门模板候选文档生成后调用 check-document 检查正文及目标路径；无专门模板的文档执行通用格式检查，不伪造 template_id。提交和发布仍由服务重验。
 
 已有专门模板的文档类型按匹配的生效模板生成；没有专门模板的源资料按通用标准格式整理，不能据此认定资料不属于项目文档。FRD、模块导航、场景、交互、代码索引及复用方案为按需补充，避免与 URD／SDD／代码契约重复。测试、发布、部署和事件等记录区分计划、未执行与真实验证结果，不以模板示例作为完成证据。
 

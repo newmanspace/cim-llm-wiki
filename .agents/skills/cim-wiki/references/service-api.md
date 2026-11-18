@@ -8,7 +8,6 @@
 | render-document | POST /render-document | --json-file，project/template_id/values |
 | check-document | POST /check-document | --json-file，project/template_id/document/phase，可选 target_path |
 | directories | GET /directories?project=ID | --project |
-| update-directories | POST /directories | --json-file，project/expected_revision/directories |
 | context | GET /context?project=ID | --project |
 | document | GET /document?source=URI | --source |
 | bundle | GET /bundle?id=ID | --id |
@@ -44,36 +43,25 @@ Go 启动日志只列出 admin 路由是正常现象，不能据此判断知识�
 
 完整项的状态为 ready；缺项及失败状态包括 missing、invalid、disabled、unavailable、not_applicable。关联字段在不可读或不适用时为 null；成功读到的列表可为 []。`template_binding` 表示持久化绑定，`document_defaults` 仅在有效定义可读取时有值。缺少模板时目录项 `node_types` 为 null，不能推测类型。模块配置与绑定清单不同时返回 MODULE_INVENTORY_MISMATCH 诊断，不自动同步。
 
-以下为缺少交付契约的响应节选，不是可直接用于摄取的完整响应：
+以下为缺少 Project 有效绑定的响应节选，不是可直接用于摄取的完整响应：
 
 ```json
 {
+  "schema_version": "1.0",
   "project": "example-project",
   "content_kind": "strict_nodes",
   "configuration_status": {
-    "project": "ready",
-    "document_defaults": "ready",
-    "delivery_contract": "missing",
-    "directory": "missing",
-    "data_sources": "ready",
-    "document_directories": "ready"
+    "project": "ready", "document_defaults": "missing",
+    "delivery_contract": "missing", "directory": "missing", "data_sources": "ready"
   },
-  "delivery_contract": null,
-  "data_sources": [],
-  "document_directories": [],
+  "document_defaults": null, "delivery_contract": null, "directory": null,
+  "data_sources": [{ "id": "4", "type": "svn", "enabled": true }],
+  "capabilities": { "collect": true, "check_document": false, "submit": false, "compile": false, "publish_document": false },
   "diagnostics": [{
-    "component": "delivery_contract",
-    "code": "DELIVERY_CONTRACT_MISSING",
-    "message": "Project configuration is not set",
-    "affected_operations": ["submit", "compile", "publish_document"]
-  }],
-  "capabilities": {
-    "collect": false,
-    "check_document": true,
-    "submit": false,
-    "compile": false,
-    "publish_document": false
-  }
+    "component": "delivery_contract", "code": "DOCUMENT_DEFAULTS_REQUIRED",
+    "message": "Project configuration requires a valid published document binding",
+    "affected_operations": ["check_document", "submit", "compile", "publish_document"]
+  }]
 }
 ```
 
@@ -97,7 +85,7 @@ Go 启动日志只列出 admin 路由是正常现象，不能据此判断知识�
 
 ## 可选：初始化产品展示目录
 
-initialize 复用现有 project 命名空间，只接受 project、name、product_version、modules，采用系统已发布的模板、文档契约及默认目录。不接受旧 version/delivery_contract 参数或自动化配置覆盖。系统模板需先由管理员登录后台“系统设置 · 文档模板”检查并发布。directories 返回当前 revision 和目录映射，update-directories 提交完整目录数组并检查 expected_revision。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 document_defaults 返回项目绑定版本、有效模板及契约摘要，document_defaults_schema 返回定义的机器结构。context 在未绑定有效版本时返回明确的缺项或无效诊断；依赖绑定的操作仍拒绝，必须由管理员明确绑定，不根据已有页面生成标准。
+initialize 复用现有 project 命名空间，只接受 project、name、product_version、modules，采用系统已发布的模板、文档契约及默认目录。不接受旧 version/delivery_contract 参数或自动化配置覆盖。系统模板需先由管理员登录后台“系统设置 · 文档模板”检查并发布。directories 返回 Project 当前有效绑定的 version、digest、directories（每项含 node_types）。目录规则通过管理员 Project 配置维护，无独立目录配置写入接口。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 document_defaults 返回项目绑定版本、有效模板及契约摘要，document_defaults_schema 返回定义的机器结构。context 在未绑定有效版本时返回明确的缺项或无效诊断；依赖绑定的操作仍拒绝，必须由管理员明确绑定，不根据已有页面生成标准。
 
 生成前读取 document_defaults.definition.templates，按模板正文和 contract 填充；check-document 可提前检查，服务提交与发布仍独立重验。术语全称从有效 definition.terms 读取，受控节点枚举仍来自 vocabulary。归类产物登记须指定 template_id，document_contract_digest 由服务计算。
 

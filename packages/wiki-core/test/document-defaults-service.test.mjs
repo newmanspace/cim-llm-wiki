@@ -207,7 +207,7 @@ test('administrative settings require independent service authentication; contra
   assert.equal((await call(endpoint)).value.audit.at(-1).actor, 'Administrator')
 })
 
-test('failed project initialization restores configuration, catalog and contract binding', async (t) => {
+test('failed Project binding preserves the prior published configuration', async (t) => {
   const fs = await import('node:fs'),
     { syncBuiltinESMExports } = await import('node:module')
   const { createDocumentDefaults } =
@@ -219,7 +219,7 @@ test('failed project initialization restores configuration, catalog and contract
   const realRename = fs.default.renameSync
   let failed = false
   t.mock.method(fs.default, 'renameSync', (source, dest) => {
-    if (String(dest).endsWith('document-contract.json')) {
+    if (String(dest).endsWith('state.json')) {
       failed = true
       throw new Error('Simulated disk failure')
     }

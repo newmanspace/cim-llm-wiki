@@ -30,8 +30,6 @@ const content=definition.templates[0].example.replace(/^# [^\n]+\n/,'').replace(
 write(join(projectRoot, 'data/raw/ci-source.md'), source)
 write(join(projectRoot, 'data/documents/manifest.json'), { version: 1, docs: [{ doc_id: 'ci-source', path: 'data/raw/ci-source.md',
   system: 'CIM', category: 'design', version: 'V1', state: 'frozen', sha256: createHash('sha256').update(source).digest('hex'), history: [], bundles: [] }] })
-write(join(wikiRoot, 'ci/document-contract.json'), { schema_version: '1.0', project: 'ci',
-  documents: [{ id: 'requirements', type: 'requirement', scope: 'project', min: 1 }] })
 await compileBundle({ schema_version: '1.0', bundle_id: 'ci-fixture', project: 'ci', nodes: [{
   schema_version: '1.0', id: 'REQ-CI-001', type: 'requirement', plane: 'doc', product: 'CI', version: 'V1', domain: 'ci', module: 'ci',
   source: 'data/raw/ci-source.md', title: 'CI build requirement', content,

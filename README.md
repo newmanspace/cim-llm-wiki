@@ -6,7 +6,7 @@
 
 > **产品标准目录**：可复用现有 project 命名空间，初始化产品目录、维护目录映射，并让编译页面进入标准 Wiki 导航；见 [产品目录与流水线](docs/doc/90-guides/product-directory-workflow.md)。
 
-> **项目文档集契约**：所有项目必须配置 `data/wiki/<project>/document-contract.json`，声明必交文档、项目/模块数量、附加结构和关联要求；缺失即阻断。参见 [配置说明](docs/doc/30-standards/document-set-contract.md) 和 [MES 示例](contracts/wiki/examples/mes-document-contract.json)。
+> **项目文档集契约**：交付要求和目录规则统一来自 Project 当前有效的已发布模板绑定，发布校验读取同一配置。参见[配置说明](docs/doc/30-standards/document-set-contract.md)。
 
 > **结构一致性更新（2026-10-28）**：统一契约位于 `contracts/wiki/v1/`，核心运行逻辑位于 `packages/wiki-core/`。所有现有和新增 Wiki 页面必须严格校验；编译先验证候选树，导航、构建和 GitOps 也执行门禁。Go 旧摄取/审核写入接口已停用，返回 410。首次在根目录执行 `npm ci`，详细规则与现有数据迁移要求见 [Wiki 结构一致性修正](docs/doc/30-standards/wiki-schema-enforcement.md)。
 

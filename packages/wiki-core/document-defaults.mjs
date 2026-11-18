@@ -501,6 +501,7 @@ export function createDefaultsStore(projectRoot) {
   }
   return {
     state,
+    projects: () => Object.keys(read().bindings),
     binding(project) {
       id(project)
       return read().bindings[project] || null

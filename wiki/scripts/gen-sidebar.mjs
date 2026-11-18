@@ -1,5 +1,5 @@
 import { repositoryKind, repositoryNavigation } from '../../packages/wiki-core/repository-docs.mjs'
-import { directorySidebar, directoryPageKey, readDirectory } from '../../packages/wiki-core/product-directory.mjs'
+import { directorySidebar } from '../../packages/wiki-core/product-directory.mjs'
 // 扫描 data/wiki 生成 VitePress 侧边栏/导航数据与首页 index.md
 // 目录按 project 分树：data/wiki/<project>/{doc,code}/...
 // 页面链接以 /<project>/ 为前缀（VitePress base=/wiki/ 会自动补全 → /wiki/<project>/...）
@@ -8,11 +8,12 @@ import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 import { assertValidWiki } from '../../packages/wiki-core/validate.mjs'
-import { NODE_TYPES } from '../../packages/wiki-core/contracts.mjs'
+import { NODE_TYPES, PROJECT_ROOT } from '../../packages/wiki-core/contracts.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const WEB_ROOT = join(__dirname, '..')
 const WIKI_ROOT = process.env.WIKI_ROOT || (existsSync(join(WEB_ROOT, '../data/wiki')) ? join(WEB_ROOT, '../data/wiki') : existsSync('/data/wiki') ? '/data/wiki' : join(WEB_ROOT, 'data/wiki'))
+const PROJECT_WORKSPACE = process.env.CIM_WIKI_WORKSPACE || PROJECT_ROOT
 const OUT = process.env.WIKI_SIDEBAR_OUT || join(WEB_ROOT, '.vitepress', 'sidebar-data.mjs')
 
 if (process.env.WIKI_CONTENT_KIND === repositoryKind) {
@@ -20,7 +21,7 @@ if (process.env.WIKI_CONTENT_KIND === repositoryKind) {
   writeFileSync(OUT, `export const sidebar = ${JSON.stringify(navigation.sidebar)}\nexport const nav = ${JSON.stringify(navigation.nav)}\n`)
   process.exit(0)
 }
-assertValidWiki({ wikiRoot: WIKI_ROOT, project: process.env.WIKI_PROJECT || undefined })
+assertValidWiki({ projectRoot: PROJECT_WORKSPACE, wikiRoot: WIKI_ROOT, project: process.env.WIKI_PROJECT || undefined })
 
 // 双平面物理分库：doc = 领域知识库（文档视图/高层导航），code = 代码契约库（工程实现/自动化编译）
 const PLANES = [
@@ -106,7 +107,7 @@ function discoverProjects() {
   return readdirSync(WIKI_ROOT, { withFileTypes: true })
     .filter(e => e.isDirectory())
     .map(e => e.name)
-    .filter(name => existsSync(join(WIKI_ROOT, name, 'doc')) || existsSync(join(WIKI_ROOT, name, 'code')) || existsSync(join(WIKI_ROOT, name, 'directory.json')))
+    .filter(name => existsSync(join(WIKI_ROOT, name, 'doc')) || existsSync(join(WIKI_ROOT, name, 'code')))
     .sort()
 }
 
@@ -117,7 +118,7 @@ let total = 0
 
 // 为单个项目构建其 sidebar 分组（linkPrefix 含项目段）
 function buildProjectGroups(proj) {
-  const groups = directorySidebar(proj, WIKI_ROOT)
+  const groups = directorySidebar(proj, WIKI_ROOT, PROJECT_WORKSPACE)
   const linkBase = `/${proj}`
   // 手册视图层
   const mdir = join(WIKI_ROOT, proj, 'doc', 'manuals')
@@ -156,6 +157,13 @@ function buildProjectGroups(proj) {
   return groups
 }
 
+function firstLink(items) {
+  for (const item of items) {
+    const link = item.link || firstLink(item.items || [])
+    if (link) return link
+  }
+}
+
 for (const proj of projects) {
   const groups = buildProjectGroups(proj)
   if (!groups.length) continue
@@ -164,8 +172,7 @@ for (const proj of projects) {
   } else {
     sidebar.push(...groups)
   }
-  const directory = readDirectory(proj, { wikiRoot: WIKI_ROOT })
-  nav.push({ text: directory?.name || proj, link: directory ? '/' + directoryPageKey(proj).replace(/\.md$/, '') : `/${proj}/` })
+  nav.push({ text: proj, link: firstLink(groups) || '/' })
 }
 
 // 首页 index.md

@@ -9,10 +9,7 @@ import {
 } from '../wiki-core/document-defaults.mjs'
 import { createDocumentQuality } from './document-quality.mjs'
 import { createProjectContext } from './project-context.mjs'
-import {
-  readDirectory,
-  updateDirectory,
-} from '../wiki-core/product-directory.mjs'
+import { projectDeliveryContract, projectDirectory } from '../wiki-core/project-document-config.mjs'
 import { createServer } from 'node:http'
 import {
   readFileSync,
@@ -154,7 +151,7 @@ export function createKnowledgeServer({
   wikiRoot = resolve(wikiRoot)
   const options = { projectRoot, wikiRoot, roots }
   const projectWikis = resolveProjectWikis(configuredWikis, options)
-  const { projectOptions, wikiPath, sourceFor } = projectStorage(options, projectWikis)
+  const { wikiPath, projectOptions } = projectStorage(options, projectWikis)
   const publishedPath = path => { const [project, ...parts] = path.split('/'); return wikiPath(project, ...parts) }
   const docs = () => loadManifest(projectRoot)
   const getDoc = (source) =>
@@ -181,27 +178,20 @@ export function createKnowledgeServer({
     registeredDocument: getDoc,
     wikiRoot,
   })
-  const defaults = createDocumentDefaults(projectRoot, wikiRoot, sourceFor)
+  const defaults = createDocumentDefaults(projectRoot)
   naming = createDocumentNaming({ defaults, quality })
   connectNamingToBuild(buildRuntime, naming)
   let queue = Promise.resolve()
 
-  function requireProjectContract(project) {
+  function requireProjectConfiguration(project) {
     identifier(project)
     if (projectWikis?.kind(project) === 'repository_docs') fail('Documentation repositories use Git builds and do not accept strict-node compilation', 409)
-    const contractPath = wikiPath(project, 'document-contract.json')
-    if (!existsSync(contractPath))
-      fail('Project delivery contract is required on the server', 409)
-    const contract = readContractJson(contractPath)
-    const errors = schemaErrors('documentSet', contract)
-    if (errors.length || contract.project !== project)
-      fail(`Invalid delivery contract: ${errors.join('; ')}`, 409)
-    defaults.store.effective(project)
-    readDirectory(project, projectOptions(project))
+    const effective = defaults.store.effective(project)
+    projectDeliveryContract(project, effective)
+    return effective
   }
 
   const discovery = createProjectContext({ defaults, quality, naming, projectWikis, wikiPath,
-    readDirectory: project => readDirectory(project, projectOptions(project)),
   })
 
   function prepareRegistration(data, convert) {
@@ -410,7 +400,7 @@ export function createKnowledgeServer({
     const value = readContractJson(resolveShared(data.uri, roots))
     identifier(value.bundle_id, bundlePattern)
     identifier(value.project)
-    requireProjectContract(value.project)
+    requireProjectConfiguration(value.project)
     if (!Array.isArray(value.nodes) || !value.nodes.length)
       fail('A versioned bundle with nodes is required')
     const effective = defaults.store.effective(value.project)
@@ -727,7 +717,7 @@ export function createKnowledgeServer({
 
   const getRoutes = {
     '/directories': (url) =>
-      readDirectory(url.searchParams.get('project'), projectOptions(url.searchParams.get('project'))),
+      projectDirectory(requireProjectConfiguration(identifier(url.searchParams.get('project')))),
     '/context': url => discovery.discover(identifier(url.searchParams.get('project'))),
     '/document': (url) => {
       const rec = getDoc(url.searchParams.get('source'))
@@ -746,6 +736,7 @@ export function createKnowledgeServer({
         )
       )
         fail('Unsupported initialization field')
+      if (projectWikis?.kind(data.project) === 'repository_docs') fail('Documentation repositories do not accept node initialization', 409)
       if (projectWikis) projectWikis.initialize(data.project)
       return defaults.initialize(data)
     },
@@ -756,7 +747,6 @@ export function createKnowledgeServer({
       return result
     },
     '/render-document': (data) => defaults.render(data),
-    '/directories': (data) => updateDirectory(data, projectOptions(data.project)),
     '/convert': (data) => register(data, true),
     '/register': (data) => register(data, false),
     '/state': changeSourceState,
@@ -820,7 +810,7 @@ export function createKnowledgeServer({
     if (req.method === 'POST' && writes.includes(path.slice(1))) {
       if (['/ingest-runs', '/source-observations'].includes(path))
         await discovery.projectInfo(identifier(data.project))
-      else requireProjectContract(data.project)
+      else requireProjectConfiguration(data.project)
       if (path === '/document-review-decisions' && !reviewerIdentity)
         fail('Independent human reviewer authentication required', 403)
       return {
@@ -833,7 +823,7 @@ export function createKnowledgeServer({
       }
     }
     if (req.method === 'POST' && path === '/publish-document') {
-      requireProjectContract(data.project)
+      requireProjectConfiguration(data.project)
       return {
         data: await quality.publish(data, req.headers['idempotency-key']),
       }
@@ -894,6 +884,7 @@ export function createKnowledgeServer({
         return defaults.store.bind(project, info.modules, current?.overrides || {}, data.version, true, true, actor)
       },
       'POST /bind': () => {
+        if (projectWikis?.kind(data.project) === 'repository_docs') fail('Documentation repositories do not accept node initialization', 409)
         if (projectWikis && data.wiki_source_directory) projectWikis.configure(data.project, { sourceDirectory: data.wiki_source_directory })
         if (projectWikis) projectWikis.initialize(data.project)
         return defaults.initialize({ ...data, actor }, data.upgrade === true)
@@ -1050,13 +1041,8 @@ if (
 }
 
 function projectStorage(options, projectWikis) {
-  const sourceFor = projectWikis ? project => {
-    if (projectWikis.kind(project) === 'repository_docs') fail('Documentation repositories use Git builds and do not accept node initialization', 409)
-    return projectWikis.source(project)
-  } : undefined
   return {
-    sourceFor,
-    projectOptions: project => ({ ...options, ...(sourceFor ? { project, sourceRoot: sourceFor(project) } : {}) }),
+    projectOptions: project => ({ ...options, ...(projectWikis ? { project, sourceRoot: projectWikis.source(project) } : {}) }),
     wikiPath: (project, ...parts) => join(projectWikis ? projectWikis.source(project) : join(options.wikiRoot, project), ...parts),
   }
 }

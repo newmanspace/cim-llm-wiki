@@ -25,7 +25,7 @@ import {
   pageLinks,
   renderingErrors,
 } from './markdown.mjs'
-import { validateDirectories } from './product-directory.mjs'
+import { projectDeliveryContract } from './project-document-config.mjs'
 import { validateDocumentSets } from './document-set.mjs'
 
 const vocabulary = JSON.parse(
@@ -58,13 +58,15 @@ export function validateWiki({
       scanned: 0,
     }
   }
+  if (project) projects.add(project)
+  else for (const bound of createDefaultsStore(projectRoot).projects()) projects.add(bound)
   collectRegisteredProjects()
   function isProjectDirectory(parent, path, name) {
     if (parent !== wikiRoot || name === 'templates') return false
     return (
       ['doc', 'code'].some((plane) =>
         statSync(join(path, plane), { throwIfNoEntry: false })?.isDirectory(),
-      ) || existsSync(join(path, 'document-contract.json'))
+      )
     )
   }
   function walk(dir) {
@@ -101,7 +103,6 @@ export function validateWiki({
     add('template_contract_error', wikiRoot, e.message)
   }
 
-  errors.push(...validateDirectories(wikiRoot))
   validatePages()
 
   function checkBoundDocument(page,key,project) {
@@ -175,8 +176,6 @@ export function validateWiki({
   function validatePages() {
     for (const key of files) {
       if (!key.endsWith('.md')) continue
-      // Catalog pages are deterministic navigation, validated separately above.
-      if (/^[^/]+\/catalog\//.test(key)) continue
       let page
       try {
         page = parsePage(readFileSync(join(wikiRoot, key), 'utf8'))
@@ -364,7 +363,9 @@ export function validateWiki({
           issue('orphan_knowledge', key, 'Page has no incoming references'),
         )
     errors.push(
-      ...validateDocumentSets({ wikiRoot, projects, pages, resolveLink }),
+      ...validateDocumentSets({ wikiRoot, projects, pages, resolveLink,
+        contractFor: project => projectDeliveryContract(project, createDefaultsStore(projectRoot).effective(project)),
+      }),
     )
   }
 
@@ -562,7 +563,6 @@ export function assertValidWiki(options) {
 // or code) while the physical checkout itself starts with doc/ and code/.
 function validateProjectWiki(options) {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(options.project || '')) throw new Error('Project is required for an isolated Wiki')
-  if (!existsSync(join(options.sourceRoot, 'document-contract.json'))) return { errors: [{ code: 'project_contract_missing', path: options.project, message: 'Initialize the project document contract before publishing strict nodes' }], warnings: [], scanned: 0 }
   const stage = mkdtempSync(join(tmpdir(), 'wiki-project-check-'))
   try {
     mkdirSync(join(stage, options.project))

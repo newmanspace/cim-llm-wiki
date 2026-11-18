@@ -26,29 +26,9 @@ function fixture(t) {
   t.after(() => rmSync(projectRoot, { recursive: true, force: true }))
   const wikiRoot = join(projectRoot, 'data/wiki')
   mkdirSync(wikiRoot, { recursive: true })
+  mkdirSync(join(wikiRoot, 'a'), { recursive: true })
   bindFixture(projectRoot,'a')
-  defaultDocumentContract(wikiRoot, 'a')
   return { projectRoot, wikiRoot }
-}
-
-function defaultDocumentContract(wikiRoot, project) {
-  const path = join(wikiRoot, project, 'document-contract.json')
-  mkdirSync(join(path, '..'), { recursive: true })
-  try {
-    writeFileSync(
-      path,
-      JSON.stringify({
-        schema_version: '1.0',
-        project,
-        documents: [
-          { id: 'requirements', type: 'requirement', scope: 'project', min: 0 },
-        ],
-      }),
-      { flag: 'wx' },
-    )
-  } catch (error) {
-    if (error.code !== 'EEXIST') throw error
-  }
 }
 
 const metadata = () => ({
@@ -75,8 +55,6 @@ function page(
   body = '# Requirement\n\nA concrete requirement.\n',
   path = 'a/doc/requirements/req-test-001.md',
 ) {
-  if (path.includes('/'))
-    defaultDocumentContract(f.wikiRoot, path.split('/')[0])
   if(path.includes('/'))bindFixture(f.projectRoot,path.split('/')[0])
   body=managedBody(body,fm.reviewer)
   const dest = join(f.wikiRoot, path)
@@ -278,7 +256,7 @@ test('valid compilation writes schema version and updates only its project', asy
   const reg = join(f.projectRoot, 'data/documents/project-registry.json')
   mkdirSync(join(reg, '..'), { recursive: true })
   writeFileSync(reg, JSON.stringify({ projects: { a: {}, b: {} } }))
-  defaultDocumentContract(f.wikiRoot, 'b')
+  bindFixture(f.projectRoot, 'b')
   await compileBundle(bundle(), f)
   assert.deepEqual(validateWiki(f).errors, [])
   assert.match(

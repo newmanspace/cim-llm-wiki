@@ -29,7 +29,7 @@ export function bindFixture(projectRoot, project) {
     store.save(definition, 0, 'Test Administrator')
     store.publish(1, 'Test Administrator')
   }
-  store.bind(project, ['test'])
+  store.bind(project, [])
 }
 
 export function managedBody(body, reviewer = 'auto') {

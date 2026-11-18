@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs'
-import { NODE_TYPES, CONTRACT_ROOT, readContractJson, schemaErrors } from '../wiki-core/contracts.mjs'
+import { NODE_TYPES, CONTRACT_ROOT, readContractJson } from '../wiki-core/contracts.mjs'
 import { definitionSchema, templateVariables } from '../wiki-core/document-defaults.mjs'
 import { join } from 'node:path'
 
+import { projectDeliveryContract, projectDirectory } from '../wiki-core/project-document-config.mjs'
+
 const operations = ['check_document', 'submit', 'compile', 'publish_document']
-const strictOperations = operations.filter(operation => operation !== 'check_document')
 const fail = (message, status) => { throw Object.assign(new Error(message), { status }) }
 
 export function templateContext(effective) {
@@ -22,8 +23,7 @@ export function templateContext(effective) {
 }
 
 function configurationCapabilities(status, sources, ledgerEnabled) {
-  const directoryReadable = ['ready', 'missing'].includes(status.directory)
-  const strictReady = status.document_defaults === 'ready' && status.delivery_contract === 'ready' && directoryReadable
+  const strictReady = status.document_defaults === 'ready' && status.delivery_contract === 'ready' && status.directory === 'ready'
   const ledgerReady = !ledgerEnabled || status.data_sources === 'ready'
   return {
     check_document: status.document_defaults === 'ready',
@@ -34,7 +34,7 @@ function configurationCapabilities(status, sources, ledgerEnabled) {
 }
 
 // Discovery records expected configuration failures; it never authorizes mutations.
-export function createProjectContext({ defaults, quality, naming, projectWikis, wikiPath, readDirectory }) {
+export function createProjectContext({ defaults, quality, naming, projectWikis, wikiPath }) {
   async function projectInfo(project) {
     if (quality.enabled) {
       const info = await quality.call(project, 'project')
@@ -114,14 +114,15 @@ export function createProjectContext({ defaults, quality, naming, projectWikis, 
         result.document_defaults = await read('document_defaults', () => defaults.store.effective(project), 'DOCUMENT_DEFAULTS', operations)
         if (result.document_defaults) Object.assign(result, templateContext(result.document_defaults))
       }
-      result.delivery_contract = await read('delivery_contract', () => {
-        const path = wikiPath(project, 'document-contract.json')
-        if (!existsSync(path)) return null
-        const contract = readContractJson(path)
-        if (contract.project !== project || schemaErrors('documentSet', contract).length) fail('Invalid delivery contract', 409)
-        return contract
-      }, 'DELIVERY_CONTRACT', strictOperations)
-      result.directory = await read('directory', () => readDirectory(project), 'DIRECTORY', strictOperations, [])
+      if (result.document_defaults) {
+        result.delivery_contract = await read('delivery_contract', () => projectDeliveryContract(project, result.document_defaults), 'DELIVERY_CONTRACT', operations)
+        result.directory = projectDirectory(result.document_defaults)
+        result.configuration_status.directory = 'ready'
+      } else {
+        for (const component of ['delivery_contract', 'directory']) {
+          diagnostic(component, result.configuration_status.document_defaults, 'DOCUMENT_DEFAULTS_REQUIRED', 'Project configuration requires a valid published document binding', operations)
+        }
+      }
     }
   }
   async function readLedgerConfiguration(result, read, diagnostic) {

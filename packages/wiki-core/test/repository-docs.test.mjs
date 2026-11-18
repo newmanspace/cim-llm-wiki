@@ -77,5 +77,5 @@ test('fresh strict-node repositories require document initialization before buil
   t.after(() => runtime.close())
   const result = runtime.buildCurrent('empty')
   assert.equal(result.state, 'blocked')
-  assert.ok(result.diagnostics.some(item => item.issues?.some(issue => issue.code === 'project_contract_missing')))
+  assert.ok(result.diagnostics.some(item => item.issues?.some(issue => issue.code === 'document_contract_error')))
 })

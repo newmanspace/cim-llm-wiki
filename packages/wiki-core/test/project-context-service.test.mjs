@@ -50,20 +50,29 @@ async function fixture(t, { enabled = true, bound = true, kind = 'strict_nodes' 
   return { api, root, source, failures, sources, origin: `http://127.0.0.1:${server.address().port}` }
 }
 
-test('missing delivery contract preserves configuration discovery and independent source reads, but blocks downstream document mutations', async t => {
+test('Project binding supplies delivery and directories without separate configuration files', async t => {
   const f = await fixture(t)
   const result = await f.api('context?project=demo')
   assert.equal(result.status, 200)
   assert.equal(result.value.data_sources[0].revision_selector, 'HEAD')
   assert.ok(result.value.document_defaults.definition.templates.some(t => t.id === 'glossary'))
-  assert.equal(result.value.configuration_status.delivery_contract, 'missing')
-  assert.ok(result.value.diagnostics.some(d => d.code === 'DELIVERY_CONTRACT_MISSING'))
+  assert.equal(result.value.configuration_status.delivery_contract, 'ready')
+  assert.equal(result.value.diagnostics.some(d => d.code === 'DELIVERY_CONTRACT_MISSING'), false)
+  assert.equal(result.value.capabilities.submit, true)
+  assert.equal(result.value.capabilities.compile, true)
+  assert.deepEqual(result.value.delivery_contract.documents, result.value.document_defaults.definition.delivery)
+  assert.deepEqual(result.value.directory.directories, result.value.document_defaults.definition.directories)
   assert.equal(result.value.capabilities.collect, true)
   assert.ok(result.value.diagnostics.filter(d => ['delivery_contract', 'directory'].includes(d.component)).every(d => !d.affected_operations.includes('collect')))
   assert.equal(result.value.capabilities.check_document, true)
   assert.deepEqual(result.value.repos, [])
   for (const resource of ['data-sources', 'source-revisions']) assert.equal((await f.api(resource + '?project=demo')).status, 200)
-  for (const resource of ['artifacts', 'publish-document']) assert.equal((await f.api(resource, { project: 'demo' })).status, 409)
+  const artifact = await f.api('artifacts', { project: 'demo' })
+  assert.equal(artifact.status, 422)
+  assert.doesNotMatch(artifact.value.error, /delivery contract is required/)
+  const publication = await f.api('publish-document', { project: 'demo' })
+  assert.equal(publication.status, 503)
+  assert.doesNotMatch(publication.value.error, /delivery contract is required/)
   assert.equal((await f.api('context?project=demo', undefined, 'wrong')).status, 401)
   assert.equal((await f.api('context?project=other')).status, 404)
   assert.equal((await f.api('data-sources?project=other')).status, 404)
@@ -85,12 +94,12 @@ test('unbound templates and upstream failures have distinct states and never mas
   assert.equal((await f.api('context?project=demo')).status, 503)
 })
 
-test('disabled ledger, malformed delivery contract and repository documentation expose explicit states', async t => {
+test('retired configuration files do not affect Project binding or repository documentation', async t => {
   const f = await fixture(t, { enabled: false })
   writeFileSync(join(f.source, 'document-contract.json'), '{')
   const result = await f.api('context?project=demo')
   assert.equal(result.status, 200)
-  assert.equal(result.value.configuration_status.delivery_contract, 'invalid')
+  assert.equal(result.value.configuration_status.delivery_contract, 'ready')
   assert.equal(result.value.configuration_status.data_sources, 'disabled')
   assert.equal(result.value.data_sources, null)
   assert.equal((await f.api('context?project=unknown')).status, 404)
@@ -120,16 +129,15 @@ test('collection client starts from zero documents without a delivery contract, 
 
 test('complete configuration enables collection only for enabled sources; binding drift remains visible', async t => {
   const f = await fixture(t)
-  writeFileSync(join(f.source, 'document-contract.json'), JSON.stringify({ schema_version: '1.0', project: 'demo', modules: [], documents: [{ id: 'req', type: 'requirement', scope: 'project', min: 1 }] }))
   let result = await f.api('context?project=demo')
   assert.equal(result.value.configuration_status.delivery_contract, 'ready')
   assert.equal(result.value.capabilities.collect, true)
   assert.equal(result.value.capabilities.submit, true)
   writeFileSync(join(f.source, 'directory.json'), '{}')
   result = await f.api('context?project=demo')
-  assert.equal(result.value.configuration_status.directory, 'invalid')
-  assert.equal(result.value.capabilities.submit, false)
-  assert.ok(result.value.diagnostics.find(d => d.component === 'directory').affected_operations.includes('submit'))
+  assert.equal(result.value.configuration_status.directory, 'ready')
+  assert.equal(result.value.capabilities.submit, true)
+  assert.equal(result.value.diagnostics.some(d => d.component === 'directory'), false)
   assert.equal((await f.api('ingest-runs', { project: 'demo' })).status, 422)
   rmSync(join(f.source, 'directory.json'))
   f.sources[0].enabled = false
@@ -152,4 +160,19 @@ test('complete configuration enables collection only for enabled sources; bindin
   assert.equal(result.value.capabilities.submit, false)
   assert.equal((await f.api('data-sources?project=demo')).status, 200)
   assert.equal((await f.api('ingest-runs', { project: 'demo' })).status, 422)
+})
+
+
+test('retired files cannot authorize submission without a Project binding', async t => {
+  const f = await fixture(t, { bound: false })
+  writeFileSync(join(f.source, 'document-contract.json'), JSON.stringify({ schema_version: '1.0', project: 'demo', documents: [{ id: 'req', type: 'requirement', scope: 'project', min: 0 }] }))
+  writeFileSync(join(f.source, 'directory.json'), '{}')
+  const context = (await f.api('context?project=demo')).value
+  assert.equal(context.configuration_status.document_defaults, 'missing')
+  assert.equal(context.configuration_status.delivery_contract, 'missing')
+  assert.equal(context.capabilities.submit, false)
+  writeFileSync(join(f.root, 'bundle.json'), JSON.stringify({ project: 'demo', bundle_id: 'CR-20261118-0001', nodes: [] }))
+  const submitted = await f.api('bundles', { uri: 'shared://team/bundle.json' })
+  assert.equal(submitted.status, 409)
+  assert.match(submitted.value.error, /must bind a published/)
 })

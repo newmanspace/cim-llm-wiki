@@ -53,7 +53,7 @@ test('real PostgreSQL numbering, uniqueness, retries, module registry, and Node 
   assert.ok(invalid.value.errors.some(error=>error.rule_id==='document_identity_mismatch'))
   assert.equal((await api('check-document',{project:'demo',template_id:'sdd',document,phase:'draft'})).status,422)
   const context=await api('context?project=demo');assert.equal(context.value.document_naming.ready,true)
-  assert.equal(context.value.configuration_status.delivery_contract,'missing')
+  assert.equal(context.value.configuration_status.delivery_contract,'ready')
   const adminDenied=await fetch(ledgerURL+'/internal/v1/projects/demo/document-quality/naming-settings',{method:'POST',headers:{Authorization:'Bearer '+ledgerToken,'Content-Type':'application/json'},body:JSON.stringify({short_code:'hijack'})})
   assert.equal(adminDenied.status,403)
   const settings=(await api('naming-settings?project=demo')).value.data.items[0]

@@ -1,14 +1,3 @@
-import { join } from 'node:path'
-import {
-  mkdirSync,
-  writeFileSync,
-  renameSync,
-  cpSync,
-  rmSync,
-  existsSync,
-  mkdtempSync,
-} from 'node:fs'
-import { randomUUID } from 'node:crypto'
 import { documentTargetErrors } from '../wiki-core/document-routing.mjs'
 import {
   createDefaultsStore,
@@ -16,13 +5,8 @@ import {
   checkDocument,
   renderTemplate,
 } from '../wiki-core/document-defaults.mjs'
-import {
-  initializeDirectory,
-  readDirectory,
-  updateDirectory,
-} from '../wiki-core/product-directory.mjs'
 
-export function createDocumentDefaults(projectRoot, wikiRoot, sourceFor) {
+export function createDocumentDefaults(projectRoot) {
   const store = createDefaultsStore(projectRoot)
   function initialize(data, upgrade = false) {
     const before = store.preview(data.project)
@@ -63,76 +47,10 @@ export function createDocumentDefaults(projectRoot, wikiRoot, sourceFor) {
       data.overrides || {},
       data.version,
       upgrade,
-      false,
+      true,
       data.actor || 'automation',
     )
     const definition = binding.definition
-    const directories = definition.directories.map(({ node_types, ...d }) => ({
-      ...d,
-      ...(node_types.length ? { match: { types: node_types } } : {}),
-    }))
-    const contract = {
-      schema_version: '1.0',
-      project: data.project,
-      modules: binding.modules,
-      allow_unlisted: true,
-      documents: definition.delivery,
-    }
-    const sourceRoot = sourceFor?.(data.project)
-    const directoryOptions = { wikiRoot, sourceRoot }
-    const base = sourceRoot || join(wikiRoot, data.project)
-    const paths = ['directory.json', 'catalog', 'document-contract.json'].map(
-      (p) => join(base, p),
-    )
-    paths.push(join(projectRoot, 'data/document-defaults/state.json'))
-    withRollback(projectRoot, paths, () => {
-      const directory = readDirectory(data.project, directoryOptions)
-      if (upgrade && before.current && directory) {
-        const prior = new Set(before.current.directories.map((d) => d.path)),
-          next = new Set(directories.map((d) => d.path))
-        directories.push(
-          ...directory.directories.filter(
-            (d) => !prior.has(d.path) && !next.has(d.path),
-          ),
-        )
-      }
-      if (!directory) {
-        // Initialize directly from the one versioned directory definition.
-        initializeDirectory(
-          {
-            project: data.project,
-            name: data.name,
-            version: data.product_version,
-            modules: data.modules,
-            delivery_contract: contract,
-            directories,
-          },
-          directoryOptions,
-        )
-      } else if (upgrade)
-        updateDirectory(
-          {
-            project: data.project,
-            expected_revision: directory.revision,
-            directories,
-          },
-          directoryOptions,
-        )
-      mkdirSync(base, { recursive: true })
-      const file = join(base, 'document-contract.json'),
-        temporary = file + '.' + randomUUID()
-      writeFileSync(temporary, JSON.stringify(contract, null, 2) + '\n')
-      renameSync(temporary, file)
-      store.bind(
-        data.project,
-        data.modules,
-        data.overrides || {},
-        binding.version,
-        upgrade,
-        true,
-        data.actor || 'automation',
-      )
-    })
     return { ...binding, directories: definition.directories }
   }
   return {
@@ -180,27 +98,5 @@ export function createDocumentDefaults(projectRoot, wikiRoot, sourceFor) {
         template_id: template.id,
       }
     },
-  }
-}
-
-function withRollback(projectRoot, paths, work) {
-  mkdirSync(join(projectRoot, 'data'), { recursive: true })
-  const backup = mkdtempSync(join(projectRoot, 'data/.document-defaults-'))
-  const existing = paths.map((p) => existsSync(p))
-  try {
-    paths.forEach((p, i) => {
-      if (existing[i]) cpSync(p, join(backup, String(i)), { recursive: true })
-    })
-    try {
-      return work()
-    } catch (error) {
-      paths.forEach((p, i) => {
-        rmSync(p, { recursive: true, force: true })
-        if (existing[i]) cpSync(join(backup, String(i)), p, { recursive: true })
-      })
-      throw error
-    }
-  } finally {
-    rmSync(backup, { recursive: true, force: true })
   }
 }

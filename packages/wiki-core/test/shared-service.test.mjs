@@ -26,8 +26,7 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
   definition.delivery = [{id:'requirements',type:'requirement',scope:'project',min:1}]
   defaults.save(definition,0,'Test Administrator'); defaults.publish(1,'Test Administrator'); defaults.bind('demo',['terms'])
   const requirement = definition.templates.find(t=>t.id==='urd').example.replace(/^# [^\n]+\n/,'').replace('待指定','auto').replace('| 文档名称 | URD 用户需求定义 |','| 文档名称 | Term requirement |').replace('## 1. 背景与目标', '## 1. 背景与目标\n\nA concrete source-backed term definition.')
-  const contract = { schema_version: '1.0', project: 'demo', modules:['terms'], allow_unlisted:true, documents: [{ id: 'requirements', type: 'requirement', scope: 'project', min: 1 }] }
-  save(join(wikiRoot, 'demo/document-contract.json'), contract)
+  mkdirSync(join(wikiRoot, 'demo'), { recursive: true })
   save(join(shared, 'sources/original.xlsx'), 'original XLSX fixture bytes')
   const reviewToken = 'human-review-only-' + 'r'.repeat(32)
   const calls = []
@@ -43,7 +42,7 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
   if (projectWikis) {
     projectWikis.initialize('demo'); cpSync(join(wikiRoot, 'demo'), projectWikis.source('demo'), { recursive: true })
     execFileSync('git', ['-C', projectWikis.source('demo'), 'add', '.'])
-    execFileSync('git', ['-C', projectWikis.source('demo'), 'commit', '-m', 'Generated baseline contract'], { stdio: 'pipe' })
+
   }
   const buildRuntime = builds ? createBuildRuntime({ projectRoot, wikiRoot, roots, projectWikis, socketPath: join(root, 'build.sock') }) : undefined
   if (buildRuntime) t.after(() => buildRuntime.close())
@@ -253,7 +252,7 @@ test('product directory initialization runs through human review, strict compila
   assert.equal((await f.api('initialize', { project: 'demo' }, f.reviewToken)).status, 403)
   const initialized = await f.api('initialize', { project: 'demo', name: 'CIM Product', product_version: 'V2.8', modules: ['terms'] })
   assert.equal(initialized.status, 200, JSON.stringify(initialized.value))
-  assert.equal((await f.api('directories?project=demo')).value.revision, 1)
+  assert.ok((await f.api('directories?project=demo')).value.digest)
   assert.ok((await f.api('context?project=demo')).value.directory.directories.length >= 17)
   assert.ok((await f.api('validate', {})).value.errors.some(e => e.code === 'document_count'), 'Empty directory pages must not satisfy required documents')
   await ready(f)
@@ -265,11 +264,8 @@ test('product directory initialization runs through human review, strict compila
   assert.equal(compiled.status, 200, JSON.stringify(compiled.value))
   assert.deepEqual((await f.api('validate', {})).value.errors, [])
   const { directorySidebar } = await import('../product-directory.mjs')
-  assert.match(JSON.stringify(directorySidebar('demo', f.wikiRoot)), /Term requirement/)
-  const directory = (await f.api('directories?project=demo')).value
-  const updated = await f.api('directories', { project: 'demo', expected_revision: directory.revision, directories: directory.directories.map(d => d.path === 'doc/00-overview' ? { ...d, title: 'Product Overview' } : d) })
-  assert.equal(updated.status, 200)
-  assert.equal((await f.api('directories', { project: 'demo', expected_revision: 1, directories: directory.directories })).status, 409)
+  assert.match(JSON.stringify(directorySidebar('demo', f.wikiRoot, f.projectRoot)), /Term requirement/)
+  assert.equal((await f.api('directories', { project: 'demo', directories: [] })).status, 404)
   assert.deepEqual((await f.api('validate', {})).value.errors, [])
   const site = join(f.root, 'site')
   const configDir = join(site, '.vitepress')
@@ -281,6 +277,8 @@ test('product directory initialization runs through human review, strict compila
   const sidebarText = readFileSync(sidebarPath, 'utf8')
   assert.match(sidebarText, /产品文档/)
   assert.match(sidebarText, /Term requirement/)
+  const navigation = await import(pathToFileURL(sidebarPath).href)
+  assert.equal(navigation.nav.find(item => item.text === 'demo').link, '/demo/doc/requirements/req-terms-001')
   const baseConfigPath = join(repo, 'wiki/.vitepress/config.mjs')
   const baseConfigUrl = pathToFileURL(baseConfigPath).href
   const wikiRequire = createRequire(baseConfigUrl)
@@ -293,7 +291,7 @@ test('product directory initialization runs through human review, strict compila
   cpSync(join(repo, 'wiki/.vitepress/mermaid-markdown.mjs'), join(configDir, 'mermaid-markdown.mjs'))
   writeFileSync(join(configDir, 'config.mjs'), isolatedConfig)
   await runChild([join(repo, 'wiki/node_modules/vitepress/bin/vitepress.js'), 'build', site], env)
-  assert.ok(existsSync(join(site, 'dist/demo/catalog/_index.html')))
+  assert.equal(existsSync(join(site, 'dist/demo/catalog/_index.html')), false)
   assert.ok(existsSync(join(site, 'dist/demo/doc/requirements/req-terms-001.html')))
 })
 
@@ -342,7 +340,7 @@ test('approved preview is isolated and publication durably triggers a Git-based 
   await ready(f)
   const git = args => execFileSync('git', ['-C', f.wikiRoot, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim()
   git(['init']); git(['config', 'user.name', 'Test']); git(['config', 'user.email', 'test@example.invalid'])
-  git(['add', '.']); git(['commit', '-m', 'Baseline contract'])
+  git(['add', '.']); git(['commit', '--allow-empty', '-m', 'Baseline Project'])
   const baseline = git(['rev-parse', 'HEAD']), b = f.bundle('CR-BUILD-001', 'L1_expert')
   assert.equal((await f.submit(b)).status, 200)
   const internal = async (action, data, project = 'demo', credential = f.ledgerToken) => {
@@ -384,7 +382,7 @@ test('approved preview is isolated and publication durably triggers a Git-based 
 
 test('administrators can request the first build without a Bundle and receive durable blocked diagnostics', async t => {
   const f = await fixture(t, { autoPublish: false, builds: true })
-  const before = readFileSync(join(f.wikiRoot, 'demo/document-contract.json'), 'utf8')
+  const before = readFileSync(join(f.projectRoot, 'data/document-defaults/state.json'), 'utf8')
   const request = (project, credential = f.ledgerToken) => fetch(`${f.origin}/internal/wiki-builds/build?project=${project}`, { method: 'POST', headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' }, body: '{}' })
   assert.equal((await request('demo', 'test-token')).status, 403)
   assert.equal((await request('other')).status, 404)
@@ -395,7 +393,7 @@ test('administrators can request the first build without a Bundle and receive du
   assert.ok(data.diagnostics.length)
   const listed = await fetch(`${f.origin}/internal/wiki-builds?project=demo`, { headers: { Authorization: `Bearer ${f.ledgerToken}` } })
   assert.equal((await listed.json()).data[0].id, data.id)
-  assert.equal(readFileSync(join(f.wikiRoot, 'demo/document-contract.json'), 'utf8'), before)
+  assert.equal(readFileSync(join(f.projectRoot, 'data/document-defaults/state.json'), 'utf8'), before)
   assert.equal(existsSync(join(f.wikiRoot, '.git')), false)
 })
 

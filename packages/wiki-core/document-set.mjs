@@ -1,14 +1,11 @@
-import { existsSync, statSync } from 'node:fs'
+import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   PROJECT_ROOT,
   schemaErrors,
   REFERENCE_TYPES,
-  readContractJson,
 } from './contracts.mjs'
 import { structureErrors } from './markdown.mjs'
-
-export const DOCUMENT_CONTRACT_FILE = 'document-contract.json'
 
 function checkRule(rule, contract, wikiRoot, project) {
   if (rule.max !== undefined && rule.max < rule.min)
@@ -39,12 +36,11 @@ function checkRule(rule, contract, wikiRoot, project) {
     throw new Error(`${rule.id}: missing template ${rule.template}`)
 }
 
-function readDeliveryContract(absolute, wikiRoot, project) {
-  const contract = readContractJson(absolute)
+function checkDeliveryContract(contract, wikiRoot, project) {
   const problems = schemaErrors('documentSet', contract)
   if (problems.length) throw new Error(problems.join('; '))
   if (contract.project !== project)
-    throw new Error(`Contract project must match its directory: ${project}`)
+    throw new Error(`Delivery configuration must match Project: ${project}`)
   const ids = new Set()
   for (const rule of contract.documents) {
     if (ids.has(rule.id))
@@ -164,23 +160,15 @@ export function validateDocumentSets({
   projects,
   pages,
   resolveLink,
+  contractFor,
 }) {
   const errors = []
   const add = (code, path, message) => errors.push({ code, path, message })
   for (const project of [...projects].sort()) {
-    const path = `${project}/${DOCUMENT_CONTRACT_FILE}`
-    const absolute = join(wikiRoot, path)
-    if (!existsSync(absolute)) {
-      add(
-        'document_contract_missing',
-        path,
-        'Every project must declare its document delivery contract',
-      )
-      continue
-    }
+    const path = `${project}/delivery`
     let contract
     try {
-      contract = readDeliveryContract(absolute, wikiRoot, project)
+      contract = checkDeliveryContract(contractFor(project), wikiRoot, project)
     } catch (error) {
       add('document_contract_error', path, error.message)
       continue
