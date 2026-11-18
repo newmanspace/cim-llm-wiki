@@ -19,6 +19,7 @@ import {
   isAbsolute,
   basename,
 } from 'node:path'
+import { requestLedger } from './ledger-http.mjs'
 import { readRegularFile } from '../wiki-core/safe-files.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import MarkdownIt from 'markdown-it'
@@ -124,7 +125,8 @@ export function createDocumentQuality({
     const url = ledgerTarget(project, resource, query)
     let response
     try {
-      response = await fetch(url, {
+      response = await requestLedger(origin, {
+        path: url.pathname + url.search,
         method: body ? 'POST' : 'GET',
         headers: {
           Authorization: `Bearer ${ledgerToken}`,
@@ -133,18 +135,12 @@ export function createDocumentQuality({
           ...(reviewToken ? { 'X-Document-Review-Token': reviewToken } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
-        redirect: 'error',
-        signal: AbortSignal.timeout(30000),
+
       })
     } catch {
       fail('Document ledger is unavailable', 503)
     }
-    let value
-    try {
-      value = await response.json()
-    } catch {
-      fail('Document ledger returned an invalid response', 503)
-    }
+    const value = response.value
     if (!response.ok) throw Object.assign(new Error(value.error || 'Document ledger request failed'), { status: response.status, code: value.code, existing: value.existing })
     return value.data
   }

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs'
 import { tmpdir, hostname } from 'node:os'
 import { join } from 'node:path'
+import { Worker } from 'node:worker_threads'
+import { once } from 'node:events'
 import { readRegularFile } from '../safe-files.mjs'
 import { toolchainIdentity } from '../build-toolchain.mjs'
 import { createBuildJobStore } from '../build-job-store.mjs'
@@ -52,4 +54,33 @@ test('coordinator refuses a symbolic lock without reading or replacing its targe
   writeFileSync(target, 'preserved'); symlinkSync(target, join(root, '.coordinator.lock'))
   assert.throws(() => createBuildJobStore(root), { code: 'ELOOP' })
   assert.equal(readRegularFile(target, 'utf8'), 'preserved')
+})
+
+
+test('concurrent stale-lock recovery cannot delete a newly acquired coordinator lock', async t => {
+  const root = fixture(t)
+  writeFileSync(join(root, '.coordinator.lock'), JSON.stringify({ host: hostname(), pid: 2147483647, start: 'dead' }))
+  const module = new URL('../build-job-store.mjs', import.meta.url).href
+  const code = `const { parentPort, workerData } = require('node:worker_threads');
+    import(workerData.module).then(({createBuildJobStore}) => {
+      let store;
+      parentPort.on('message', message => {
+        if (message === 'go') {
+          try { store = createBuildJobStore(workerData.root); parentPort.postMessage('acquired') }
+          catch (error) { parentPort.postMessage(error.code) }
+        } else { store?.close(); parentPort.close() }
+      });
+      parentPort.postMessage('ready');
+    });`
+  const workers = Array.from({ length: 2 }, () => new Worker(code, { eval: true, workerData: { root, module } }))
+  t.after(() => Promise.all(workers.map(worker => worker.terminate())))
+  await Promise.all(workers.map(worker => once(worker, 'message')))
+  const results = workers.map(worker => once(worker, 'message'))
+  workers.forEach(worker => worker.postMessage('go'))
+  assert.deepEqual((await Promise.all(results)).map(([result]) => result).sort(), ['EEXIST', 'acquired'])
+  assert.throws(() => createBuildJobStore(root), { code: 'EEXIST' })
+  const stopped = workers.map(worker => once(worker, 'exit'))
+  workers.forEach(worker => worker.postMessage('stop'))
+  await Promise.all(stopped)
+  const store = createBuildJobStore(root); store.close()
 })

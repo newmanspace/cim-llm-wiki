@@ -29,8 +29,17 @@ test('ledger targets stay on the configured origin and reject URL/path injection
 test('ledger never follows redirects with service credentials', async t => {
   let leaked = false
   const trap = await server(t, (_req, res) => { leaked = true; res.end('{}') })
-  const origin = await server(t, (_req, res) => { res.writeHead(302, { Location: trap }); res.end() })
+  const origin = await server(t, (_req, res) => { res.writeHead(302, { Location: trap }); res.end('{}') })
   const quality = createDocumentQuality({ ledgerURL: origin, ledgerToken: 'private' })
   await assert.rejects(quality.call('demo', 'project'), /unavailable/)
   assert.equal(leaked, false)
+})
+
+test('malformed and oversized ledger replies fail closed', async t => {
+  let oversized = false
+  const origin = await server(t, (_req, res) => res.end(oversized ? 'x'.repeat(8 * 1024 * 1024 + 1) : 'not JSON'))
+  const quality = createDocumentQuality({ ledgerURL: origin, ledgerToken: 'private' })
+  await assert.rejects(quality.call('demo', 'project'), /unavailable/)
+  oversized = true
+  await assert.rejects(quality.call('demo', 'project'), /unavailable/)
 })
