@@ -38,6 +38,8 @@ try {
   const response = await fetch(url, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(body ? { 'Idempotency-Key': command + '-' + createHash('sha256').update(body).digest('hex') } : {}) },
     body, redirect: 'error', signal: AbortSignal.timeout(15 * 60 * 1000) })
   const value = await response.json()
+  const requestId = response.headers.get('x-request-id')
+  if (!response.ok && requestId) value.request_id = requestId
   writeResponse(output, value)
   if (!response.ok) throw new Error(responseError(response.status, value))
   const result = options['--summary'] ? { ...contextSummary(value), ...(output ? { output_file: output } : {}) } : output ? { output_file: output, http_status: response.status } : value

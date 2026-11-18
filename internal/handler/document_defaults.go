@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"cim-llm-wiki/internal/observability"
 	"cim-llm-wiki/internal/store"
 	"github.com/gin-gonic/gin"
 )
@@ -42,6 +43,7 @@ func (h *DocumentDefaultsHandler) requestTo(c *gin.Context, path string, payload
 	}
 	req.Header.Set("Authorization", "Bearer "+h.Token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", c.GetHeader("X-Request-ID"))
 	req.Header.Set("X-Settings-Actor", c.GetString("quality_actor"))
 	response, err := h.Client.Do(req)
 	if err != nil {
@@ -57,6 +59,7 @@ func (h *DocumentDefaultsHandler) requestTo(c *gin.Context, path string, payload
 
 func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 	if h.URL == "" || len(h.Token) < 32 {
+		observability.ReportFailure(c.Request.Context(), "project.templates", "TEMPLATE_SERVICE_UNCONFIGURED", "Document template service is not configured")
 		c.JSON(503, gin.H{"error": "Document template service is not configured"})
 		return
 	}
@@ -89,6 +92,7 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 	}
 	data, status, err := h.request(c, action, payload)
 	if err != nil {
+		observability.ReportFailure(c.Request.Context(), "project.templates", "TEMPLATE_SERVICE_UNAVAILABLE", "Document template service unavailable")
 		c.JSON(503, gin.H{"error": "Document template service unavailable"})
 		return
 	}
@@ -166,10 +170,12 @@ func (h *DocumentDefaultsHandler) finishBinding(c *gin.Context, data []byte, sta
 	}
 	directories, err := bindingDirectories(data)
 	if err != nil {
+		observability.ReportFailure(c.Request.Context(), "project.templates", "TEMPLATE_SERVICE_INVALID_RESPONSE", "Invalid template service response")
 		c.JSON(503, gin.H{"error": "Invalid template service response"})
 		return false
 	}
 	if err := h.Store.EnsureDocumentDirectories(c.Request.Context(), project, directories); err != nil {
+		observability.ReportFailure(c.Request.Context(), "project.templates", "PROJECT_DIRECTORY_SYNC_FAILED", "Project directories could not be synchronized; retry the binding")
 		c.JSON(503, gin.H{"error": "Project directories could not be synchronized; retry the binding"})
 		return false
 	}

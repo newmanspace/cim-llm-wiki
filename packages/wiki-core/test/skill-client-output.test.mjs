@@ -16,7 +16,7 @@ async function fixture(t) {
   const calls = []
   let status = 200
   let response = { project: 'example', content_kind: 'strict_nodes', configuration_status: { delivery_contract: 'ready' }, capabilities: { submit: true }, diagnostics: [], template_binding: { version: 'v2' }, modules: ['example'], document_defaults: { definition: { templates: [{ id: 'sdd', name: 'SDD', node_type: 'design', body: 'large-response-sentinel'.repeat(30000) }] } } }
-  const server = createServer((req, res) => { calls.push(req.url); res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(response)) })
+  const server = createServer((req, res) => { calls.push(req.url); res.writeHead(status, { 'Content-Type': 'application/json', 'X-Request-ID': 'test-request-001' }); res.end(JSON.stringify(response)) })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
   t.after(() => { server.closeAllConnections(); server.close() })
   async function run(args) {
@@ -62,8 +62,9 @@ test('failed responses preserve full diagnostics on disk and show indexed paths 
   assert.equal(result.code, 1)
   assert.match(result.stderr, /HTTP 422/)
   assert.match(result.stderr, /BUNDLE_SCHEMA_INVALID/)
+  assert.match(result.stderr, /request_id=test-request-001/)
   assert.match(result.stderr, /\/nodes\/0\/type/)
-  assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), f.response)
+  assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), { ...f.response, request_id: 'test-request-001' })
   assert.equal(result.stdout, '')
 })
 

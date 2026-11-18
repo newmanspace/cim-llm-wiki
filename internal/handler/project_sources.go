@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"cim-llm-wiki/internal/observability"
 	"cim-llm-wiki/internal/types"
 	"github.com/gin-gonic/gin"
 )
@@ -13,6 +14,7 @@ import (
 func loadRegisteredProjectDocs(c *gin.Context, project *types.ProjectConfig) bool {
 	proxy := NewDocumentDefaultsHandler(nil)
 	if proxy.URL == "" || len(proxy.Token) < 32 {
+		observability.ReportFailure(c.Request.Context(), "project.sources", "SOURCE_SERVICE_UNCONFIGURED", "Source document service is not configured")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Source document service is not configured"})
 		return false
 	}
@@ -21,6 +23,7 @@ func loadRegisteredProjectDocs(c *gin.Context, project *types.ProjectConfig) boo
 	defer func() { c.Request.URL.RawQuery = savedQuery }()
 	data, status, err := proxy.requestTo(c, "/internal/source-documents", nil)
 	if err != nil || status != http.StatusOK {
+		observability.ReportFailure(c.Request.Context(), "project.sources", "SOURCE_SERVICE_UNAVAILABLE", "Source document service unavailable")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Source document service unavailable"})
 		return false
 	}
@@ -28,6 +31,7 @@ func loadRegisteredProjectDocs(c *gin.Context, project *types.ProjectConfig) boo
 		Documents []types.DocSource `json:"documents"`
 	}
 	if err := json.Unmarshal(data, &response); err != nil || response.Documents == nil {
+		observability.ReportFailure(c.Request.Context(), "project.sources", "SOURCE_SERVICE_INVALID_RESPONSE", "Invalid source document response")
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Invalid source document response"})
 		return false
 	}

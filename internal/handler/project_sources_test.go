@@ -24,6 +24,9 @@ func TestRegisteredProjectDocs(t *testing.T) {
 				if r.URL.Path != "/internal/source-documents" || r.URL.Query().Get("project") != "demo" || r.URL.Query().Has("unexpected") {
 					t.Error("incorrect project query", r.URL)
 				}
+				if r.Header.Get("X-Request-ID") != "source-query-001" {
+					t.Error("missing correlation ID")
+				}
 				if r.Header.Get("Authorization") != "Bearer 12345678901234567890123456789012" {
 					t.Error("missing service credential")
 				}
@@ -36,6 +39,7 @@ func TestRegisteredProjectDocs(t *testing.T) {
 			response := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(response)
 			c.Request = httptest.NewRequest("GET", "/projects/demo?unexpected=other", nil)
+			c.Request.Header.Set("X-Request-ID", "source-query-001")
 			project := &types.ProjectConfig{ID: "demo", Docs: []types.DocSource{{DocID: "stale"}}}
 			ok := loadRegisteredProjectDocs(c, project)
 			if response.Code != tc.want || ok != (tc.want == 200) {

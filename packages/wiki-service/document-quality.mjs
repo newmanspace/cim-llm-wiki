@@ -1,3 +1,4 @@
+import { requestID } from './request-logs.mjs'
 import { createDefaultsStore, checkDocument } from '../wiki-core/document-defaults.mjs'
 import { documentDirectoryRule, documentTargetErrors, validateDocumentTargetPath } from '../wiki-core/document-routing.mjs'
 import { verifyGitEvidence } from './source-evidence.mjs'
@@ -131,6 +132,7 @@ export function createDocumentQuality({
         headers: {
           Authorization: `Bearer ${ledgerToken}`,
           'Content-Type': 'application/json',
+          ...(requestID() ? { 'X-Request-ID': requestID() } : {}),
           ...(key ? { 'Idempotency-Key': key } : {}),
           ...(reviewToken ? { 'X-Document-Review-Token': reviewToken } : {}),
         },

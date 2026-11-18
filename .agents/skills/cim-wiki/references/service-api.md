@@ -193,3 +193,7 @@ render-document 使用已绑定模板的正文骨架和显式 values 填充元�
 artifacts 登记、复核及 publish-document 始终检查路由，不能省略。非法路径返回 document_target_invalid，无适用规则返回 document_directory_unmapped，类型不匹配返回 document_directory_mismatch，诊断包含模板、类型、目标路径、命中目录和允许目录。服务导出保留 artifact.target_path 的平面前缀，不根据正文重新选目录。
 
 采集可以从零份文档开始：collect 仅依赖可读取的项目登记、来源台账及至少一个启用源，不依赖模板绑定、交付契约、文档目录或已交付数量。ingest-runs 与 source-observations 保留认证、项目归属、源配置/版本及证据校验；后续文档登记和发布仍执行各自的契约门禁。
+
+## 请求日志关联
+
+服务响应头提供 X-Request-ID；失败响应还提供 request_id，客户端 stderr 显示该值，--output 保存完整错误响应。向运维反馈故障时提供请求 ID、调用时间、服务 origin、HTTP 状态与原始错误响应，隐藏令牌和文档正文。调用 submit 后必须核对 HTTP 成功及 bundle 查询结果，不能以本地文件存在或阶段日志代替提交成功。

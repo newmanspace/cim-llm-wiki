@@ -29,11 +29,11 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
   mkdirSync(join(wikiRoot, 'demo'), { recursive: true })
   save(join(shared, 'sources/original.xlsx'), 'original XLSX fixture bytes')
   const reviewToken = 'human-review-only-' + 'r'.repeat(32)
-  const calls = []
+  const calls = [], requestLogs = [], ledgerRequestIds = []
   const ledgerToken = 'private-build-service-' + 'l'.repeat(32)
   let ledgerURL
   if (builds) {
-    const ledger = createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: req.url.endsWith('/project') ? { id: 'demo', repos: [], modules: ['terms'], docs: [] } : { items: [], next_cursor: '' } })) })
+    const ledger = createServer((req, res) => { ledgerRequestIds.push(req.headers['x-request-id']); res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: req.url.endsWith('/project') ? { id: 'demo', repos: [], modules: ['terms'], docs: [] } : { items: [], next_cursor: '' } })) })
     ledger.listen(0, '127.0.0.1'); await once(ledger, 'listening')
     ledgerURL = `http://127.0.0.1:${ledger.address().port}`
     t.after(() => { ledger.closeAllConnections(); ledger.close() })
@@ -46,7 +46,7 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
   }
   const buildRuntime = builds ? createBuildRuntime({ projectRoot, wikiRoot, roots, projectWikis, socketPath: join(root, 'build.sock') }) : undefined
   if (buildRuntime) t.after(() => buildRuntime.close())
-  const server = createKnowledgeServer({ projectWikis, projectRoot, wikiRoot, roots, autoPublish, buildRuntime, ledgerURL, ledgerToken: builds ? ledgerToken : undefined, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
+  const server = createKnowledgeServer({ logWriter: line => requestLogs.push(JSON.parse(line)), projectWikis, projectRoot, wikiRoot, roots, autoPublish, buildRuntime, ledgerURL, ledgerToken: builds ? ledgerToken : undefined, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
     calls.push({ input, engine }); return { md: '# Terms\n\nA source-backed definition.\n', images: [] }
   } })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -66,7 +66,7 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
     qscore: { auth: 1, comp: 1, rel: 1, fresh: 1, struct: 1, reuse: 1, risk: .1, total: .99 },
   }] })
   const submit = async b => { save(join(shared, 'demo/work/nodes.json'), b); return api('bundles', { uri: 'shared://team/demo/work/nodes.json' }) }
-  return { projectWikis, reviewToken, ledgerToken, buildRuntime, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
+  return { ledgerRequestIds, requestLogs, projectWikis, reviewToken, ledgerToken, buildRuntime, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
 }
 async function ready(f) {
   const converted = await f.api('convert', f.registration)
@@ -486,4 +486,65 @@ test('registered sources are immediately visible to administrators with current 
   assert.equal((await list()).value.documents[0].state, 'draft')
   assert.deepEqual((await list('another-project')).value.documents, [])
   assert.equal((await list('demo', 'test-token')).status, 403)
+})
+
+
+test('HTTP logs correlate failed submissions without recording secrets or document bodies', async t => {
+  const f = await fixture(t)
+  const response = await fetch(`${f.origin}/api/v2/knowledge/bundles?token=query-secret`, {
+    method: 'POST', headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json', 'X-Request-ID': 'submit-correlation-001' },
+    body: JSON.stringify({ project: 'demo', uri: 'shared://team/missing.json', content: 'private-document-marker', password: 'private-password-marker' }),
+  })
+  assert.equal(response.headers.get('x-request-id'), 'submit-correlation-001')
+  assert.equal(response.status, 422)
+  await response.json()
+  const records = f.requestLogs.filter(r => r.http.request.id === 'submit-correlation-001')
+  assert.equal(records[0].event.action, 'request.started')
+  assert.equal(records.at(-1).event.action, 'request.completed')
+  assert.equal(records.at(-1).event.outcome, 'failure')
+  assert.equal(records.at(-1).operation.step, 'bundle.read')
+  assert.equal(records.at(-1).cim.project, 'demo')
+  assert.equal(records.at(-1).http.response.status_code, 422)
+  assert.ok(records.at(-1).event.duration > 0)
+  assert.equal(records.filter(r => r.event.action === 'request.failed').length, 1)
+  const text = JSON.stringify(records)
+  for (const secret of ['test-token', 'query-secret', 'private-document-marker', 'private-password-marker']) assert.equal(text.includes(secret), false)
+  const malformed = await fetch(`${f.origin}/api/v2/knowledge/bundles`, {
+    method: 'POST', headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json', 'X-Request-ID': 'invalid request id' }, body: '{"content":"secret-json-marker",',
+  })
+  assert.equal(malformed.status, 400)
+  assert.match(malformed.headers.get('x-request-id'), /^[a-zA-Z0-9._-]+$/)
+  await malformed.json()
+  assert.equal(JSON.stringify(f.requestLogs).includes('secret-json-marker'), false)
+})
+
+
+test('successful registration logs persistence while concurrent requests keep separate context', async t => {
+  const f = await fixture(t)
+  save(join(f.shared, 'demo/parsed/terms.md'), '# Private converted body marker')
+  assert.equal((await f.api('register', f.registration)).status, 200)
+  assert.equal((await f.api('register', f.registration)).status, 409)
+  assert.equal(f.requestLogs.filter(r => r.operation?.step === 'source.persisted' && r.event.action === 'operation.step').length, 1)
+  assert.equal(JSON.stringify(f.requestLogs).includes('Private converted body marker'), false)
+  await Promise.all(['demo', 'other-project'].map(async project => {
+    const res = await fetch(`${f.origin}/api/v2/knowledge/bundles`, {
+      method: 'POST', headers: { Authorization: 'Bearer test-token', 'X-Request-ID': `parallel-${project}` },
+      body: JSON.stringify({ project, uri: 'shared://team/missing.json' }),
+    })
+    await res.json()
+  }))
+  for (const project of ['demo', 'other-project']) {
+    const records = f.requestLogs.filter(r => r.http.request.id === `parallel-${project}` && r.cim.project)
+    assert.ok(records.length > 1)
+    assert.ok(records.every(r => r.cim.project === project))
+  }
+})
+
+
+test('knowledge forwards the request ID to the document ledger', async t => {
+  const f = await fixture(t, { builds: true })
+  const response = await fetch(`${f.origin}/api/v2/knowledge/document-results?project=demo`, { headers: { Authorization: 'Bearer test-token', 'X-Request-ID': 'ledger-correlation-001' } })
+  assert.equal(response.status, 200)
+  await response.json()
+  assert.ok(f.ledgerRequestIds.includes('ledger-correlation-001'))
 })

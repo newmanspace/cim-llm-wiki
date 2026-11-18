@@ -30,6 +30,7 @@ export function writeResponse(path, value) {
 export function responseError(status, value) {
   const diagnostics = (value.diagnostics || []).map(diagnostic => `${diagnostic.path}: ${diagnostic.message}`)
   return `HTTP ${status}: ${value.error || 'Request failed'}` +
+    (value.request_id ? ` [request_id=${value.request_id}]` : '') +
     (value.code ? ` [${value.code}]` : '') +
     (diagnostics.length ? '\n' + diagnostics.join('\n') : '') +
     (value.existing ? '\n' + JSON.stringify({ existing: value.existing }) : '')

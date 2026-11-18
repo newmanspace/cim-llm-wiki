@@ -1,3 +1,4 @@
+import { createRequestLogs, requestFields, requestStep, requestFailure, requestID } from './request-logs.mjs'
 import { createDocumentNaming } from './document-naming.mjs'
 import { createProjectWiki } from './project-wiki.mjs'
 import { createBuildRuntime } from './build-runtime.mjs'
@@ -146,6 +147,7 @@ export function createKnowledgeServer({
   organizedRoot = process.env.CIM_WIKI_ORGANIZED_ROOT,
   buildRuntime,
   projectWikis: configuredWikis,
+  logWriter,
 } = {}) {
   validateCredentials(token, reviewerTokens, ledgerToken)
   projectRoot = resolve(projectRoot)
@@ -258,6 +260,7 @@ export function createKnowledgeServer({
   }
 
   async function register(data, convert) {
+    requestStep(convert ? 'source.convert' : 'source.register')
     const { original, parsedUri, parsed, beforeHash } = prepareRegistration(
       data,
       convert,
@@ -290,6 +293,8 @@ export function createKnowledgeServer({
     const manifest = docs()
     manifest.docs.push(record)
     saveManifest(projectRoot, manifest)
+    requestFields({ source_doc_id: record.doc_id })
+    requestStep('source.persisted')
     return { document: record, markdown: readFileSync(parsed, 'utf8') }
   }
 
@@ -398,19 +403,26 @@ export function createKnowledgeServer({
   }
 
   async function submittedBundle(data) {
+    requestStep('bundle.read')
     const value = readContractJson(resolveShared(data.uri, roots))
     identifier(value.bundle_id, bundlePattern)
     identifier(value.project)
+    requestFields({ project: value.project, bundle_id: value.bundle_id })
+    requestStep('bundle.schema')
     requireProjectConfiguration(value.project)
     if (!Array.isArray(value.nodes) || !value.nodes.length)
       fail('A versioned bundle with nodes is required')
+    requestFields({ node_count: value.nodes.length })
     const diagnostics = schemaDiagnostics('submissionBundle', value)
     if (diagnostics.length) throw Object.assign(new Error('Bundle schema validation failed'), { status: 422, code: 'BUNDLE_SCHEMA_INVALID', diagnostics })
     const effective = defaults.store.effective(value.project)
     const manifest = docs()
     for (const node of value.nodes) {
+      requestFields({ document_id: node.document_id })
+      requestStep('bundle.identity')
       const checked = await naming.requireIdentity(value.project, node.document_id, { ...node, template_id: templateFor(effective.definition, node).id, node_id: node.id, document: '# ' + node.title + '\n\n' + node.content })
       if (checked.identity) node.naming_digest = checked.digest
+      requestStep('bundle.document_contract')
       const diagnostics = checkDocument(
         templateFor(effective.definition, node),
         '# ' + node.title + '\n\n' + node.content,
@@ -418,8 +430,10 @@ export function createKnowledgeServer({
       )
       if (diagnostics.some((e) => e.severity === 'error'))
         fail('Document contract failed: ' + JSON.stringify(diagnostics))
+      requestStep('bundle.source_score_risk')
       prepareSubmittedNode(node, value, manifest)
     }
+    requestFields({ document_id: null })
     const errors = schemaErrors('bundle', value)
     if (errors.length) fail(`Bundle contract failed: ${errors.join('; ')}`)
     const path = bundlePath(value.bundle_id)
@@ -451,6 +465,7 @@ export function createKnowledgeServer({
     const sources = value.nodes.flatMap((node) =>
       Array.isArray(node.source) ? node.source : [node.source],
     )
+    requestStep('bundle.artifact_quality')
     const documentArtifacts = await quality.bindings(
       value.project,
       sources,
@@ -468,12 +483,16 @@ export function createKnowledgeServer({
       state: needsReview ? 'pending' : 'auto',
       submitted_at: now(),
     }
+    requestStep('bundle.persist')
     writeJson(path, record)
+    requestStep('bundle.persisted')
     return record
   }
 
   function changeSourceState(data) {
+    requestStep('source.state')
     const rec = getDoc(data.source)
+    requestFields({ project: rec.project, source_doc_id: rec.doc_id })
     if (!['freeze', 'unfreeze'].includes(data.action))
       fail(
         'Only freeze and unfreeze are supported; activation requires compilation',
@@ -502,6 +521,7 @@ export function createKnowledgeServer({
   }
 
   function reviewSubmittedBundle(data, reviewerIdentity) {
+    requestStep('bundle.review')
     if (!reviewerIdentity)
       fail('Human review requires an independent reviewer credential', 403)
     if (data.reviewer !== undefined && data.reviewer !== reviewerIdentity)
@@ -520,6 +540,7 @@ export function createKnowledgeServer({
     }
     record.state = data.decision === 'approve' ? 'approved' : 'rejected'
     writeJson(bundlePath(data.bundle_id), record)
+    requestStep('bundle.review.persisted')
     return record
   }
 
@@ -557,6 +578,7 @@ export function createKnowledgeServer({
           /^(\|\s*审核者\s*\|)[^\n|]*(\|)\s*$/m,
           (_, start, end) => start + ' ' + reviewer + ' ' + end,
         )
+      requestStep('bundle.document_contract')
       const diagnostics = checkDocument(
         templateFor(effective.definition, node),
         '# ' + node.title + '\n\n' + node.content,
@@ -581,6 +603,7 @@ export function createKnowledgeServer({
   }
 
   async function compileSubmittedBundle(data) {
+    requestStep('bundle.compile')
     validateCompileOptions(data)
     const record = getBundle(data.bundle_id)
     if (!['auto', 'approved', 'published'].includes(record.state))
@@ -724,12 +747,16 @@ export function createKnowledgeServer({
     '/context': url => discovery.discover(identifier(url.searchParams.get('project'))),
     '/document': (url) => {
       const rec = getDoc(url.searchParams.get('source'))
+      requestFields({ project: rec.project, source_doc_id: rec.doc_id })
       return {
         document: rec,
         markdown: readFileSync(resolveShared(rec.path, roots), 'utf8'),
       }
     },
-    '/bundle': (url) => getBundle(url.searchParams.get('id')),
+    '/bundle': (url) => {
+      requestFields({ bundle_id: url.searchParams.get('id') })
+      return getBundle(url.searchParams.get('id'))
+    },
   }
   const postRoutes = {
     '/initialize': (data) => {
@@ -1006,7 +1033,8 @@ export function createKnowledgeServer({
     return reviewerIdentity
   }
 
-  return createServer(async (req, res) => {
+  const logRequest = createRequestLogs(logWriter)
+  return createServer((req, res) => logRequest(req, res, async () => {
     const send = (status, value) => {
       res.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -1022,6 +1050,7 @@ export function createKnowledgeServer({
       }
       if (url.pathname.startsWith('/internal/')) {
         authenticateInternal(req)
+        requestFields(Object.fromEntries(url.searchParams))
         send(200, await internalRoute(req, url))
         return
       }
@@ -1029,18 +1058,23 @@ export function createKnowledgeServer({
       if (!url.pathname.startsWith(PREFIX + '/'))
         fail('Endpoint not found', 404)
       const data = req.method === 'POST' ? await body(req) : null
+      requestFields(data || Object.fromEntries(url.searchParams))
+      requestStep('request.execute')
       if (req.method === 'POST') {
         send(200, await mutate(() => route(req, url, data, reviewerIdentity)))
       } else send(200, await route(req, url))
     } catch (e) {
-      send(e.status || (e instanceof SyntaxError ? 400 : 422), {
+      const status = e.status || (e instanceof SyntaxError ? 400 : 422)
+      requestFailure(e, status)
+      send(status, {
         error: e.message,
+        request_id: requestID(),
         ...(e.code ? { code: e.code } : {}),
         ...(e.diagnostics ? { diagnostics: e.diagnostics } : {}),
         ...(e.existing ? { existing: e.existing } : {}),
       })
     }
-  })
+  }))
 }
 
 if (
@@ -1056,7 +1090,7 @@ if (
   server.listen(
     Number(process.env.KNOWLEDGE_PORT || 8090),
     process.env.KNOWLEDGE_HOST || '127.0.0.1',
-    () => console.log('Knowledge service ready'),
+    () => console.log(JSON.stringify({ '@timestamp': new Date().toISOString(), 'ecs.version': '8.11.0', service: { name: 'cim-wiki-knowledge' }, log: { level: 'info' }, event: { action: 'service.started' } })),
   )
 }
 

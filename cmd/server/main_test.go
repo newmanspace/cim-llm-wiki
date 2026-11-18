@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"cim-llm-wiki/internal/config"
+	"cim-llm-wiki/internal/observability"
 	"cim-llm-wiki/internal/store"
 	"context"
 	"encoding/json"
@@ -160,7 +161,75 @@ func TestRequestLogsCannotCarryInjectedLineBreaks(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &entry); err != nil {
 		t.Fatal("forged log record", err)
 	}
-	if path, ok := entry["path"].(string); !ok || strings.ContainsAny(path, "\r\n") {
+	if path, ok := entry["url.path"].(string); !ok || strings.ContainsAny(path, "\r\n") {
 		t.Fatal("decoded log field contains injected line breaks")
+	}
+}
+
+func TestRequestLogCorrelationAndQueryRedaction(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	defer slog.SetDefault(previous)
+	router := gin.New()
+	router.Use(requestLogger())
+	router.GET("/failure", func(c *gin.Context) { c.Status(422) })
+	for _, id := range []string{"test-correlation-001", "invalid id"} {
+		output.Reset()
+		req := httptest.NewRequest("GET", "/failure?token=private-query-marker", nil)
+		req.Header.Set("X-Request-ID", id)
+		req.Header.Set("Authorization", "Bearer private-token-marker")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		returned := response.Header().Get("X-Request-ID")
+		if !requestIDPattern.MatchString(returned) || (id == "test-correlation-001" && returned != id) {
+			t.Fatal("invalid correlation ID")
+		}
+		var record struct {
+			RequestID string `json:"http.request.id"`
+			Status    int    `json:"http.response.status_code"`
+			Outcome   string `json:"event.outcome"`
+			Duration  int64  `json:"event.duration"`
+		}
+		if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.RequestID != returned || record.Status != 422 || record.Outcome != "failure" || record.Duration <= 0 {
+			t.Fatal("invalid access log", output.String())
+		}
+
+		if strings.Contains(output.String(), "private-query-marker") || strings.Contains(output.String(), "private-token-marker") {
+			t.Fatal("sensitive data logged")
+		}
+	}
+}
+
+func TestPanicRecoveryKeepsCorrelationWithoutDumpingPayload(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(observability.NewLogger(&output, "test-server"))
+	defer slog.SetDefault(previous)
+	router := gin.New()
+	router.Use(requestLogger(), requestRecovery())
+	router.GET("/panic", func(c *gin.Context) { panic("private-panic-payload") })
+	request := httptest.NewRequest("GET", "/panic?token=private-query", nil)
+	request.Header.Set("X-Request-ID", "panic-request-001")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != 500 {
+		t.Fatal("panic did not return 500")
+	}
+	decoder := json.NewDecoder(&output)
+	for _, action := range []string{"operation.failed", "request.completed"} {
+		var record map[string]any
+		if err := decoder.Decode(&record); err != nil {
+			t.Fatal(err)
+		}
+		if record["event.action"] != action || record["http.request.id"] != "panic-request-001" || record["service.name"] != "test-server" {
+			t.Fatal("missing correlated event", record)
+		}
+	}
+	if strings.Contains(output.String(), "private-panic-payload") || strings.Contains(output.String(), "private-query") {
+		t.Fatal("panic log leaked content")
 	}
 }
