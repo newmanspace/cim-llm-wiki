@@ -60,7 +60,7 @@
 
         <!-- Docs -->
         <t-tab-panel :value="'docs'" :label="`${t('detail.docs')} (${project.docs?.length || 0})`">
-          <t-table :data="project.docs || []" :columns="docColumns" row-key="doc_id" bordered>
+          <t-table :data="project.docs || []" :columns="docColumns" row-key="path" bordered>
             <template #bundles="{ row }">
               <template v-if="row.bundles?.length">
                 <t-tag v-for="b in row.bundles" :key="b" size="small" variant="light" class="tag-gap">{{ b }}</t-tag>
@@ -330,7 +330,8 @@ const docColumns = computed<PrimaryTableCol[]>(() => [
   { colKey: 'doc_id', title: t('detail.docId'), ellipsis: true },
   { colKey: 'type', title: t('detail.docType'), width: 130 },
   { colKey: 'path', title: t('detail.docPath'), ellipsis: true },
-  { colKey: 'submodule', title: t('detail.docSubmodule'), ellipsis: true },
+  { colKey: 'original_uri', title: '原始来源', ellipsis: true },
+  { colKey: 'state', title: '当前状态', width: 110 },
   { colKey: 'ingested_at', title: t('detail.docIngestedAt'), width: 170, cell: (_h, { row }) => formatDate(row.ingested_at) },
   { colKey: 'bundles', title: t('detail.docBundles'), cell: 'bundles' },
 ])

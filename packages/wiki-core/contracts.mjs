@@ -17,11 +17,20 @@ if (JSON.stringify([...nodeTypes.enum].sort()) !== JSON.stringify(Object.keys(NO
 const ajv = new Ajv({ allErrors: true, strict: false })
 addFormats(ajv)
 ajv.addSchema(nodeTypes)
-ajv.addSchema(read('node.schema.json'), 'node')
+const nodeSchema = read('node.schema.json')
+ajv.addSchema(nodeSchema, 'node')
+const submissionNode = { ...nodeSchema, $id: 'https://cim-wiki.local/schemas/v1/submission-node',
+  required: nodeSchema.required.filter(field => !['schema_version', 'confidence', 'reviewer', 'status', 'created_at', 'updated_at'].includes(field)),
+}
+ajv.addSchema(submissionNode)
+const submissionBundle = read('bundle.schema.json')
+submissionBundle.$id = 'https://cim-wiki.local/schemas/v1/submission-bundle'
+submissionBundle.properties.nodes.items.allOf[0].$ref = submissionNode.$id
 ajv.addSchema(read('template.schema.json'), 'template')
 const validators = {
   node: ajv.getSchema('node'),
   bundle: ajv.compile(read('bundle.schema.json')),
+  submissionBundle: ajv.compile(submissionBundle),
   template: ajv.getSchema('template'),
   documentSet: ajv.compile(read('document-set.schema.json')),
 }
@@ -42,6 +51,17 @@ export function schemaErrors(kind, value) {
   const check = validators[kind]
   if (check(value)) return []
   return check.errors.map(e => `${e.instancePath || '/'} ${e.message}${e.params.additionalProperty ? ` (${e.params.additionalProperty})` : ''}`)
+}
+
+// JSON Pointer paths identify missing or extra properties, including their node index.
+export function schemaDiagnostics(kind, value) {
+  const check = validators[kind]
+  if (check(value)) return []
+  return check.errors.filter(error => error.keyword !== 'if').map(error => {
+    const property = error.params.missingProperty ?? error.params.additionalProperty
+    const suffix = property === undefined ? '' : '/' + String(property).replaceAll('~', '~0').replaceAll('/', '~1')
+    return { path: (error.instancePath + suffix) || '/', keyword: error.keyword, message: error.message }
+  })
 }
 
 export const slugify = id => String(id).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')

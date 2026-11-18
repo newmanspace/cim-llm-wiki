@@ -261,13 +261,25 @@ type ProjectConfig struct {
 
 // DocSource 描述项目关联的一份源文档。
 type DocSource struct {
-	DocID      string   `json:"doc_id"`      // 文档唯一标识，如 IDD-WIP-V2.22.4
-	Path       string   `json:"path"`        // 本地路径（相对于项目根），如 data/sources/mes-wip/docs/idd_wip.md
-	Type       string   `json:"type"`        // 文档类型：IDD / SDD / PRD / user-manual / admin-manual / ops-manual / release
-	Submodule  string   `json:"submodule"`   // 所属 git submodule 路径（如 data/sources/mes-wip/docs）
-	SHA256     string   `json:"sha256"`      // 文档内容哈希，用于变更检测
-	IngestedAt string   `json:"ingested_at"` // 上次摄取时间
-	Bundles    []string `json:"bundles"`     // 关联的 ChangeBundle ID 列表
+	OriginalURI string                `json:"original_uri,omitempty"`
+	State       string                `json:"state,omitempty"`
+	UpdatedAt   string                `json:"updated_at,omitempty"`
+	History     []DocumentStateChange `json:"history,omitempty"`
+	DocID       string                `json:"doc_id"`      // 原始来源标识；同一原件的多个转换路径可共享该值
+	Path        string                `json:"path"`        // 已登记转换文件的 shared URI；列表行标识
+	Type        string                `json:"type"`        // register/convert 登记的 category
+	Submodule   string                `json:"submodule"`   // 所属 git submodule 路径（如 data/sources/mes-wip/docs）
+	SHA256      string                `json:"sha256"`      // 文档内容哈希，用于变更检测
+	IngestedAt  string                `json:"ingested_at"` // 来源登记时间
+	Bundles     []string              `json:"bundles"`     // 关联的 ChangeBundle ID 列表
+}
+
+// DocumentStateChange preserves the registered source lifecycle.
+type DocumentStateChange struct {
+	From *string `json:"from"`
+	To   string  `json:"to"`
+	At   string  `json:"at"`
+	By   string  `json:"by"`
 }
 
 // RepoBinding 描述项目关联的代码仓库及其模块映射。

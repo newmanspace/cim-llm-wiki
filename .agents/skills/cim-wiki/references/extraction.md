@@ -16,17 +16,21 @@
 
 ## 节点字段示例
 
+生成 Bundle 时先阅读[字段对应与完整 SDD Bundle 示例](bundle-submission.md)。本文字段列表是说明，不是完整请求；SDD/IDD 的节点 type 与 template_id、文档编号与身份 UUID 必须分别填写。
+
 以下为字段说明，不是可执行的 JSON Schema。机器契约由服务端 context 接口提供（服务内部位于 `contracts/wiki/v1/`），Bundle 必须声明 `schema_version: "1.0"`、`bundle_id`、`project` 和 `nodes`。类型、字段、正文及关联关系均接受严格校验，不能以本说明替代机器门禁。
 
 ```json
 {
-  "id": "TYPE-DOMAIN-SEQ，如 BR-WIP-001、API-INT-PLM-001",
+  "id": "已登记身份的 node_id；未启用命名时采用项目明确约定",
+  "document_id": "已登记身份的 UUID，不能填文档编号",
+  "template_id": "项目有效模板的实际 id，不拼接模块后缀",
   "type": "business_rule | business_object | frd | api | design | module | requirement | test_case | incident | faq | release | deployment | knowledge_article | data_schema | data_dictionary | code_index",
   "rule_type": "仅 business_rule：business_rule（业务规则/全局政策，入 doc）| contract（功能契约/接口校验，带 applies_to，入 code）；缺省按是否带 applies_to 判定",
   "title": "简洁标题",
-  "content": "完整 Markdown 内容（原子化，一个节点只讲一件事）",
-  "product": "产品名称，默认 Semiconductor-MES",
-  "version": "版本号，如 V5.2，缺省 v1.0",
+  "content": "完整正文去掉唯一开头的一级标题；title 与原标题和文档名称一致",
+  "product": "项目真实产品名称，不设默认值",
+  "version": "有来源依据的实际产品/文档版本，不猜默认值",
   "domain": "业务域，如 manufacturing-execution / system-integration",
   "module": "模块名（用户指定或从文档推断）",
   "confidence": 0.0-1.0,
@@ -58,6 +62,8 @@
 ```
 
 ## ID 前缀规范
+
+启用项目文档命名后，始终使用登记返回的 node_id 和身份 UUID；下列类型前缀只是未启用命名时的说明，不能据此覆盖项目命名策略、手工取号或重建已有身份。
 
 | 类型 | 前缀 | 示例 |
 |------|------|------|

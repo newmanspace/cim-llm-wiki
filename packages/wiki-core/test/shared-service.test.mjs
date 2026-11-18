@@ -424,3 +424,66 @@ test('project storage API preserves review gates, previews candidates and commit
   assert.equal(existsSync(join(source, 'doc/requirements/req-terms-001.md')), true)
   assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md')), false)
 })
+
+test('submission reports indexed schema diagnostics before template, identity or source checks', async t => {
+  const f = await fixture(t)
+  const bundle = f.bundle('CR-SCHEMA-001')
+  delete bundle.nodes[0].type
+  bundle.nodes[0].node_type = 'sdd'
+  bundle.nodes[0].template_id = 'sdd-alarm'
+  bundle.nodes[0].document_id = bundle.nodes[0].id
+  bundle.nodes[0].metadata = { product: 'Example' }
+  bundle.nodes.push(null)
+  const result = await f.submit(bundle)
+  assert.equal(result.status, 422)
+  assert.equal(result.value.code, 'BUNDLE_SCHEMA_INVALID')
+  const paths = result.value.diagnostics.map(d => d.path)
+  for (const path of ['/nodes/0/type', '/nodes/0/node_type', '/nodes/0/metadata', '/nodes/0/document_id', '/nodes/1']) assert.ok(paths.includes(path), path)
+  assert.ok(result.value.diagnostics.every(d => !['/nodes/0/api_type', '/nodes/0/rule_type', '/nodes/0/pattern'].includes(d.path)))
+  assert.doesNotMatch(result.value.error, /undefined|Source must be frozen/)
+  assert.equal((await f.api('bundle?id=' + bundle.bundle_id)).status, 404)
+})
+
+test('submission continues to fill server-owned fields after early schema validation', async t => {
+  const f = await fixture(t); await ready(f)
+  const bundle = f.bundle('CR-SCHEMA-002')
+  for (const field of ['schema_version', 'reviewer', 'status', 'created_at', 'updated_at', 'confidence']) delete bundle.nodes[0][field]
+  const result = await f.submit(bundle)
+  assert.equal(result.status, 200, JSON.stringify(result.value))
+  const node = result.value.bundle.nodes[0]
+  assert.equal(node.reviewer, 'auto')
+  assert.equal(node.confidence, .99)
+  assert.equal(node.status, 'published')
+  assert.equal(node.schema_version, '1.0')
+  assert.ok(Number.isFinite(Date.parse(node.created_at)))
+})
+
+
+test('registered sources are immediately visible to administrators with current lifecycle and project isolation', async t => {
+  const f = await fixture(t, { builds: true })
+  const list = async (project = 'demo', credential = f.ledgerToken) => {
+    const response = await fetch(`${f.origin}/internal/source-documents?project=${project}`, { headers: { Authorization: `Bearer ${credential}` } })
+    return { status: response.status, value: await response.json() }
+  }
+  assert.deepEqual((await list()).value.documents, [])
+  save(join(f.shared, 'demo/parsed/terms.md'), '# Registered source\n\nText')
+  assert.equal((await f.api('register', f.registration)).status, 200)
+  let result = await list()
+  assert.equal(result.status, 200)
+  assert.equal(result.value.documents.length, 1)
+  assert.equal(result.value.documents[0].path, f.registration.parsed)
+  assert.equal(result.value.documents[0].state, 'draft')
+  assert.equal(result.value.documents[0].original_uri, f.registration.source)
+  assert.equal('original_path' in result.value.documents[0], false)
+  assert.equal('markdown' in result.value.documents[0], false)
+  assert.equal((await f.api('register', f.registration)).status, 409)
+  assert.equal((await list()).value.documents.length, 1)
+  assert.equal((await f.api('state', { source: f.registration.parsed, action: 'freeze', reviewer: 'Test Operator' })).status, 200)
+  result = await list()
+  assert.equal(result.value.documents[0].state, 'frozen')
+  assert.equal(result.value.documents[0].history.at(-1).to, 'frozen')
+  assert.equal((await f.api('state', { source: f.registration.parsed, action: 'unfreeze' })).status, 200)
+  assert.equal((await list()).value.documents[0].state, 'draft')
+  assert.deepEqual((await list('another-project')).value.documents, [])
+  assert.equal((await list('demo', 'test-token')).status, 403)
+})

@@ -2,6 +2,7 @@
 // Thin HTTP client: no parser, compiler, scoring model or project imports.
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { outputPath, contextSummary, writeResponse, responseError } from './client-output.mjs'
 
 try {
   const [command, ...args] = process.argv.slice(2)
@@ -10,7 +11,7 @@ try {
     submit: ['POST', 'bundles'], review: ['POST', 'review'], compile: ['POST', 'compile'], validate: ['POST', 'validate'] }
   for (const resource of ['document-identities','naming-settings','data-sources','source-revisions','ingest-runs','source-observations','ingest-source-links','ingest-artifact-links','document-results','quality-policies','quality-policy-effective','document-evaluations','quality-issues','document-review-tasks','document-review-events','publications']) routes['list-'+resource] = ['GET',resource]
   for (const resource of ['ingest-runs','source-observations','artifacts','document-evaluations','document-review-decisions','publish-document']) routes[resource] = ['POST',resource]
-  if (!routes[command]) throw new Error('Usage: client.mjs initialize|directories|context|document|bundle|convert|register|state|submit|review|compile|validate [--project ID|--source URI|--id ID|--json-file FILE]')
+  if (!routes[command]) throw new Error('Usage: client.mjs initialize|directories|context|document|bundle|convert|register|state|submit|review|compile|validate [--project ID|--source URI|--id ID|--json-file FILE] [--output FILE] [--summary]')
   const base = process.env.CIM_WIKI_URL
   const token = ['review','document-review-decisions'].includes(command) ? process.env.CIM_WIKI_REVIEW_TOKEN : process.env.CIM_WIKI_TOKEN
   if (!base || !token) throw new Error(['review','document-review-decisions'].includes(command) ? 'Human reviewers must set CIM_WIKI_URL and their independent CIM_WIKI_REVIEW_TOKEN' : 'Set CIM_WIKI_URL and CIM_WIKI_TOKEN')
@@ -20,10 +21,13 @@ try {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('CIM_WIKI_URL must be an HTTP(S) service origin without credentials')
   const options = {}
   for (let i = 0; i < args.length; i++) {
-    if (!['--doc-type', '--module', '--topic', '--document-id', '--project', '--source', '--id', '--json-file', '--path', '--cursor', '--limit', '--status', '--folder', '--source-id', '--quality-status', '--review-status', '--run-id'].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith('--')) throw new Error('Invalid client option')
+    if (args[i] === '--summary') { options['--summary'] = true; continue }
+    if (!['--output', '--doc-type', '--module', '--topic', '--document-id', '--project', '--source', '--id', '--json-file', '--path', '--cursor', '--limit', '--status', '--folder', '--source-id', '--quality-status', '--review-status', '--run-id'].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith('--')) throw new Error('Invalid client option')
     options[args[i]] = args[++i]
   }
   for (const flag of ['--doc-type', '--module', '--topic', '--document-id', '--project', '--source', '--id', '--path', '--cursor', '--limit', '--status', '--folder', '--source-id', '--quality-status', '--review-status', '--run-id']) if (options[flag]) url.searchParams.set(flag.slice(2).replaceAll('-', '_'), options[flag])
+  if (options['--summary'] && command !== 'context') throw new Error('--summary is only supported for context')
+  const output = outputPath(options['--output'])
   const method = routes[command][0]
   let body
   if (method === 'POST') {
@@ -34,7 +38,9 @@ try {
   const response = await fetch(url, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(body ? { 'Idempotency-Key': command + '-' + createHash('sha256').update(body).digest('hex') } : {}) },
     body, redirect: 'error', signal: AbortSignal.timeout(15 * 60 * 1000) })
   const value = await response.json()
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${value.error || 'Request failed'}` + (value.code ? ` [${value.code}]` : '') + (value.existing ? '\n' + JSON.stringify({ existing: value.existing }) : ''))
-  console.log(JSON.stringify(value, null, 2))
+  writeResponse(output, value)
+  if (!response.ok) throw new Error(responseError(response.status, value))
+  const result = options['--summary'] ? { ...contextSummary(value), ...(output ? { output_file: output } : {}) } : output ? { output_file: output, http_status: response.status } : value
+  console.log(JSON.stringify(result, null, 2))
   if (command === 'validate' && value.errors?.length) process.exitCode = 1
 } catch (e) { console.error(e.message); process.exitCode = 1 }

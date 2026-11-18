@@ -69,6 +69,9 @@ func (h *AdminHandler) GetProject(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found", "id": id})
 		return
 	}
+	if !loadRegisteredProjectDocs(c, p) {
+		return
+	}
 	c.JSON(http.StatusOK, p)
 }
 
@@ -85,6 +88,9 @@ func (h *AdminHandler) GetProjectConfig(c *gin.Context) {
 	p, err := h.store.GetProject(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+	if !loadRegisteredProjectDocs(c, p) {
 		return
 	}
 	c.JSON(http.StatusOK, p)

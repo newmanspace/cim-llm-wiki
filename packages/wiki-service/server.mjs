@@ -28,6 +28,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   PROJECT_ROOT,
   schemaErrors,
+  schemaDiagnostics,
   readContractJson,
   nodeLocation,
   slugify,
@@ -403,6 +404,8 @@ export function createKnowledgeServer({
     requireProjectConfiguration(value.project)
     if (!Array.isArray(value.nodes) || !value.nodes.length)
       fail('A versioned bundle with nodes is required')
+    const diagnostics = schemaDiagnostics('submissionBundle', value)
+    if (diagnostics.length) throw Object.assign(new Error('Bundle schema validation failed'), { status: 422, code: 'BUNDLE_SCHEMA_INVALID', diagnostics })
     const effective = defaults.store.effective(value.project)
     const manifest = docs()
     for (const node of value.nodes) {
@@ -955,6 +958,32 @@ export function createKnowledgeServer({
     })
   }
 
+  async function internalRoute(req, url) {
+    if (url.pathname === '/internal/source-documents') return internalSourceDocuments(req, url)
+    if (url.pathname.startsWith('/internal/project-wiki')) return internalProjectWiki(req, url)
+    if (url.pathname.startsWith('/internal/wiki-builds')) return internalBuilds(req, url)
+    if (url.pathname.startsWith('/internal/document-defaults')) return internalSettings(req, url)
+    fail('Endpoint not found', 404)
+  }
+
+  function internalSourceDocuments(req, url) {
+    if (req.method !== 'GET') fail('Operation not found', 404)
+    const project = identifier(url.searchParams.get('project'))
+    const documents = docs().docs.filter(record => record.project === project).map(record => ({
+      doc_id: record.doc_id,
+      path: record.path,
+      original_uri: record.original_uri,
+      type: record.category,
+      state: record.state,
+      sha256: record.parsed_sha256,
+      ingested_at: record.created_at,
+      updated_at: record.updated_at,
+      bundles: record.bundles || [],
+      history: record.history || [],
+    }))
+    return { documents }
+  }
+
   function authenticateInternal(req) {
     if (!ledgerToken || ledgerToken.length < 32 || ledgerToken === token || !sameToken(req.headers.authorization, ledgerToken)) fail('Administrator service authentication required', 403)
   }
@@ -991,19 +1020,9 @@ export function createKnowledgeServer({
         send(200, { status: 'ok' })
         return
       }
-      if (url.pathname.startsWith('/internal/project-wiki')) {
+      if (url.pathname.startsWith('/internal/')) {
         authenticateInternal(req)
-        send(200, await internalProjectWiki(req, url))
-        return
-      }
-      if (url.pathname.startsWith('/internal/wiki-builds')) {
-        authenticateInternal(req)
-        send(200, await internalBuilds(req, url))
-        return
-      }
-      if (url.pathname.startsWith('/internal/document-defaults')) {
-        authenticateInternal(req)
-        send(200, await internalSettings(req, url))
+        send(200, await internalRoute(req, url))
         return
       }
       const reviewerIdentity = authenticateAgent(req, url)
@@ -1017,6 +1036,7 @@ export function createKnowledgeServer({
       send(e.status || (e instanceof SyntaxError ? 400 : 422), {
         error: e.message,
         ...(e.code ? { code: e.code } : {}),
+        ...(e.diagnostics ? { diagnostics: e.diagnostics } : {}),
         ...(e.existing ? { existing: e.existing } : {}),
       })
     }

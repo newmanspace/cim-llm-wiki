@@ -19,7 +19,15 @@
 | compile | POST /compile | --json-file |
 | validate | POST /validate | 无需请求文件 |
 
+客户端通用选项：`--output FILE` 以 0600 权限保存完整 JSON 响应（成功和 HTTP 错误均保存），stdout 改为文件回执；已有文件在请求前拒绝，避免覆盖。`context --summary` 仅输出配置、能力、诊断和模板标识摘要，可与 --output 同用；其他命令不接受 --summary。
+
+Bundle 字段及完整 SDD 结构示例见 [bundle-submission.md](bundle-submission.md)。submit 在模板匹配前检查结构；HTTP 422 / BUNDLE_SCHEMA_INVALID 返回 diagnostics 中的 path、keyword、message，客户端保留完整错误并在 stderr 输出字段路径。
+
 所有写操作请求为 JSON；`--json-file -` 从 stdin 读取。客户端显示服务响应，HTTP 失败或完整校验发现 errors 时以非零状态退出，不自动重复写入请求。
+
+## 登记与页面可见性
+
+register/convert 成功即保存服务端来源记录，项目管理的“源文档”与项目配置中的 docs 直接查询该记录，无需 submit、review 或 compile。列表显示转换文件路径、原始来源 URI、当前状态与状态历史；freeze/unfreeze 后重新查询即反映最新状态。来源记录与归档产物、Wiki 节点不同，登记不代表产物已归档或 Wiki 已发布。
 
 ## 服务地址与路由排查
 

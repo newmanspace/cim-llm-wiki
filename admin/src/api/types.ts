@@ -1,6 +1,10 @@
 // Mirrors internal/types/types.go + internal/store/postgres.go JSON shapes.
 
 export interface DocSource {
+  original_uri?: string
+  state?: string
+  updated_at?: string
+  history?: { from: string | null; to: string; at: string; by: string }[]
   doc_id: string
   path: string
   type: string

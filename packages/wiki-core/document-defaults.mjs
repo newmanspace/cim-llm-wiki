@@ -670,7 +670,7 @@ export function templateFor(definition, node) {
     node.template_id ? t.id === node.template_id : t.node_type === node.type,
   )
   if (!template || template.node_type !== node.type)
-    fail('No matching bound document template for ' + node.type)
+    fail('No matching bound document template: type=' + JSON.stringify(node.type) + ', template_id=' + JSON.stringify(node.template_id ?? null))
   return template
 }
 

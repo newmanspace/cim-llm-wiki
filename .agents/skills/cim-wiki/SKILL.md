@@ -34,6 +34,8 @@ export CIM_WIKI_TOKEN=<服务端配置的访问令牌>
 node "$SKILL/scripts/client.mjs" context --project <project-id>
 ```
 
+完整响应较大时使用 `context --project <project-id> --summary --output <新文件.json>`：stdout 仅显示配置和模板标识摘要，完整响应保存为私有 JSON 文件，已有文件不会覆盖。不解析工具截断后的输出；摘要不能替代正文及机器 Schema。
+
 对应 `GET {CIM_WIKI_URL}/api/v2/knowledge/context?project=<project-id>`，使用环境中的 `CIM_WIKI_TOKEN`。`CIM_WIKI_URL` 只填写服务 origin，不包含 API 路径。
 
 目标包含摄取发布时，在登记、冻结和抽取前先检查 `capabilities.submit/compile`；不可用时先报告具体配置阻塞，只继续任务授权内可独立完成的材料准备。先检查 `configuration_status`、`diagnostics` 和 `capabilities`，HTTP 200 只表示配置发现成功，不表示可以采集或发布。诊断的 `affected_operations` 列出配置影响；能力标志仅反映配置前提，实际操作继续由服务校验来源、内容、质量和审核。缺少交付契约时仍可读取数据源和生效模板；采集脚本在 `capabilities.collect` 不为 true 时停止，不开始下载。`repository_docs` 返回适用信息及 `not_applicable` 状态，文档仓继续使用 Git 构建。
@@ -168,6 +170,8 @@ PDF 由服务端调用 MinerU；XLSX/DOCX/PPTX/HTML 由服务端调用 Docling�
 
 按 [references/extraction.md](references/extraction.md)、服务端 Schema 和生效模板抽取原子节点。长文档 >6000 字符时分块，保留 500 字符重叠。使用真实产品、版本、业务域和模块，代码只保留 repository/class/method/git_ref 索引，不复制源码全文。
 
+生成前阅读 [Bundle 字段与提交前检查](references/bundle-submission.md)及其完整字段示例，明确 type/template_id/id/document_id 的区别；不使用 node_type、metadata 或自造模板 ID 作为提交结构。
+
 输出到共享目录中的 nodes.json，必须是带 `schema_version: "1.0"`、`bundle_id`、`project`、`nodes` 的 Bundle 对象，不能提交裸数组。bundle_id 采用 CR-YYYYMMDD-NNNN，当日递增。每个节点的 source 是登记后的转换稿 URI；可为多个 URI 的数组。source_location 只填写可确认的位置。
 
 按 [references/evaluation.md](references/evaluation.md) 在本地完成七维语义评分，qscore 字段为 auth、comp、rel、fresh、struct、reuse、risk、total。服务端仅复算总分与检查门限，不调用 LLM 代替语义判断。
@@ -176,7 +180,7 @@ PDF 由服务端调用 MinerU；XLSX/DOCX/PPTX/HTML 由服务端调用 Docling�
 
 ## 5. 提交与聚合审核
 
-通过 `submit` 提交 nodes.json 的共享 URI；服务端保存该版本的不可变快照，返回状态及 digest。修订应使用新的 bundle_id，不能覆盖已审核结果。
+先按机器 Schema 检查结构，并对完整文档执行 check-document；正文 error 未解决不能以冻结成功代替检查。Bundle content 去掉唯一开头的一级标题，由 title 参与服务端拼接。通过 `submit` 提交 nodes.json 的共享 URI；服务端保存该版本的不可变快照，返回状态及 digest。修订应使用新的 bundle_id，不能覆盖已审核结果。
 
 向用户展示聚合摘要：来源原件及位置、项目/模块、节点总数、自动/待审/归档数量，以及每个节点的 ID、类型、标题、分数、风险和决策。展示冲突及高风险项；不逐节点反复提问。
 
