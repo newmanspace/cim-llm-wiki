@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, statSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
+import { chmodSync, statSync, openSync, closeSync, fstatSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -35,8 +35,11 @@ test('snapshot freezes sources and dependencies, rejects tampering and dirty Git
   const context = snapshotContext(captures, snapshot.snapshot, snapshot.digest)
   const source = join(f.projectRoot, 'data/raw/ci-source.md')
   assert.equal(statSync(join(context.projectRoot, 'data/raw/ci-source.md')).mode & 0o777, 0o640)
-  assert.equal(statSync(source).mode & 0o777, 0o600)
-  writeFileSync(source, 'changed source')
+  const fd = openSync(source, 'r+')
+  try {
+    assert.equal(fstatSync(fd).mode & 0o777, 0o600)
+    writeFileSync(fd, 'changed source')
+  } finally { closeSync(fd) }
   assert.notEqual(readFileSync(source, 'utf8'), readFileSync(join(context.projectRoot, 'data/raw/ci-source.md'), 'utf8'))
   assert.equal(snapshotContext(captures, snapshot.snapshot, snapshot.digest).wikiRoot, context.wikiRoot)
   writeFileSync(join(context.projectRoot, 'data/raw/ci-source.md'), 'tampered snapshot')

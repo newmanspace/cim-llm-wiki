@@ -51,10 +51,10 @@ test('repository mode refuses Bundle publication, cannot be changed after initia
 })
 test('ordinary Markdown is escaped as data, wiki references work, external source citations are not broken Wiki links', () => {
   const markdown = new MarkdownIt(); repositoryMarkdown(markdown)
-  const html = markdown.render('{{ literal }} <script>alert(1)</script>\n\n[[code/apis/api-test.md|API]]\n\n[Code](../../source.go)\n\n[Page](other.md)', { relativePath: 'doc/design.md' })
+  const html = markdown.render('{{ literal }} <SCRIPT>alert(2)</SCRIPT> <script>alert(1)</script>\n\n[[code/apis/api-test.md|API]]\n\n[Code](../../source.go)\n\n[Page](other.md)', { relativePath: 'doc/design.md' })
   assert.match(html, /&#123;&#123; literal }}/)
   assert.match(html, /&lt;script&gt;/)
-  assert.doesNotMatch(html, /<script>/)
+  assert.doesNotMatch(html, /<script\b/i)
   assert.match(html, /href="\/code\/apis\/api-test.md"/)
   assert.match(html, /<span title="外部源码引用：\.\.\/\.\.\/source.go">Code<\/span>/)
   assert.match(html, /href="other.md"/)

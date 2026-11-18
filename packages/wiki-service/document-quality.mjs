@@ -19,7 +19,8 @@ import {
   isAbsolute,
   basename,
 } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { readRegularFile } from '../wiki-core/safe-files.mjs'
+import { createHash, randomUUID } from 'node:crypto'
 import MarkdownIt from 'markdown-it'
 import { resolveShared, hashFile } from '../wiki-core/sources.mjs'
 const fail = (message, status = 422) => {
@@ -101,20 +102,26 @@ export function createDocumentQuality({
       origin.hash)
   )
     fail('Invalid ledger origin')
+  function ledgerTarget(project, resource, query) {
+    const projectID = identifier(project)
+    if (typeof resource !== 'string' || !/^[a-z]+(?:-[a-z]+)*$/.test(resource)) fail('Invalid ledger resource', 422)
+    const url = new URL(
+      `/internal/v1/projects/${encodeURIComponent(projectID)}/document-quality/${resource}`,
+      origin,
+    )
+    if (url.origin !== origin.origin) fail('Ledger origin cannot change', 422)
+    if (query)
+      for (const [k, v] of Object.entries(query))
+        if (v !== undefined) url.searchParams.set(k, String(v))
+    return url
+  }
   async function call(
     project,
     resource,
     { body, key, reviewToken, query } = {},
   ) {
     if (!enabled) fail('Document ledger is not configured', 503)
-    identifier(project)
-    const url = new URL(
-      `/internal/v1/projects/${encodeURIComponent(project)}/document-quality/${resource}`,
-      origin,
-    )
-    if (query)
-      for (const [k, v] of Object.entries(query))
-        if (v !== undefined) url.searchParams.set(k, String(v))
+    const url = ledgerTarget(project, resource, query)
     let response
     try {
       response = await fetch(url, {
@@ -192,7 +199,8 @@ export function createDocumentQuality({
   }
   function snapshot(project, input) {
     const source = resolveShared(input, roots)
-    const sha256 = hashFile(source),
+    const content = readRegularFile(source)
+    const sha256 = createHash('sha256').update(content).digest('hex'),
       extension = source.toLowerCase().endsWith('.md') ? '.md' : '.bin'
     const path = join(
       projectRoot,
@@ -201,11 +209,11 @@ export function createDocumentQuality({
       sha256 + extension,
     )
     mkdirSync(dirname(path), { recursive: true })
-    if (existsSync(path)) {
-      if (hashFile(path) !== sha256)
-        fail('Immutable content snapshot has drifted', 409)
-    } else
-      writeFileSync(path, readFileSync(source), { flag: 'wx', mode: 0o600 })
+    try { writeFileSync(path, content, { flag: 'wx', mode: 0o600 }) }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      if (!readRegularFile(path).equals(content)) fail('Immutable content snapshot has drifted', 409)
+    }
     return { sha256, path }
   }
   async function verifyArtifact(project, artifact) {
