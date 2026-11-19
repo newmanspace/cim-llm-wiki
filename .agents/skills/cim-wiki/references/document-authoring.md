@@ -6,13 +6,16 @@
 
 复用会话中已明确的 Project、资料位置、文档类型和输出位置。新编时确定文档目标与范围；修订时先读目标原文、文档 ID、版本和已有引用。常规细节自行处理，无法确定 Project 或关键业务含义时再澄清。
 
-优先读取用户明确指定的 Project 模板文件或模板配置。未指定时，用现有客户端读取目标项目规则：
+优先读取用户明确指定的 Project 模板文件或模板配置。未指定模板文件时，分别读取目标项目和该项目引用的模板；服务地址、项目及 Token 配置缺项时先询问：
 
 ```bash
-node "$SKILL/scripts/client.mjs" context --project <project-id>
+node "$SKILL/scripts/client.mjs" project --project <project-id>
+node "$SKILL/scripts/client.mjs" templates --project <project-id> --template-id <template-id>
 ```
 
-仅在实际类型与模板用途匹配时，按 `document_defaults.definition.templates` 中的明确 `id` 选择专门模板，核对 `node_type`、`body`、`contract`，记录可取得的版本和摘要。一个类型可有多个模板，例如 SDD 和 IDD 同为 design，不能只取第一个匹配类型。术语、变量、目录及交付要求从对应 Project 的资料与配置读取，不从其他项目或系统最新模板推测。
+仅在实际类型与模板用途匹配时，按 templates 响应的 `templates` 中的明确 `id` 选择专门模板，核对 `node_type`、`body`、`contract`，记录 binding.version 和 binding.digest。一个类型可有多个模板，例如 SDD 和 IDD 同为 design，不能只取第一个匹配类型。术语、变量及目录从模板响应的 terms、template_variables、directories 读取；如任务涉及节点交付，另从 context 读取交付要求，不混淆文档编写与运行时能力。其他资料从对应 Project 读取，不从其他项目或系统最新模板推测。
+
+repository_docs 也可显式引用文档模板，context 的 not_applicable 只描述运行时模式；不得跳过独立模板查询。未引用返回 TEMPLATE_SOURCE_UNBOUND，未知模板返回 TEMPLATE_NOT_FOUND，不能自动回退全局配置。
 
 模板是输入，不能为适配文档而改写其章节、契约或项目绑定。用户已提供模板时，不要求先使其成为服务端生效配置才能编写；服务不可达或未绑定时可继续按该模板交付本地文档草案，并说明在线校验尚未完成。用户明确要求新编某类专项文档但缺少其模板时，报告缺项；仅转换现有源文且没有对应专门模板时，直接执行通用标准格式整理，不为缺少模板阻断内容转换，也不借用其他类型模板。
 
@@ -38,7 +41,7 @@ node "$SKILL/scripts/client.mjs" render-document --json-file render-request.json
 | template_id | 明确选择的模板 ID |
 | values | 目标声明的变量及真实值，如文档 ID、名称、版本、产品、作者、审核安排、UTC 时间及适用范围 |
 
-变量以 `context.template_variables` 或用户指定模板的声明为准。render-document 只填充元数据并返回 JSON 中的 document，不会撰写业务内容；Agent 需在其基础上完成正文，不能原样交付空骨架或示例。未确定的作者或审核身份不得伪造，草稿占位遵守所用契约。
+变量以 templates 响应的 `template_variables` 或用户指定模板的声明为准。render-document 只填充元数据并返回 JSON 中的 document，不会撰写业务内容；Agent 需在其基础上完成正文，不能原样交付空骨架或示例。未确定的作者或审核身份不得伪造，草稿占位遵守所用契约。
 
 使用指定本地模板时直接按其结构撰写；保持唯一文档标题与文档信息名称一致，保留要求的章节、编号、表头、参考列表和修订记录。不适用内容在相应章节说明原因。接口、规则、领域对象和物理结构分别引用唯一正文，不在多份文档重复维护。
 
@@ -50,25 +53,19 @@ node "$SKILL/scripts/client.mjs" render-document --json-file render-request.json
 
 仅在已确认文档类型匹配或用户明确要求类型改编时，原文与模板不一致才按指定模板整理；缺少内容只能依据资料补齐，不能通过放宽模板通过检查。用户尚未明确更新模板版本时，不自动把原文迁到系统最新版本。已冻结或发布的来源文档不得覆盖旧证据，后续摄取采用新版本，遵守原有状态流程。
 
-## 4. 检查完整正文
+## 4. 本地检查完整正文
 
-先检查类型判定和模板匹配是否正确，再检查内容、事实与引用；有专门模板时核对其结构，无专门模板时核对通用标准格式。转换文档还须核对正文未混入 AI 转换评论、来源元数据或无依据扩写。专门模板已匹配、具备完整契约且服务可用时调用：
+检查类型、模板匹配、事实与引用。有专门模板时按其完整契约检查，无专门模板时按通用标准格式检查。正文不混入转换评论或无依据扩写。
+
+通过 templates 获取目标项目完整响应后，调用随 Skill 分发的本地工具：
 
 ```bash
-node "$SKILL/scripts/client.mjs" check-document --json-file check-request.json
+node "$SKILL/scripts/ingest.mjs" --rules <项目模板响应.json> --json-file <候选元数据.json> --root <本地包根> --document <入口相对路径.md> --output <新的检查报告.json>
 ```
 
-| 字段 | 内容 |
-| --- | --- |
-| project | 与模板选择一致的 Project ID |
-| template_id | 同一模板 ID |
-| document | 已完成的整份 Markdown，包含唯一一级标题 |
-| phase | 本地草案检查采用 draft，不借发布阶段伪造审核身份 |
-| target_path | 按 Project 类型目录映射确定的目标相对路径，保留 doc/ 或 code/ 前缀 |
+候选请求包含 project、实际 template_id（无专门模板省略）、document、target_path、可选 document_id、identity（正式身份响应）；正文和完整附件包从本地目录读取。没有正式身份不阻断本地检查。Agent 对照原件完成保真核对后记录 fidelity=checked，否则保留 not_checked。
 
-在线项目检查使用项目绑定的契约。用户指定模板快照且具备完整 definition 时，可提交该 definition、template_id、document 检查指定快照下的实例；不能只把单个模板对象当成完整定义，不能把其他契约的通过结果表述为项目运行时检查通过。
-
-读取返回的 errors：severity=error 的项需修正文档，warning 分别说明。当前客户端不会因 check-document 响应中有 error 而自动非零退出，不能仅以退出码判断成功。没有完整契约或在线检查不可用时，完成可执行的本地结构与引用检查，明确未验证项，不修改模板来绕过失败。
+errors 非空时工具返回非零退出，处理错误并说明 warnings 与未执行项。报告绑定候选内容哈希和规则摘要；修改正文、目标路径或正式身份后重新检查。不调用服务端 check-document，服务端不重复执行正文模板检查。没有完整规则时明确未验证项，不改模板绕过失败。
 
 ## 5. 落盘与交付
 
@@ -76,4 +73,4 @@ node "$SKILL/scripts/client.mjs" check-document --json-file check-request.json
 
 在用户指定位置或目标 Project 既有文档目录保存实际文档，不写入 Skill 安装目录，不因编写一份文档新增模板文件、全局配置或目录规则。本项目按知识仓 AGENTS.md 将产品文档放在 doc 的对应阶段、代码契约放在 code 对应目录；其他项目采用其自身约定，不复制本项目根路径。
 
-交付文档链接，并简述 Project、实际类型、所用模板或通用标准格式、主要内容或修订点、检查结果与未决项。默认交付草案，不自行标记 Active 或已发布。只有用户明确要求摄取／发布时，再进入 SKILL.md 的来源登记、冻结、评分、独立审核和编译流程；本地编写、渲染及检查均不代表发布完成，也不隐含 Git 提交或项目绑定授权。
+交付文档链接，并简述 Project、实际类型、所用模板或通用标准格式、主要内容或修订点、检查结果与未决项。默认交付草案，不自行标记 Active 或已发布。只有用户明确要求摄取／发布时，再进入 SKILL.md 的文档 submit、显式 freeze 和审核申请流程；Wiki 构建发布由服务器独立处理；本地编写、渲染及检查均不代表发布完成，也不隐含 Git 提交或项目绑定授权。

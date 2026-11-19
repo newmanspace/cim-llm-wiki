@@ -57,7 +57,7 @@ test('output saves a complete response with private permissions while stdout sta
 test('failed responses preserve full diagnostics on disk and show indexed paths in stderr', async t => {
   const f = await fixture(t), output = join(f.root, 'error.json')
   f.setResponse({ error: 'Bundle schema validation failed', code: 'BUNDLE_SCHEMA_INVALID', diagnostics: [{ path: '/nodes/0/type', keyword: 'required', message: "must have required property 'type'" }] }, 422)
-  const input = join(f.root, 'submit.json'); writeFileSync(input, JSON.stringify({ uri: 'shared://team/example/nodes.json' }))
+  const input = join(f.root, 'submit.json'); writeFileSync(input, JSON.stringify({ project: 'example', target_path: 'doc/50-designs/example.md', local_report: { project: 'example', target_path: 'doc/50-designs/example.md', document_id: null, errors: [] } }))
   const result = await f.run(['submit', '--json-file', input, '--output', output])
   assert.equal(result.code, 1)
   assert.match(result.stderr, /HTTP 422/)
@@ -75,4 +75,36 @@ test('plain output remains complete and summary is restricted to context', async
   const result = await f.run(['context', '--project', 'example'])
   assert.equal(result.code, 0, result.stderr)
   assert.deepEqual(JSON.parse(result.stdout), f.response)
+})
+
+test('project and templates commands use separate project paths and require an explicit project', async t => {
+  const f = await fixture(t)
+  const project = await f.run(['project', '--project', 'example'])
+  assert.equal(project.code, 0, project.stderr)
+  assert.equal(f.calls[0], '/api/v2/knowledge/projects/example')
+  const templates = await f.run(['templates', '--project', 'example', '--template-id', 'sdd'])
+  assert.equal(templates.code, 0, templates.stderr)
+  assert.equal(f.calls[1], '/api/v2/knowledge/projects/example/templates?template_id=sdd')
+  const output = join(f.root, 'templates.json')
+  assert.equal((await f.run(['templates', '--project', 'example', '--output', output])).code, 0)
+  assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), f.response)
+  const count = f.calls.length
+  assert.equal((await f.run(['templates'])).code, 1)
+  assert.equal((await f.run(['project', '--project', '../other'])).code, 1)
+  assert.equal(f.calls.length, count, 'Missing or unsafe project never sends a request')
+})
+
+test('document commands submit, freeze and request review without exposing Wiki build commands', async t => {
+  const f = await fixture(t)
+  const input = join(f.root, 'document.json')
+  writeFileSync(input, JSON.stringify({ project: 'example', target_path: 'doc/50-designs/example.md', local_report: { project: 'example', target_path: 'doc/50-designs/example.md', document_id: null, errors: [] } }))
+  for (const [command, endpoint] of [['submit', 'document-submit'], ['freeze', 'document-freeze'], ['review', 'document-review-requests']]) {
+    const result = await f.run([command, '--json-file', input])
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal(f.calls.at(-1), '/api/v2/knowledge/' + endpoint)
+  }
+  const count = f.calls.length
+  for (const command of ['compile', 'validate', 'publish-document', 'check-document'])
+    assert.equal((await f.run([command, '--json-file', input])).code, 1)
+  assert.equal(f.calls.length, count)
 })

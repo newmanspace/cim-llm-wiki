@@ -97,6 +97,10 @@ func (h *DocumentQualityHandler) Command(c *gin.Context) {
 var qualityResources = map[string]string{"naming-settings": "naming_settings", "document-identities": "document_identities", "directory-events": "directory_events", "document-directories": "directories", "ingest-source-links": "ingest_sources", "ingest-artifact-links": "ingest_artifacts", "data-sources": "data_sources", "source-revisions": "source_revisions", "ingest-runs": "ingest_runs", "source-observations": "source_versions", "document-results": "artifact_versions", "quality-policies": "quality_policies", "document-evaluations": "evaluations", "quality-issues": "quality_issues", "document-review-tasks": "review_tasks", "document-review-events": "review_events", "publications": "publications"}
 
 func (h *DocumentQualityHandler) List(c *gin.Context) {
+	if (c.Param("resource") == "preview" || c.Param("resource") == "original" || c.Param("resource") == "resource") && !strings.HasPrefix(c.FullPath(), "/internal/") {
+		h.Preview(c)
+		return
+	}
 	if c.Param("resource") == "project" && strings.HasPrefix(c.FullPath(), "/internal/") {
 		h.projectContext(c)
 		return
@@ -163,7 +167,11 @@ func (h *DocumentQualityHandler) resultFilters(c *gin.Context, resource string) 
 	}
 	taskStatus := map[string]string{}
 	for _, r := range tasks {
-		taskStatus[documentquality.Text(r, "evaluation_id")] = documentquality.Text(r, "status")
+		key := documentquality.Text(r, "evaluation_id")
+		if documentquality.Text(r, "scope") == "document" {
+			key = "document:" + documentquality.Text(r, "artifact_id")
+		}
+		taskStatus[key] = documentquality.Text(r, "status")
 	}
 	sourceIDs := map[string]string{}
 	for _, r := range sources {
@@ -299,7 +307,15 @@ func (f artifactFilterIndex) matches(r documentquality.Record) bool {
 		return false
 	}
 	evaluation := f.latest[documentquality.Text(r, "id")]
-	if f.reviewStatus != "" && f.taskStatus[documentquality.Text(evaluation, "id")] != f.reviewStatus {
+	statusKey := documentquality.Text(evaluation, "id")
+	if documentquality.Text(r, "workflow_version") != "" {
+		statusKey = "document:" + documentquality.Text(r, "id")
+	}
+	reviewStatus := f.taskStatus[statusKey]
+	if reviewStatus == "" {
+		reviewStatus = documentquality.Text(r, "workflow_state")
+	}
+	if f.reviewStatus != "" && reviewStatus != f.reviewStatus {
 		return false
 	}
 	status := "qualified"

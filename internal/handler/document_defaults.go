@@ -50,8 +50,15 @@ func (h *DocumentDefaultsHandler) requestTo(c *gin.Context, path string, payload
 		return nil, 503, err
 	}
 	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, 8*1024*1024+1))
-	if len(data) > 8*1024*1024 {
+	limit := 8 * 1024 * 1024
+	if path == "/internal/document-result-original" {
+		limit = 36 * 1024 * 1024
+	}
+	if path == "/internal/document-result-preview" {
+		limit = 64 * 1024 * 1024
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, int64(limit)+1))
+	if len(data) > limit {
 		return nil, 503, io.ErrShortBuffer
 	}
 	return data, response.StatusCode, err
@@ -64,7 +71,7 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 		return
 	}
 	action := c.Param("action")
-	allowed := map[string]bool{"": true, "save": true, "publish": true, "check": true, "render": true, "preview": true, "bind": true, "bind-naming": true, "project": true}
+	allowed := map[string]bool{"": true, "save": true, "publish": true, "check": true, "render": true, "preview": true, "bind": true, "bind-naming": true, "bind-templates": true, "project": true}
 	if !allowed[action] {
 		c.JSON(404, gin.H{"error": "Unknown template operation"})
 		return
@@ -83,7 +90,7 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 		}
 	}
 	project := ""
-	if (action == "/bind" || action == "/bind-naming") && h.Store != nil {
+	if (action == "/bind" || action == "/bind-naming" || action == "/bind-templates") && h.Store != nil {
 		var ok bool
 		project, ok = h.bindingProject(c, payload)
 		if !ok {

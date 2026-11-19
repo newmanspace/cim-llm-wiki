@@ -1,3 +1,4 @@
+import { documentTargetErrors } from '../document-routing.mjs'
 import { createDefaultsStore,builtinDefaults } from '../document-defaults.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -71,8 +72,9 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  save(join(shared,'classified.md'),artifactDoc)
  assert.equal((await ok('ingest-source-links?project=demo')).items.length,1)
  const beforeRoutingFailure=(await ok('document-results?project=demo')).items.length
- const wrongRoute=await api('artifacts',{project:'demo',run_id:run.id,logical_key:'wrong-route',template_id:'urd',target_path:'doc/90-guides/example.md',content_uri:'shared://team/classified.md',parsed_uri:registration.parsed,recipe_version:'test-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
- assert.equal(wrongRoute.status,422);assert.match(wrongRoute.value.error,/document_directory_mismatch/)
+ assert.ok(documentTargetErrors(context.document_defaults.definition,'urd','doc/90-guides/example.md').some(e=>e.rule_id==='document_directory_mismatch'))
+ const wrongRoute=await api('artifacts',{project:'demo',run_id:run.id,logical_key:'wrong-route',template_id:'urd',target_path:'doc/../escape.md',content_uri:'shared://team/classified.md',parsed_uri:registration.parsed,recipe_version:'test-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})
+ assert.equal(wrongRoute.status,422);assert.match(wrongRoute.value.error,/Invalid classified Markdown path/)
  assert.equal((await ok('document-results?project=demo')).items.length,beforeRoutingFailure)
  assert.equal(existsSync(join(organizedRoot,'demo/doc/90-guides/example.md')),false)
  const artifact=await ok('artifacts',{project:'demo',run_id:run.id,logical_key:'design',template_id:'urd',target_path:'doc/40-requirements/design.md',content_uri:'shared://team/classified.md',parsed_uri:registration.parsed,recipe_version:'test-v1',source_links:[{source_version_id:original.id,location:{section:'1'}}]})

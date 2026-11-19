@@ -255,6 +255,9 @@
               >审核状态
               <select v-model="statusFilter">
                 <option value="">全部</option>
+                <option value="draft">草稿</option>
+                <option value="submitted">已提交，待冻结</option>
+                <option value="frozen">已冻结，待申请审核</option>
                 <option value="pending">待审核</option>
                 <option value="approved">已通过</option>
                 <option value="rejected">已驳回</option>
@@ -281,7 +284,7 @@
                 <option value="needs_review">需人工核对</option>
                 <option value="blocked">存在阻断问题</option>
                 <option value="qualified">分数合格</option>
-                <option value="not_assessed">未完成评估</option>
+                <option value="not_assessed">未评分</option>
               </select></label
             >
           </div>
@@ -301,13 +304,13 @@
                   <td>{{ item.target_path }}</td>
                   <td>{{ item.version }}</td>
                   <td>
-                    {{ latestEvaluation(item.id)?.total ?? '未完成评估' }}
+                    {{ latestEvaluation(item.id)?.total ?? '未评分' }}
                   </td>
                   <td>
                     <span
                       class="status-badge"
-                      :data-status="taskFor(item.id)?.status"
-                      >{{ reviewStatusLabel(taskFor(item.id)?.status, taskFor(item.id)?.approval_mode) }}</span
+                      :data-status="documentStatus(item)"
+                      >{{ documentStatusLabel(item) }}</span
                     >
                   </td>
                   <td>
@@ -328,7 +331,7 @@
               {{
                 hasFilters
                   ? '请调整检索条件，或清除筛选后重试。'
-                  : '文档采集、转换并登记归类结果后，将在这里展示。'
+                  : '文档提交成功后即可在此查看，无需等待冻结、审核或 Wiki 构建。'
               }}
             </p>
             <button v-if="hasFilters" @click="resetFilters">清除筛选</button>
@@ -352,6 +355,13 @@
                 {{ source.repository_path }} · 摘要 {{ source.original_sha256 }}
               </li>
             </ul>
+            <p>文档状态：{{ documentStatusLabel(selected) }}</p>
+            <template v-if="selected.local_report">
+              <h4>本地检查报告</h4>
+              <p>内容摘要：{{ selected.local_report.content_sha256 }}</p>
+              <p>保真核对：{{ selected.local_report.fidelity === 'checked' ? 'Agent 已核对' : '尚未完成' }}</p>
+              <ul><li v-for="(diagnostic, index) in [...(selected.local_report.errors || []), ...(selected.local_report.warnings || [])]" :key="index">{{ diagnostic.severity }} · {{ diagnostic.message }}</li></ul>
+            </template>
             <h4>质量评估</h4>
             <div v-for="evaluation in selectedEvaluations" :key="evaluation.id">
               <p>
@@ -397,7 +407,7 @@
             /></label>
             <button @click="preview">查看候选正文与原文转换稿</button>
             <template v-if="previewData"
-              ><DocumentPreview :key="projectId + selected.id" :markdown="previewData.markdown" :parsed="previewData.parsed" :project="projectId" />
+              ><DocumentPreview :key="projectId + selected.id" :markdown="previewData.markdown" :parsed="previewData.parsed" :project="projectId" :base="base" :artifact-id="selected.id" :candidate-package="previewData.candidate_package" :parsed-package="previewData.parsed_package" />
               <button @click="downloadOriginal">下载原件核对</button></template
             >
             <label>审核意见 <textarea v-model="reviewNote" /></label>
@@ -748,7 +758,15 @@ function latestEvaluation(id: string) {
 }
 function taskFor(id: string) {
   const evaluation = latestEvaluation(id)
-  return tasks.value.find((t) => t.evaluation_id === evaluation?.id)
+  return tasks.value.filter(t => t.artifact_id === id && (t.scope === 'document' || (evaluation && t.evaluation_id === evaluation.id))).at(-1)
+}
+function documentStatus(artifact: Row) {
+  return taskFor(artifact.id)?.status || artifact.workflow_state || ''
+}
+function documentStatusLabel(artifact: Row) {
+  const status = documentStatus(artifact)
+  const label: Record<string, string> = { draft: '草稿', submitted: '已提交，待冻结', frozen: '已冻结，待申请审核' }
+  return label[status] || reviewStatusLabel(status, taskFor(artifact.id)?.approval_mode)
 }
 function matchesQualityFilters(artifact: Row) {
   if (
@@ -790,7 +808,7 @@ const visibleArtifacts = computed(() =>
         )) &&
       (!folderFilter.value ||
         a.target_path.startsWith(folderFilter.value + '/')) &&
-      (!statusFilter.value || taskFor(a.id)?.status === statusFilter.value),
+      (!statusFilter.value || documentStatus(a) === statusFilter.value),
   ),
 )
 const { page: resultPage, pageSize: resultPageSize, paged: pagedArtifacts } = usePagination(visibleArtifacts, [searchText, folderFilter, statusFilter, sourceFilter, qualityFilter])
@@ -831,17 +849,15 @@ async function humanRequest(path: string, body?: Row) {
 async function preview() {
   await run(async () => {
     const project = props.projectId, id = selected.value!.id
-    const data = await humanRequest(
-      `document-result-preview?project=${encodeURIComponent(project)}&id=${id}`,
-    )
+    const response = await client.get(base.value + 'preview', { params: { id } })
+    const data = response.data.data
     if (props.projectId === project && selected.value?.id === id) previewData.value = data
   })
 }
 async function downloadOriginal() {
   await run(async () => {
-    const value = await humanRequest(
-      `document-result-original?project=${encodeURIComponent(props.projectId)}&id=${selected.value!.id}`,
-    )
+    const response = await client.get(base.value + 'original', { params: { id: selected.value!.id } })
+    const value = response.data.data
     const bytes = Uint8Array.from(atob(value.base64), (c) => c.charCodeAt(0))
     const url = URL.createObjectURL(new Blob([bytes]))
     const link = document.createElement('a')

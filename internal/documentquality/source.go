@@ -46,6 +46,9 @@ func validGitReference(ref string) bool {
 	return true
 }
 func sourceType(r Record) string {
+	if Text(r, "source_type") == "local_file" {
+		return "local_file"
+	}
 	if Text(r, "source_type") == "git" {
 		return "git"
 	}

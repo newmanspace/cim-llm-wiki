@@ -1,6 +1,8 @@
+import { documentResources } from '../wiki-core/document-package.mjs'
+import { validateOptionalScore } from '../wiki-core/quality-score.mjs'
 import { requestID } from './request-logs.mjs'
-import { createDefaultsStore, checkDocument } from '../wiki-core/document-defaults.mjs'
-import { documentDirectoryRule, documentTargetErrors, validateDocumentTargetPath } from '../wiki-core/document-routing.mjs'
+import { createDefaultsStore } from '../wiki-core/document-defaults.mjs'
+import { documentDirectoryRule, validateDocumentTargetPath } from '../wiki-core/document-routing.mjs'
 import { verifyGitEvidence } from './source-evidence.mjs'
 import {
   readFileSync,
@@ -35,25 +37,29 @@ const identifier = (value) => {
 }
 const parser = new MarkdownIt({ html: true })
 export const validateTarget = validateDocumentTargetPath
-function validateMarkdown(text) {
+function validateMarkdown(text, pack) {
   if (!text.trim() || Buffer.byteLength(text) > 4 * 1024 * 1024)
     fail('Markdown is empty or exceeds the size limit')
   const tokens = parser.parse(text, {})
-  if (!tokens.some((t) => t.type === 'heading_open' && t.tag === 'h1'))
-    fail('Classified Markdown requires a document title')
   for (const token of tokens) {
     if (
       token.type === 'html_block' ||
       token.children?.some((t) => t.type === 'html_inline')
     )
       fail('Executable or raw HTML is not allowed in classified documents')
-    validateInline(token.children || [])
+    validateInline(token.children || [], pack)
   }
 }
-function validateInline(children) {
+function validateInline(children, pack) {
   for (const child of children) {
     if (child.type === 'image') {
       const src = child.attrGet('src') || ''
+      if (pack && /^https?:/i.test(src)) continue
+      if (pack && !src.startsWith('data:')) {
+        const resource = documentResources('![image](' + src + ')', pack.entry).resources[0]
+        if (!resource || !pack.files.some(file => file.path === resource.path && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.media_type))) fail('Image must reference a supported raster file in the document package')
+        continue
+      }
       if (
         !src.startsWith('data:image/') ||
         !/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(src)
@@ -87,6 +93,7 @@ export function createDocumentQuality({
   projectRoot,
   roots,
   registeredDocument,
+  uploads,
   wikiRoot,
   namingCheck,
 }) {
@@ -195,8 +202,10 @@ export function createDocumentQuality({
     if (!value) fail('Project document record not found', 404)
     return value
   }
+  const resolveInput = (project, uri) => uploads ? uploads.resolve(project, uri) : resolveShared(uri, roots)
+  const inputPackage = (project, uri) => uri?.startsWith('document-package://') ? uploads.getPackage(project, uri) : null
   function snapshot(project, input) {
-    const source = resolveShared(input, roots)
+    const source = resolveInput(project, input)
     const content = readRegularFile(source)
     const sha256 = createHash('sha256').update(content).digest('hex'),
       extension = source.toLowerCase().endsWith('.md') ? '.md' : '.bin'
@@ -212,19 +221,32 @@ export function createDocumentQuality({
       if (error.code !== 'EEXIST') throw error
       if (!readRegularFile(path).equals(content)) fail('Immutable content snapshot has drifted', 409)
     }
-    return { sha256, path }
+    return { sha256, path, package: inputPackage(project, input) }
   }
-  async function verifyArtifact(project, artifact) {
-    checkArtifactDirectory(project, artifact)
-    if (
-      !existsSync(artifact.snapshot_path) ||
-      hashFile(artifact.snapshot_path) !== artifact.content_sha256
-    )
+  function verifySnapshot(artifact) {
+    if (!existsSync(artifact.snapshot_path) || hashFile(artifact.snapshot_path) !== artifact.content_sha256)
       fail('Artifact snapshot changed or is missing', 409)
-    if (
-      hashFile(resolveShared(artifact.content_uri, roots)) !==
-      artifact.content_sha256
-    )
+    if (artifact.parsed_snapshot_path && hashFile(artifact.parsed_snapshot_path) !== artifact.parsed_sha256)
+      fail('Parsed snapshot changed or is missing', 409)
+  }
+  function checkLocalReport(project, data, content, binding) {
+    if (!data.local_report) return
+    if (data.local_report.project !== project || data.local_report.content_sha256 !== content.sha256 ||
+        data.local_report.document_contract_digest !== binding.digest ||
+        data.local_report.target_path !== data.target_path ||
+        data.local_report.template_id !== (data.template_id ?? null) ||
+        data.local_report.document_id !== (data.document_id ?? null))
+      fail('Local report does not match the submitted document or rules', 409)
+  }
+  function verifyPackages(project, artifact) {
+    if (artifact.package_sha256 && inputPackage(project, artifact.content_uri)?.package_sha256 !== artifact.package_sha256) fail('Document attachments changed', 409)
+    if (artifact.parsed_package_sha256 && inputPackage(project, artifact.parsed_uri)?.package_sha256 !== artifact.parsed_package_sha256) fail('Parsed attachments changed', 409)
+  }
+  async function verifyArtifact(project, artifact, requireFrozen = true) {
+    validateTarget(artifact.target_path)
+    verifySnapshot(artifact)
+    verifyPackages(project, artifact)
+    if (hashFile(resolveInput(project, artifact.content_uri)) !== artifact.content_sha256)
       fail('Classified document changed; register a new version', 409)
     for (const link of artifact.source_links) {
       const source = await find(
@@ -234,86 +256,82 @@ export function createDocumentQuality({
       )
       if (
         source.source_type === 'git' &&
-        hashFile(resolveShared(source.git_info_uri, roots)) !==
+        hashFile(resolveInput(project, source.git_info_uri)) !==
           source.git_info_sha256
       )
         fail('Git evidence changed; register a new source observation', 409)
       if (
-        hashFile(resolveShared(source.original_uri, roots)) !==
+        hashFile(resolveInput(project, source.original_uri)) !==
           source.original_sha256 ||
         hashFile(source.snapshot_path) !== source.original_sha256
       )
         fail('Original document changed or is missing', 409)
     }
-    const registered = registeredDocument(artifact.parsed_uri)
-    if (
-      registered.project !== project ||
-      registered.state === 'draft' ||
-      hashFile(resolveShared(registered.path, roots)) !== registered.sha256
-    )
-      fail('Parsed document is not frozen at its registered version', 409)
+    verifyParsedSource(project, artifact, requireFrozen)
     if(!artifact.document_contract_digest)fail('Artifact contract binding is missing',409)
-    if (namingCheck) await namingCheck(project, artifact.document_id, { ...artifact, document: readFileSync(artifact.snapshot_path, 'utf8') })
-    checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'))
+    if (namingCheck && artifact.workflow_state !== 'draft') await namingCheck(project, artifact.document_id, artifact)
     return artifact
   }
-  function checkArtifactDirectory(project, artifact) {
-    const binding=createDefaultsStore(projectRoot).effective(project)
-    if(artifact.document_contract_digest && artifact.document_contract_digest!==binding.digest)fail('Artifact document contract changed; register a new artifact',409)
-    const template=binding.definition.templates.find(t=>t.id===artifact.template_id)
-    if(!template)fail('Artifact requires a bound template_id',422)
-    const routeErrors=documentTargetErrors(binding.definition,artifact.template_id,artifact.target_path)
-    if(routeErrors.length)fail('Artifact directory contract failed: '+JSON.stringify(routeErrors),422)
-    return { binding, template }
+  function verifyParsedSource(project, artifact, requireFrozen) {
+    const registered = registeredDocument(artifact.parsed_uri, project, artifact.parsed_source_id)
+    if (
+      registered.project !== project ||
+      (requireFrozen && (artifact.workflow_version ? artifact.workflow_state !== 'frozen' : registered.state === 'draft')) ||
+      hashFile(resolveInput(project, registered.path)) !== (artifact.parsed_sha256 || registered.sha256)
+    )
+      fail('Parsed document is not frozen at its registered version', 409)
   }
-  function checkArtifactContract(project,artifact,text,phase='review',reviewer,approvalMode='manual') {
-    const {binding,template}=checkArtifactDirectory(project,artifact)
-    const diagnostics=checkDocument(template,text,{phase,reviewer,approvalMode,terms:binding.definition.terms,documentPath:artifact.target_path})
-    if(diagnostics.some(d=>d.severity==='error'))fail('Artifact document contract failed: '+JSON.stringify(diagnostics),422)
-    artifact.document_contract_digest=binding.digest
-  }
-
   async function prepareNamingIdentity(project, data) {
-    const naming = namingCheck ? await namingCheck(project, data.document_id, { ...data, document: readFileSync(resolveShared(data.content_uri, roots), 'utf8') }) : null
+    const naming = namingCheck ? await namingCheck(project, data.document_id, data) : null
     if (naming?.identity) {
       if (data.logical_key && data.logical_key !== data.document_id) fail('logical_key must be the document identity', 422)
       data.logical_key = data.document_id
       data.naming_digest = naming.digest
     }
   }
-  async function prepareArtifact(project, data) {
-    await prepareNamingIdentity(project, data)
-    checkArtifactDirectory(project, data)
-    const doc = registeredDocument(data.parsed_uri)
+  async function prepareArtifact(project, data, draft = false) {
+    if (!draft || data.document_id) await prepareNamingIdentity(project, data)
+    validateTarget(data.target_path)
+    validateOptionalScore(data.qscore)
+    const binding = createDefaultsStore(projectRoot).effective(project)
+    if (data.document_contract_digest && data.document_contract_digest !== binding.digest)
+      fail('Project rules changed; refresh local rules and checks', 409)
+    data.document_contract_digest = binding.digest
+    const doc = registeredDocument(data.parsed_uri, project, data.parsed_source_id)
     if (doc.project !== project)
       fail('Parsed source belongs to another project', 403)
-    if (doc.state === 'draft')
-      fail('Freeze and verify the parsed document before classifying it', 409)
     const content = snapshot(project, data.content_uri)
     if (data.content_sha256 && data.content_sha256 !== content.sha256)
       fail('Artifact hash mismatch', 409)
-    validateMarkdown(readFileSync(content.path, 'utf8'))
-    checkArtifactContract(project,data,readFileSync(content.path,'utf8'))
+    validateMarkdown(readFileSync(content.path, 'utf8'), content.package)
+    const parsed = snapshot(project, data.parsed_uri)
+    data.parsed_sha256 = parsed.sha256
+    data.parsed_snapshot_path = parsed.path
+    if (content.package) {
+      data.package_sha256 = content.package.package_sha256
+      data.parsed_package_sha256 = parsed.package?.package_sha256 ?? null
+      if (!data.local_report || data.local_report.package_sha256 !== data.package_sha256) fail('Local report does not match document attachments', 409)
+    }
+    checkLocalReport(project, data, content, binding)
+    await checkOriginalLinks(project, data, doc)
+    data.content_sha256 = content.sha256
+    data.snapshot_path = content.path
+  }
+  async function checkOriginalLinks(project, data, doc) {
     const links = data.source_links
     if (!Array.isArray(links) || !links.length)
       fail('Source links are required')
-    let hasRegisteredOriginal = false
-    for (const link of links) {
-      const original = await find(
-        project,
-        'source-observations',
-        link.source_version_id,
-      )
-      if (
-        original.original_uri === doc.original_uri &&
-        original.original_sha256 === doc.original_sha256
-      )
-        hasRegisteredOriginal = true
+    if (hashFile(resolveInput(project, doc.original_uri)) !== doc.original_sha256)
+      fail('Original document changed after parsing', 409)
+    const pack = inputPackage(project, doc.original_uri)
+    const required = pack ? pack.files : [{ uri: doc.original_uri, sha256: doc.original_sha256 }]
+    const observed = []
+    for (const link of links) observed.push(await find(project, 'source-observations', link.source_version_id))
+    for (const resource of required) {
+      if (!observed.some(source => source.original_uri === resource.uri && source.original_sha256 === resource.sha256) &&
+          !observed.some(source => source.original_uri === doc.original_uri && source.original_sha256 === doc.original_sha256))
+        fail('Artifact sources must include the registered original and its attachments', 409)
     }
-    if (!hasRegisteredOriginal)
-      fail('Artifact sources must include the registered original', 409)
-    data.content_sha256 = content.sha256
-    data.snapshot_path = content.path
   }
   async function prepareObservation(project, data) {
     const original = snapshot(project, data.original_uri)
@@ -321,7 +339,7 @@ export function createDocumentQuality({
       fail('Source hash differs from observed file', 409)
     const run = await find(project, 'ingest-runs', data.run_id)
     if (run.source_type === 'git') {
-      const infoPath = resolveShared(data.git_info_uri, roots)
+      const infoPath = resolveInput(project, data.git_info_uri)
       verifyGitEvidence(
         readFileSync(infoPath, 'utf8'),
         data,
@@ -329,8 +347,8 @@ export function createDocumentQuality({
         readFileSync(original.path),
       )
       data.git_info_sha256 = hashFile(infoPath)
-    } else {
-      const info = readFileSync(resolveShared(data.svn_info_uri, roots), 'utf8')
+    } else if (run.source_type === 'svn') {
+      const info = readFileSync(resolveInput(project, data.svn_info_uri), 'utf8')
       if (
         !info.includes(`<uuid>${run.repository_uuid}</uuid>`) ||
         !info.includes(`revision="${run.operative_revision}"`)
@@ -346,7 +364,15 @@ export function createDocumentQuality({
     delete data.project
     if (operation === 'source-observations')
       await prepareObservation(project, data)
-    if (operation === 'artifacts') await prepareArtifact(project, data)
+    if (['artifacts', 'document-drafts', 'document-submit'].includes(operation)) {
+      if (data.artifact_id) fail('Submit the complete candidate and local report as a new version', 422)
+      await prepareArtifact(project, data, operation === 'document-drafts')
+    }
+    if (['document-freeze', 'document-review-requests'].includes(operation)) {
+      const artifact = await verifyArtifact(project, await find(project, 'document-results', data.artifact_id), operation !== 'document-freeze')
+      data.content_sha256 = artifact.content_sha256
+      data.package_sha256 = artifact.package_sha256
+    }
     if (
       operation === 'document-evaluations' ||
       operation === 'document-review-decisions'
@@ -516,7 +542,7 @@ export function createDocumentQuality({
     const decision=events.find(e=>e.task_id===task?.id&&e.decision==='approve')
     const reviewer=decision?.actor_id
     if(task?.approval_mode==='auto' && (reviewer!=='system:quality-policy' || decision.approval_mode!=='auto' || decision.policy_digest!==task.policy_digest))fail('Automatic approval evidence is missing or stale',409)
-    checkArtifactContract(project,artifact,readFileSync(artifact.snapshot_path,'utf8'),'publish',reviewer,task?.approval_mode)
+    void reviewer
     const dest = outputPath(project, artifact, input)
     if (existsSync(dest) && hashFile(dest) === artifact.content_sha256) {
       const completed = (await all(project, 'publications')).filter(
@@ -559,27 +585,39 @@ export function createDocumentQuality({
     }
   }
   async function preview(project, id, original = false) {
-    const artifact = await verifyArtifact(
-      project,
-      await find(project, 'document-results', id),
-    )
+    const artifact = await find(project, 'document-results', id)
+    verifySnapshot(artifact)
+    if (!artifact.workflow_version) await verifyArtifact(project, artifact, false)
     if (!original)
       return {
         markdown: readFileSync(artifact.snapshot_path, 'utf8'),
-        parsed: readFileSync(resolveShared(artifact.parsed_uri, roots), 'utf8'),
+        parsed: readFileSync(artifact.parsed_snapshot_path || resolveInput(project, artifact.parsed_uri), 'utf8'),
+        candidate_package: inputPackage(project, artifact.content_uri),
+        parsed_package: inputPackage(project, artifact.parsed_uri),
       }
-    const source = await find(
-      project,
-      'source-observations',
-      artifact.source_links[0].source_version_id,
-    )
+    const registered = registeredDocument(artifact.parsed_uri, project, artifact.parsed_source_id)
+    const originalPack = inputPackage(project, registered.original_uri)
+    const entryURI = originalPack?.files.find(file => file.path === originalPack.entry)?.uri || registered.original_uri
+    const observations = await Promise.all(artifact.source_links.map(link => find(project, 'source-observations', link.source_version_id)))
+    const source = observations.find(item => item.original_uri === registered.original_uri || item.original_uri === entryURI)
+    if (!source) fail('Registered original source not found', 409)
     const bytes = readFileSync(source.snapshot_path)
+    if (createHash('sha256').update(bytes).digest('hex') !== source.original_sha256)
+      fail('Original snapshot changed', 409)
     if (bytes.length > 25 * 1024 * 1024)
       fail('Original is too large for inline download; use its shared URI', 413)
     return {
       name: basename(source.repository_path),
       base64: bytes.toString('base64'),
     }
+  }
+  async function resource(project, id, scope, path) {
+    const artifact = await find(project, 'document-results', id)
+    if (!['candidate', 'parsed'].includes(scope)) fail('Invalid resource scope')
+    const pack = inputPackage(project, scope === 'candidate' ? artifact.content_uri : artifact.parsed_uri)
+    const item = pack?.files.find(file => file.path === path)
+    if (!item) fail('Document attachment not found', 404)
+    return uploads.file(project, item.uri)
   }
   return {
     enabled,
@@ -596,5 +634,6 @@ export function createDocumentQuality({
     finish,
     publish,
     preview,
+    resource,
   }
 }

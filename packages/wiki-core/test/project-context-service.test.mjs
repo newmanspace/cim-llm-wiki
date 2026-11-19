@@ -64,7 +64,7 @@ test('Project binding supplies delivery and directories without separate configu
   assert.deepEqual(result.value.directory.directories, result.value.document_defaults.definition.directories)
   assert.equal(result.value.capabilities.collect, true)
   assert.ok(result.value.diagnostics.filter(d => ['delivery_contract', 'directory'].includes(d.component)).every(d => !d.affected_operations.includes('collect')))
-  assert.equal(result.value.capabilities.check_document, true)
+  assert.equal(result.value.capabilities.check_document, false)
   assert.deepEqual(result.value.repos, [])
   for (const resource of ['data-sources', 'source-revisions']) assert.equal((await f.api(resource + '?project=demo')).status, 200)
   const artifact = await f.api('artifacts', { project: 'demo' })

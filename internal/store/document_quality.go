@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-var qualityTables = map[string]bool{"naming_settings": true, "document_counters": true, "document_identities": true, "directory_events": true, "directories": true, "ingest_sources": true, "ingest_artifacts": true, "data_sources": true, "source_revisions": true, "ingest_runs": true, "source_versions": true, "artifact_versions": true, "quality_policies": true, "evaluations": true, "quality_issues": true, "review_tasks": true, "review_events": true, "publications": true, "command_receipts": true}
+var qualityTables = map[string]bool{"naming_settings": true, "document_counters": true, "document_identities": true, "directory_events": true, "directories": true, "ingest_sources": true, "ingest_artifacts": true, "data_sources": true, "source_revisions": true, "ingest_runs": true, "source_versions": true, "artifact_versions": true, "document_states": true, "quality_policies": true, "evaluations": true, "quality_issues": true, "review_tasks": true, "review_events": true, "publications": true, "command_receipts": true}
 
 type qualityTx struct {
 	ctx            context.Context

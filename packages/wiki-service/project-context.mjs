@@ -26,7 +26,7 @@ function configurationCapabilities(status, sources, ledgerEnabled) {
   const strictReady = status.document_defaults === 'ready' && status.delivery_contract === 'ready' && status.directory === 'ready'
   const ledgerReady = !ledgerEnabled || status.data_sources === 'ready'
   return {
-    check_document: status.document_defaults === 'ready',
+    check_document: false,
     collect: status.project === 'ready' && status.data_sources === 'ready' && sources.some(source => source.enabled),
     submit: strictReady && ledgerReady, compile: strictReady && ledgerReady,
     publish_document: strictReady && status.document_directories === 'ready' && status.data_sources === 'ready',

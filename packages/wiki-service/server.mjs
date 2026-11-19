@@ -1,15 +1,14 @@
+import { createDocumentUploads } from './document-uploads.mjs'
 import { createRequestLogs, requestFields, requestStep, requestFailure, requestID } from './request-logs.mjs'
 import { createDocumentNaming } from './document-naming.mjs'
 import { createProjectWiki } from './project-wiki.mjs'
 import { createBuildRuntime } from './build-runtime.mjs'
 import { publicJob } from './build-coordinator.mjs'
 import { createDocumentDefaults } from './document-defaults.mjs'
-import {
-  checkDocument,
-  templateFor,
-} from '../wiki-core/document-defaults.mjs'
+import { templateFor } from '../wiki-core/document-defaults.mjs'
 import { createDocumentQuality } from './document-quality.mjs'
 import { createProjectContext } from './project-context.mjs'
+import { createProjectQueries } from './project-queries.mjs'
 import { projectDeliveryContract, projectDirectory } from '../wiki-core/project-document-config.mjs'
 import { createServer } from 'node:http'
 import {
@@ -58,6 +57,7 @@ const fail = (message, status = 400) => {
   throw Object.assign(new Error(message), { status })
 }
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'))
+const responseStatus = error => error.status || (error instanceof SyntaxError ? 400 : 422)
 const now = () => new Date().toISOString()
 function writeJson(path, data) {
   mkdirSync(dirname(path), { recursive: true })
@@ -157,9 +157,13 @@ export function createKnowledgeServer({
   const { wikiPath, projectOptions } = projectStorage(options, projectWikis)
   const publishedPath = path => { const [project, ...parts] = path.split('/'); return wikiPath(project, ...parts) }
   const docs = () => loadManifest(projectRoot)
-  const getDoc = (source) =>
-    docs().docs.find((d) => d.path === source) ||
-    fail('Registered document not found', 404)
+  const getDoc = (source, project, sourceID) => {
+    if (source?.startsWith('document-package://') && !project) fail('Project is required for a parsed package')
+    const matches = docs().docs.filter(record => record.path === source && (!project || record.project === project) && (!sourceID || record.doc_id === sourceID))
+    if (!matches.length) fail('Registered document not found', 404)
+    if (matches.length !== 1) fail('Parsed package has multiple sources; provide parsed_source_id', 409)
+    return matches[0]
+  }
   const bundlePath = (id) =>
     join(
       projectRoot,
@@ -170,10 +174,12 @@ export function createKnowledgeServer({
     existsSync(bundlePath(id))
       ? json(bundlePath(id))
       : fail('Bundle not found', 404)
+  const uploads = createDocumentUploads({ projectRoot, roots })
   let naming
   const quality = createDocumentQuality({
     ledgerURL,
     ledgerToken,
+    uploads,
     namingCheck: (...args) => naming.requireIdentity(...args),
     organizedRoot,
     projectRoot,
@@ -260,6 +266,7 @@ export function createKnowledgeServer({
   }
 
   async function register(data, convert) {
+    if (/^(uploaded|document-package):/.test(data.source || '')) return registerUpload(data, convert)
     requestStep(convert ? 'source.convert' : 'source.register')
     const { original, parsedUri, parsed, beforeHash } = prepareRegistration(
       data,
@@ -298,6 +305,41 @@ export function createKnowledgeServer({
     return { document: record, markdown: readFileSync(parsed, 'utf8') }
   }
 
+  async function registerUpload(data, convert) {
+    await discovery.projectInfo(identifier(data.project))
+    if (['system', 'version', 'category'].some(key => typeof data[key] !== 'string' || !data[key].trim())) fail('system, version and category are required')
+    const original = uploads.resolve(data.project, data.source)
+    const originalHash = hashFile(original)
+    let pack
+    if (!convert || data.source.startsWith('document-package://')) {
+      pack = uploads.getPackage(data.project, data.parsed || data.source)
+    } else {
+      const result = await parser(original, data.engine)
+      if (!result.md?.trim()) fail('Parser returned empty Markdown', 422)
+      const assets = []
+      const embedded = embedImages(result.md, result.images || [], '', 'document', (path, bytes) => {
+        const saved = uploads.put(data.project, basename(path), bytes)
+        assets.push({ path, uri: saved.uri, sha256: saved.sha256 })
+      })
+      if (embedded.written !== (result.images || []).length) fail('Parser images do not match Markdown placeholders; conversion requires reconciliation', 422)
+      const entry = uploads.put(data.project, 'document.md', Buffer.from(embedded.md))
+      pack = uploads.seal(data.project, { entry: 'document.md', files: [{ path: 'document.md', uri: entry.uri, sha256: entry.sha256 }, ...assets] })
+    }
+    if (hashFile(original) !== originalHash) fail('Original changed during conversion', 409)
+    const parsedHash = hashFile(uploads.resolve(data.project, pack.uri))
+    const key = hashValue({ project: data.project, source: data.source, parsed: pack.uri, version: data.version })
+    const manifest = docs()
+    let record = manifest.docs.find(item => item.doc_id === 'uploaded-' + key.slice(0, 20))
+    if (!record) {
+      record = { doc_id: 'uploaded-' + key.slice(0, 20), project: data.project, system: data.system, version: data.version, category: data.category,
+        path: pack.uri, original_uri: data.source, original_path: original, original_sha256: originalHash, parsed_sha256: parsedHash,
+        package_sha256: pack.package_sha256, state: 'draft', sha256: null, bundles: [], created_at: now(), updated_at: now(),
+        history: [{ from: null, to: 'draft', at: now(), by: 'knowledge-service' }] }
+      manifest.docs.push(record); saveManifest(projectRoot, manifest)
+    }
+    return { document: record, markdown: readFileSync(uploads.resolve(data.project, pack.uri), 'utf8'), parsed_uri: pack.uri, parsed_sha256: parsedHash, ...pack }
+  }
+
   function validateNodeSources(node, value, manifest) {
     node.source ??= value.source_doc
     const sources = Array.isArray(node.source) ? node.source : [node.source]
@@ -307,13 +349,13 @@ export function createKnowledgeServer({
     )
       fail('Every node must cite registered shared sources')
     for (const source of sources) {
-      const rec = getDoc(source)
+      const rec = getDoc(source, value.project)
       if (rec.project !== value.project) fail('Cross-project source reference')
       if (!['frozen', 'active'].includes(rec.state))
         fail('Source must be frozen before extraction/submission', 409)
       if (
-        hashFile(resolveShared(source, roots)) !== rec.sha256 ||
-        hashFile(resolveShared(rec.original_uri, roots)) !== rec.original_sha256
+        hashFile(uploads.resolve(rec.project, source)) !== rec.sha256 ||
+        hashFile(uploads.resolve(rec.project, rec.original_uri)) !== rec.original_sha256
       )
         fail('Source or original document has changed', 409)
     }
@@ -420,16 +462,8 @@ export function createKnowledgeServer({
     for (const node of value.nodes) {
       requestFields({ document_id: node.document_id })
       requestStep('bundle.identity')
-      const checked = await naming.requireIdentity(value.project, node.document_id, { ...node, template_id: templateFor(effective.definition, node).id, node_id: node.id, document: '# ' + node.title + '\n\n' + node.content })
+      const checked = await naming.requireIdentity(value.project, node.document_id, { ...node, template_id: templateFor(effective.definition, node).id, node_id: node.id })
       if (checked.identity) node.naming_digest = checked.digest
-      requestStep('bundle.document_contract')
-      const diagnostics = checkDocument(
-        templateFor(effective.definition, node),
-        '# ' + node.title + '\n\n' + node.content,
-        { terms: effective.definition.terms, phase: 'review' },
-      )
-      if (diagnostics.some((e) => e.severity === 'error'))
-        fail('Document contract failed: ' + JSON.stringify(diagnostics))
       requestStep('bundle.source_score_risk')
       prepareSubmittedNode(node, value, manifest)
     }
@@ -491,7 +525,7 @@ export function createKnowledgeServer({
 
   function changeSourceState(data) {
     requestStep('source.state')
-    const rec = getDoc(data.source)
+    const rec = getDoc(data.source, data.project, data.parsed_source_id)
     requestFields({ project: rec.project, source_doc_id: rec.doc_id })
     if (!['freeze', 'unfreeze'].includes(data.action))
       fail(
@@ -501,7 +535,7 @@ export function createKnowledgeServer({
       fail('Published sources are immutable; register a new version', 409)
     if (
       data.action === 'freeze' &&
-      hashFile(resolveShared(rec.original_uri, roots)) !== rec.original_sha256
+      hashFile(uploads.resolve(rec.project, rec.original_uri)) !== rec.original_sha256
     )
       fail('Original document has changed', 409)
     // transition resolves shared URIs with the same explicit root configuration.
@@ -578,17 +612,6 @@ export function createKnowledgeServer({
           /^(\|\s*审核者\s*\|)[^\n|]*(\|)\s*$/m,
           (_, start, end) => start + ' ' + reviewer + ' ' + end,
         )
-      requestStep('bundle.document_contract')
-      const diagnostics = checkDocument(
-        templateFor(effective.definition, node),
-        '# ' + node.title + '\n\n' + node.content,
-        { terms: effective.definition.terms, phase: 'publish', reviewer },
-      )
-      if (diagnostics.some((e) => e.severity === 'error'))
-        fail(
-          'Document publication contract failed: ' +
-            JSON.stringify(diagnostics),
-        )
     }
     return bundle
   }
@@ -619,7 +642,7 @@ export function createKnowledgeServer({
     }
     verifyPublishedBaseline(record)
     const bundle = checkedPublicationBundle(record)
-    for (const node of bundle.nodes) await naming.requireIdentity(bundle.project, node.document_id, { ...node, template_id: templateFor(defaults.store.effective(bundle.project).definition, node).id, node_id: node.id, document: '# ' + node.title + '\n\n' + node.content })
+    for (const node of bundle.nodes) await naming.requireIdentity(bundle.project, node.document_id, { ...node, template_id: templateFor(defaults.store.effective(bundle.project).definition, node).id, node_id: node.id })
     if (record.review?.decision === 'approve')
       for (const node of bundle.nodes) node.reviewer = record.review.reviewer
     const result = await compileQualityBundle(
@@ -746,11 +769,11 @@ export function createKnowledgeServer({
       projectDirectory(requireProjectConfiguration(identifier(url.searchParams.get('project')))),
     '/context': url => discovery.discover(identifier(url.searchParams.get('project'))),
     '/document': (url) => {
-      const rec = getDoc(url.searchParams.get('source'))
+      const rec = getDoc(url.searchParams.get('source'), url.searchParams.get('project'), url.searchParams.get('id'))
       requestFields({ project: rec.project, source_doc_id: rec.doc_id })
       return {
         document: rec,
-        markdown: readFileSync(resolveShared(rec.path, roots), 'utf8'),
+        markdown: readFileSync(uploads.resolve(rec.project, rec.path), 'utf8'),
       }
     },
     '/bundle': (url) => {
@@ -769,12 +792,6 @@ export function createKnowledgeServer({
       if (projectWikis?.kind(data.project) === 'repository_docs') fail('Documentation repositories do not accept node initialization', 409)
       if (projectWikis) projectWikis.initialize(data.project)
       return defaults.initialize(data)
-    },
-    '/check-document': async data => {
-      const result = defaults.check(data)
-      const checked = await naming.check(identifier(data.project), data.document_id, data)
-      result.errors.push(...checked.errors)
-      return result
     },
     '/render-document': (data) => defaults.render(data),
     '/convert': (data) => register(data, true),
@@ -809,6 +826,7 @@ export function createKnowledgeServer({
       'ingest-runs',
       'source-observations',
       'artifacts',
+      'document-drafts', 'document-submit', 'document-freeze', 'document-review-requests',
       'document-evaluations',
       'document-review-decisions',
     ]
@@ -838,9 +856,7 @@ export function createKnowledgeServer({
       }
     }
     if (req.method === 'POST' && writes.includes(path.slice(1))) {
-      if (['/ingest-runs', '/source-observations'].includes(path))
-        await discovery.projectInfo(identifier(data.project))
-      else requireProjectConfiguration(data.project)
+      await discovery.projectInfo(identifier(data.project))
       if (path === '/document-review-decisions' && !reviewerIdentity)
         fail('Independent human reviewer authentication required', 403)
       return {
@@ -860,8 +876,33 @@ export function createKnowledgeServer({
     }
   }
 
+  const projectQueries = createProjectQueries({ discovery, defaults, quality, projectWikis })
+  function projectQuery(url) {
+    const match = url.pathname.slice(PREFIX.length).match(/^\/projects\/([^/]+)(\/templates)?$/)
+    if (!match) return undefined
+    let project
+    try { project = identifier(decodeURIComponent(match[1])) } catch { fail('Invalid identifier') }
+    requestFields({ project })
+    if (!match[2]) return projectQueries.project(project)
+    const templateID = url.searchParams.has('template_id') ? identifier(url.searchParams.get('template_id')) : undefined
+    return projectQueries.templates(project, templateID)
+  }
+
   async function route(req, url, data, reviewerIdentity) {
+    if (req.method === 'POST' && url.pathname === PREFIX + '/document-packages') {
+      await discovery.projectInfo(identifier(data.project))
+      return uploads.seal(data.project, data)
+    }
+    if (req.method === 'GET' && url.pathname === PREFIX + '/document-packages') {
+      const project = identifier(url.searchParams.get('project'))
+      await discovery.projectInfo(project)
+      return uploads.getPackage(project, url.searchParams.get('uri'))
+    }
     const path = url.pathname.slice(PREFIX.length)
+    if (req.method === 'GET') {
+      const result = projectQuery(url)
+      if (result !== undefined) return result
+    }
     if (path === '/document-identities/reserve' && req.method === 'POST') {
       await discovery.projectInfo(identifier(data.project))
       return { data: await naming.reserve(data, req.headers['idempotency-key']) }
@@ -913,6 +954,7 @@ export function createKnowledgeServer({
         const info = await discovery.projectInfo(project)
         return defaults.store.bind(project, info.modules, current?.overrides || {}, data.version, true, true, actor)
       },
+      'POST /bind-templates': () => projectQueries.bindTemplates({ ...data, project: identifier(data.project) }, actor),
       'POST /bind': () => {
         if (projectWikis?.kind(data.project) === 'repository_docs') fail('Documentation repositories do not accept node initialization', 409)
         if (projectWikis && data.wiki_source_directory) projectWikis.configure(data.project, { sourceDirectory: data.wiki_source_directory })
@@ -986,6 +1028,10 @@ export function createKnowledgeServer({
   }
 
   async function internalRoute(req, url) {
+    if (url.pathname === '/internal/document-result-preview' || url.pathname === '/internal/document-result-original') {
+      if (req.method !== 'GET') fail('Operation not found', 404)
+      return { data: await quality.preview(identifier(url.searchParams.get('project')), url.searchParams.get('id'), url.pathname.endsWith('-original')) }
+    }
     if (url.pathname === '/internal/source-documents') return internalSourceDocuments(req, url)
     if (url.pathname.startsWith('/internal/project-wiki')) return internalProjectWiki(req, url)
     if (url.pathname.startsWith('/internal/wiki-builds')) return internalBuilds(req, url)
@@ -1033,6 +1079,33 @@ export function createKnowledgeServer({
     return reviewerIdentity
   }
 
+  async function resourceResponse(req, res, url, internal) {
+    if (internal) {
+        if (url.pathname === '/internal/document-result-resource' && req.method === 'GET') {
+          const file = await quality.resource(identifier(url.searchParams.get('project')), url.searchParams.get('id'), url.searchParams.get('scope'), url.searchParams.get('path'))
+          res.writeHead(200, { 'Content-Type': file.media_type, 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(file.filename), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' })
+          res.end(readFileSync(file.path)); return true
+        }
+      return false
+    }
+      if (url.pathname === PREFIX + '/upload' && req.method === 'POST') {
+        const project = identifier(url.searchParams.get('project'))
+        await discovery.projectInfo(project)
+        const result = await uploads.upload(project, url.searchParams.get('filename'), req)
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(result))
+        return true
+      }
+      if (url.pathname === PREFIX + '/uploads/content' && req.method === 'GET') {
+        const project = identifier(url.searchParams.get('project'))
+        await discovery.projectInfo(project)
+        const file = uploads.file(project, url.searchParams.get('uri'))
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(file.filename), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' })
+        res.end(readFileSync(file.path))
+        return true
+      }
+    return false
+  }
+
   const logRequest = createRequestLogs(logWriter)
   return createServer((req, res) => logRequest(req, res, async () => {
     const send = (status, value) => {
@@ -1050,6 +1123,7 @@ export function createKnowledgeServer({
       }
       if (url.pathname.startsWith('/internal/')) {
         authenticateInternal(req)
+        if (await resourceResponse(req, res, url, true)) return
         requestFields(Object.fromEntries(url.searchParams))
         send(200, await internalRoute(req, url))
         return
@@ -1057,6 +1131,7 @@ export function createKnowledgeServer({
       const reviewerIdentity = authenticateAgent(req, url)
       if (!url.pathname.startsWith(PREFIX + '/'))
         fail('Endpoint not found', 404)
+      if (await resourceResponse(req, res, url, false)) return
       const data = req.method === 'POST' ? await body(req) : null
       requestFields(data || Object.fromEntries(url.searchParams))
       requestStep('request.execute')
@@ -1064,7 +1139,7 @@ export function createKnowledgeServer({
         send(200, await mutate(() => route(req, url, data, reviewerIdentity)))
       } else send(200, await route(req, url))
     } catch (e) {
-      const status = e.status || (e instanceof SyntaxError ? 400 : 422)
+      const status = responseStatus(e)
       requestFailure(e, status)
       send(status, {
         error: e.message,

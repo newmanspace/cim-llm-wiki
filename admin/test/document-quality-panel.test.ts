@@ -55,14 +55,31 @@ test('configuration failures remain visible instead of being cleared by a refres
  await click('保存数据源');expect(wrapper.text()).toContain('Policy revision changed')
 })
 
-test('preview and original download use the independent reviewer credential without executing Markdown',async()=>{
- await flushPromises();await click('查看');await wrapper.find('input[type=password]').setValue('human-only-secret')
- const fetcher=vi.fn().mockResolvedValueOnce({ok:true,json:async()=>({data:{markdown:'# Candidate',parsed:'# Original'}})}).mockResolvedValueOnce({ok:true,json:async()=>({data:{name:'source.docx',base64:btoa('original bytes')}})})
- vi.stubGlobal('fetch',fetcher);vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:vi.fn(()=> 'blob:test'),revokeObjectURL:vi.fn()}));vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{})
+test('submitted documents preview through the management session without a review credential',async()=>{
+ await flushPromises();await click('查看')
+ api.get.mockResolvedValueOnce({data:{data:{markdown:'# Candidate',parsed:'# Original'}}})
+ vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:vi.fn(()=> 'blob:test'),revokeObjectURL:vi.fn()}));vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{})
  await click('查看候选正文与原文转换稿');expect(wrapper.findAll('.markdown-preview h1').map(h=>h.text())).toEqual(['Candidate','Original'])
+ expect(api.get).toHaveBeenLastCalledWith('/admin/projects/demo/document-quality/preview',{params:{id:'3'}})
  await click('原始 Markdown');expect(wrapper.text()).toContain('# Candidate');expect(wrapper.text()).toContain('# Original')
- await click('下载原件核对');expect(fetcher).toHaveBeenLastCalledWith(expect.stringContaining('document-result-original'),expect.anything())
+ api.get.mockResolvedValueOnce({data:{data:{name:'source.docx',base64:btoa('original bytes')}}})
+ await click('下载原件核对');expect(api.get).toHaveBeenLastCalledWith('/admin/projects/demo/document-quality/original',{params:{id:'3'}})
  await wrapper.setProps({projectId:'other'});await flushPromises();expect(wrapper.find('input[type=password]').exists()).toBe(false)
+})
+
+test('unscored submitted and draft documents are listed before freeze or review',async()=>{
+ const saved={artifacts:dataset['document-results'],evaluations:dataset['document-evaluations'],tasks:dataset['document-review-tasks']}
+ dataset['document-results']=[{...saved.artifacts[0],workflow_state:'submitted',local_report:{fidelity:'not_checked',errors:[],warnings:[],content_sha256:'hash'}},{...saved.artifacts[0],id:'draft',workflow_state:'draft',target_path:'doc/50-designs/draft.md'}]
+ dataset['document-evaluations']=[];dataset['document-review-tasks']=[]
+ wrapper.unmount();wrapper=mount(DocumentQualityPanel,{props:{projectId:'demo',mode:'results'},global:{components}})
+ try{
+  await flushPromises()
+  expect(wrapper.text()).toContain('已提交，待冻结');expect(wrapper.text()).toContain('草稿');expect(wrapper.text()).toContain('未评分')
+  const filters=wrapper.findAll('select');await filters[0].setValue('submitted')
+  expect(wrapper.text()).toContain('design.md');expect(wrapper.text()).not.toContain('draft.md')
+  await click('查看');expect(wrapper.text()).toContain('尚未完成')
+  expect(wrapper.findAll('button').find(b=>b.text()==='通过')!.attributes('disabled')).toBeDefined()
+ }finally{dataset['document-results']=saved.artifacts;dataset['document-evaluations']=saved.evaluations;dataset['document-review-tasks']=saved.tasks}
 })
 
 test('full directory policy writes all seven dimensions and changing path clears the displayed inherited policy',async()=>{

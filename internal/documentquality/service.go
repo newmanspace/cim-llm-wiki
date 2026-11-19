@@ -142,7 +142,31 @@ func commandDigest(operation string, input Record) string {
 }
 func (s Service) Read(ctx context.Context, project, actor, resource string) ([]Record, error) {
 	var rows []Record
-	err := s.Repository.WithProject(ctx, project, actor, func(tx Tx) error { var e error; rows, e = tx.List(resource); return e })
+	err := s.Repository.WithProject(ctx, project, actor, func(tx Tx) error {
+		var e error
+		rows, e = tx.List(resource)
+		if e != nil || resource != "artifact_versions" {
+			return e
+		}
+		hasWorkflow := false
+		for _, row := range rows {
+			if Text(row, "workflow_version") != "" {
+				hasWorkflow = true
+				break
+			}
+		}
+		if !hasWorkflow {
+			return nil
+		}
+		states, e := tx.List("document_states")
+		if e != nil {
+			return e
+		}
+		for index, row := range rows {
+			rows[index] = projectDocumentState(row, states)
+		}
+		return nil
+	})
 	if resource == "directories" {
 		active := []Record{}
 		for _, row := range rows {
@@ -160,7 +184,10 @@ func (s Service) Policy(ctx context.Context, project, actor, path string) (Effec
 	return p, e
 }
 func (s Service) executeOperation(tx Tx, actor, operation string, input Record) (Record, error) {
-	handlers := map[string]func(Tx, Record) (Record, error){"naming-settings": saveNamingSettings, "reserve-document-identity": reserveDocumentIdentity}
+	handlers := map[string]func(Tx, Record) (Record, error){"naming-settings": saveNamingSettings, "reserve-document-identity": reserveDocumentIdentity,
+		"document-drafts": func(tx Tx, r Record) (Record, error) { return saveDocument(tx, r, "draft") },
+		"document-submit": func(tx Tx, r Record) (Record, error) { return saveDocument(tx, r, "submitted") },
+		"document-freeze": freezeDocument, "document-review-requests": requestDocumentReview}
 	if handler := handlers[operation]; handler != nil {
 		if err := nonPublishing(tx); err != nil {
 			return nil, err
@@ -288,6 +315,9 @@ func savePolicy(tx Tx, r Record) (Record, error) {
 	return tx.Insert("quality_policies", Record{"path": path, "patch": patch, "policy_revision": n})
 }
 func saveRun(tx Tx, r Record) (Record, error) {
+	if Text(r, "source_type") == "local_file" && Text(r, "id") == "" {
+		return saveLocalFileRun(tx, r)
+	}
 	if Text(r, "id") != "" {
 		return finishRun(tx, r)
 	}
@@ -359,18 +389,7 @@ func saveObservation(tx Tx, r Record) (Record, error) {
 			return old, nil
 		}
 	}
-	outPayload := Record{"run_id": id(run), "source_id": run["source_id"], "source_type": sourceType(run), "repository_path": r["repository_path"], "original_uri": r["original_uri"], "original_sha256": r["original_sha256"], "snapshot_path": r["snapshot_path"], "provenance_method": "skill_observed"}
-	if sourceType(run) == "git" {
-		for _, field := range []string{"git_info_uri", "git_info_sha256", "git_blob_oid"} {
-			outPayload[field] = r[field]
-		}
-		outPayload["repository_url"] = run["repository_url"]
-		outPayload["commit_sha"] = run["commit_sha"]
-	} else {
-		outPayload["svn_info_uri"] = r["svn_info_uri"]
-		outPayload["repository_uuid"] = run["repository_uuid"]
-		outPayload["operative_revision"] = run["operative_revision"]
-	}
+	outPayload := sourceObservationPayload(run, r)
 	out, e := tx.Insert("source_versions", outPayload)
 	if e != nil {
 		return nil, e
@@ -382,7 +401,7 @@ func saveObservation(tx Tx, r Record) (Record, error) {
 
 }
 func saveArtifact(tx Tx, r Record) (Record, error) {
-	if e := required(r, "run_id", "target_path", "content_uri", "content_sha256", "logical_key", "recipe_version", "parsed_uri", "template_id", "document_contract_digest"); e != nil {
+	if e := required(r, "run_id", "target_path", "content_uri", "content_sha256", "logical_key", "recipe_version", "parsed_uri", "document_contract_digest"); e != nil {
 		return nil, e
 	}
 	if !ValidPath(Text(r, "target_path"), true) {
@@ -407,11 +426,11 @@ func saveArtifact(tx Tx, r Record) (Record, error) {
 		if e := linkRun(tx, "ingest_artifacts", "artifact_id", run, previous); e != nil {
 			return nil, e
 		}
-		return previous, nil
+		return documentArtifact(tx, id(previous))
 	}
 
 	out := Record{}
-	for _, field := range []string{"document_id", "naming_digest", "run_id", "logical_key", "target_path", "content_uri", "content_sha256", "snapshot_path", "parsed_uri", "recipe_version", "source_links", "template_id", "document_contract_digest"} {
+	for _, field := range []string{"document_id", "naming_digest", "run_id", "logical_key", "target_path", "content_uri", "content_sha256", "snapshot_path", "parsed_uri", "recipe_version", "source_links", "template_id", "document_contract_digest", "workflow_version", "workflow_state", "local_report", "parsed_sha256", "parsed_snapshot_path", "qscore", "package_sha256", "parsed_package_sha256", "parsed_source_id"} {
 		out[field] = r[field]
 	}
 	out["version"] = version
@@ -428,7 +447,7 @@ func saveArtifact(tx Tx, r Record) (Record, error) {
 	if e = linkRun(tx, "ingest_artifacts", "artifact_id", run, saved); e != nil {
 		return nil, e
 	}
-	return saved, nil
+	return initializeDocumentState(tx, saved, r)
 }
 func supersedePending(tx Tx, artifactID string) error {
 	tasks, e := tx.List("review_tasks")
@@ -451,7 +470,7 @@ func supersedePending(tx Tx, artifactID string) error {
 	return nil
 }
 func saveEvaluation(tx Tx, r Record) (Record, error) {
-	artifact, e := tx.Get("artifact_versions", Text(r, "artifact_id"))
+	artifact, e := documentArtifact(tx, Text(r, "artifact_id"))
 	if e != nil {
 		return nil, e
 	}
@@ -527,10 +546,10 @@ func saveDecision(tx Tx, actor string, r Record) (Record, error) {
 	if e != nil {
 		return nil, e
 	}
-	if Text(task, "status") != "pending" || revision(task) != int(number(r, "expected_revision")) {
+	if !currentReviewTask(task, r) {
 		return nil, problem(409, "Review task is no longer current")
 	}
-	artifact, e := tx.Get("artifact_versions", Text(task, "artifact_id"))
+	artifact, e := documentArtifact(tx, Text(task, "artifact_id"))
 	if e != nil {
 		return nil, e
 	}
@@ -543,6 +562,9 @@ func saveDecision(tx Tx, actor string, r Record) (Record, error) {
 	}
 	if e := ensureLatestArtifact(tx, artifact, "Artifact version is superseded"); e != nil {
 		return nil, e
+	}
+	if Text(task, "scope") == "document" {
+		return decideDocument(tx, actor, r, task, artifact)
 	}
 	evaluation, e := tx.Get("evaluations", Text(task, "evaluation_id"))
 	if e != nil {
@@ -569,7 +591,7 @@ func saveDecision(tx Tx, actor string, r Record) (Record, error) {
 	return event, nil
 }
 func beginPublication(tx Tx, r Record) (Record, error) {
-	artifact, e := tx.Get("artifact_versions", Text(r, "artifact_id"))
+	artifact, e := documentArtifact(tx, Text(r, "artifact_id"))
 	if e != nil {
 		return nil, e
 	}
@@ -696,6 +718,9 @@ func pinCollectionRevision(out, source, cfg, r Record) error {
 }
 
 func validateObservationEvidence(run, r Record) error {
+	if sourceType(run) == "local_file" {
+		return nil
+	}
 	if sourceType(run) == "git" {
 		if e := required(r, "git_info_uri", "git_blob_oid"); e != nil {
 			return e
@@ -712,7 +737,7 @@ func validateObservationEvidence(run, r Record) error {
 }
 
 func sameArtifactVersion(old, r Record) bool {
-	return Text(old, "content_sha256") == Text(r, "content_sha256") && Text(old, "target_path") == Text(r, "target_path") && Text(old, "recipe_version") == Text(r, "recipe_version") && Text(old, "template_id") == Text(r, "template_id") && Text(old, "document_contract_digest") == Text(r, "document_contract_digest") && Digest(old["source_links"]) == Digest(r["source_links"])
+	return sameDocumentEvidence(old, r) && Text(old, "workflow_version") == Text(r, "workflow_version") && Text(old, "workflow_state") == Text(r, "workflow_state") && Text(old, "content_sha256") == Text(r, "content_sha256") && Text(old, "target_path") == Text(r, "target_path") && Text(old, "recipe_version") == Text(r, "recipe_version") && Text(old, "template_id") == Text(r, "template_id") && Text(old, "document_contract_digest") == Text(r, "document_contract_digest") && Digest(old["source_links"]) == Digest(r["source_links"])
 }
 
 func ensureLatestArtifact(tx Tx, artifact Record, message string) error {
@@ -762,6 +787,9 @@ func verifyPublicationApproval(tx Tx, artifact, eval Record, p Effective) error 
 }
 
 func sameSourceVersion(old, run, r Record) bool {
+	if sourceType(run) == "local_file" {
+		return Text(old, "run_id") == id(run) && Text(old, "repository_path") == Text(r, "repository_path")
+	}
 	return Text(old, "source_id") == Text(run, "source_id") && repositoryIdentity(old) == repositoryIdentity(run) && Text(old, "repository_path") == Text(r, "repository_path") && sourceRevision(old) == sourceRevision(run)
 }
 
@@ -779,7 +807,7 @@ func validateArtifactSources(tx Tx, r, run Record) error {
 		if e != nil {
 			return e
 		}
-		if Text(source, "source_id") != Text(run, "source_id") || sourceRevision(source) != sourceRevision(run) {
+		if !sourceBelongsToRun(source, run) {
 			return problem(409, "Source does not belong to the pinned run revision")
 		}
 	}
@@ -801,4 +829,44 @@ func artifactVersion(rows []Record, r Record) (Record, int, string) {
 		}
 	}
 	return nil, version, parent
+}
+
+func saveLocalFileRun(tx Tx, r Record) (Record, error) {
+	if err := required(r, "recipe_version"); err != nil {
+		return nil, err
+	}
+	sources, err := tx.List("data_sources")
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) != 0 {
+		return nil, problem(409, "Configured project sources require Git/SVN evidence")
+	}
+	return tx.Insert("ingest_runs", Record{"source_type": "local_file", "recipe_version": r["recipe_version"], "status": "running"})
+}
+func sourceBelongsToRun(source, run Record) bool {
+	if sourceType(run) == "local_file" {
+		return sourceType(source) == "local_file" && Text(source, "run_id") == id(run)
+	}
+	return Text(source, "source_id") == Text(run, "source_id") && sourceRevision(source) == sourceRevision(run)
+}
+
+func sourceObservationPayload(run, r Record) Record {
+	outPayload := Record{"run_id": id(run), "source_id": run["source_id"], "source_type": sourceType(run), "repository_path": r["repository_path"], "original_uri": r["original_uri"], "original_sha256": r["original_sha256"], "snapshot_path": r["snapshot_path"], "provenance_method": "skill_observed"}
+	if sourceType(run) == "git" {
+		for _, field := range []string{"git_info_uri", "git_info_sha256", "git_blob_oid"} {
+			outPayload[field] = r[field]
+		}
+		outPayload["repository_url"] = run["repository_url"]
+		outPayload["commit_sha"] = run["commit_sha"]
+	} else if sourceType(run) == "svn" {
+		outPayload["svn_info_uri"] = r["svn_info_uri"]
+		outPayload["repository_uuid"] = run["repository_uuid"]
+		outPayload["operative_revision"] = run["operative_revision"]
+	}
+	return outPayload
+}
+
+func currentReviewTask(task, request Record) bool {
+	return Text(task, "status") == "pending" && revision(task) == int(number(request, "expected_revision"))
 }
