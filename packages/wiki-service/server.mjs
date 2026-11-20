@@ -1,3 +1,4 @@
+import { createWikiSource } from './wiki-source.mjs'
 import { createDocumentUploads } from './document-uploads.mjs'
 import { createRequestLogs, requestFields, requestStep, requestFailure, requestID } from './request-logs.mjs'
 import { createDocumentNaming } from './document-naming.mjs'
@@ -34,7 +35,7 @@ import {
   slugify,
 } from '../wiki-core/contracts.mjs'
 import { compileBundle } from '../wiki-core/compile.mjs'
-import { validateWiki } from '../wiki-core/validate.mjs'
+import { assertValidWiki, validateWiki } from '../wiki-core/validate.mjs'
 import {
   loadManifest,
   saveManifest,
@@ -156,6 +157,29 @@ export function createKnowledgeServer({
   const projectWikis = resolveProjectWikis(configuredWikis, options)
   const { wikiPath, projectOptions } = projectStorage(options, projectWikis)
   const publishedPath = path => { const [project, ...parts] = path.split('/'); return wikiPath(project, ...parts) }
+  const wikiSources = createWikiSource({ projectRoot,
+    sourceFor: project => projectWikis ? projectWikis.source(project) : wikiRoot,
+    prefixFor: project => projectWikis ? '' : project,
+  })
+  async function importReviewedSource(project, taskID) {
+    if (projectWikis?.kind(project) === 'repository_docs') fail('Documentation repositories do not accept document imports', 409)
+    const { artifact, task, files } = await quality.reviewedSource(project, taskID)
+    if (projectWikis) projectWikis.initialize(project)
+    return wikiSources.materialize(project, artifact, task, files)
+  }
+  async function syncReviewedSources(project) {
+    if (!quality.enabled || projectWikis?.kind(project) === 'repository_docs') return
+    const tasks = await quality.all(project, 'document-review-tasks')
+    const versions = await quality.all(project, 'document-results'), eligible = new Set()
+    for (const task of tasks.filter(t => t.scope === 'document' && t.status === 'approved' && tasks.filter(other => other.artifact_id === t.artifact_id && other.scope === 'document').at(-1)?.id === t.id)) {
+      const artifact = versions.find(v => v.id === task.artifact_id)
+      if (artifact && !versions.some(v => v.logical_key === artifact.logical_key && v.version > artifact.version)) {
+        await importReviewedSource(project, task.id)
+        eligible.add(artifact.id)
+      }
+    }
+    wikiSources.assertEligible(project, eligible)
+  }
   const docs = () => loadManifest(projectRoot)
   const getDoc = (source, project, sourceID) => {
     if (source?.startsWith('document-package://') && !project) fail('Project is required for a parsed package')
@@ -189,7 +213,6 @@ export function createKnowledgeServer({
   })
   const defaults = createDocumentDefaults(projectRoot)
   naming = createDocumentNaming({ defaults, quality })
-  connectNamingToBuild(buildRuntime, naming)
   let queue = Promise.resolve()
 
   function requireProjectConfiguration(project) {
@@ -473,6 +496,10 @@ export function createKnowledgeServer({
     const path = bundlePath(value.bundle_id)
     if (existsSync(path))
       fail('Bundle ID is already submitted; use a new ID for revisions', 409)
+    await compileBundle(value, {
+      ...projectOptions(value.project), preview: true,
+      onCandidate: candidate => assertValidWiki({ ...options, wikiRoot: candidate, project: value.project, phase: 'submit' }),
+    })
     const needsReview =
       !autoPublish ||
       value.nodes.some((n) => {
@@ -505,6 +532,7 @@ export function createKnowledgeServer({
       sources,
       data.artifact_ids,
     )
+    await quality.gate(value.project, documentArtifacts)
     const record = {
       ...(documentArtifacts.length
         ? { document_artifacts: documentArtifacts }
@@ -593,12 +621,6 @@ export function createKnowledgeServer({
   }
 
   function checkedPublicationBundle(record) {
-    const effective = defaults.store.effective(record.bundle.project)
-    if (record.document_defaults_digest !== effective.digest)
-      fail(
-        'Document contract changed after submission; submit a new bundle',
-        409,
-      )
     const bundle = structuredClone(record.bundle)
     const reviewer =
       record.review?.reviewer ||
@@ -642,10 +664,9 @@ export function createKnowledgeServer({
     }
     verifyPublishedBaseline(record)
     const bundle = checkedPublicationBundle(record)
-    for (const node of bundle.nodes) await naming.requireIdentity(bundle.project, node.document_id, { ...node, template_id: templateFor(defaults.store.effective(bundle.project).definition, node).id, node_id: node.id })
     if (record.review?.decision === 'approve')
       for (const node of bundle.nodes) node.reviewer = record.review.reviewer
-    const result = await compileQualityBundle(
+    const result = await compileAcceptedBundle(
       bundle,
       record,
       data.preview === true,
@@ -660,79 +681,30 @@ export function createKnowledgeServer({
     return result
   }
 
-  async function compileQualityBundle(bundle, record, preview, site = false) {
+  async function compileAcceptedBundle(bundle, record, preview, site = false) {
     if (site && !buildRuntime) fail('Wiki build service is not enabled', 503)
-    if (!record.document_artifacts?.length)
-      await quality.bindings(
-        bundle.project,
-        bundle.nodes.flatMap((n) =>
-          Array.isArray(n.source) ? n.source : [n.source],
-        ),
-        [],
-      )
-    if (record.document_artifacts?.length && !quality.enabled)
-      fail('Document ledger is required for this quality-linked bundle', 503)
-    await quality.gate(bundle.project, record.document_artifacts)
-    const publicationKey = `bundle-${bundle.bundle_id}-${randomUUID()}`
-    const publications = preview
-      ? []
-      : await quality.gate(
-          bundle.project,
-          record.document_artifacts,
-          'start',
-          publicationKey,
-        )
-    let result
-    try {
-      const hooks = buildHooks(bundle, record, preview, site)
-      result = await compileBundle(bundle, {
-        ...projectOptions(bundle.project),
-        preview: preview === true,
-        ...hooks,
-      })
-    } catch (error) {
-      if (publications.length)
-        await quality.finish(
-          bundle.project,
-          publications,
-          'failed',
-          publicationKey,
-        )
-      throw error
-    }
-    if (publications.length) {
-      record.publication_pending = {
-        publications,
-        key: publicationKey,
-        result,
-        files: result.written.map((path) => ({
-          path,
-          sha256: hashFile(publishedPath(path)),
-        })),
-      }
-      writeJson(bundlePath(bundle.bundle_id), record)
-      await quality.finish(
-        bundle.project,
-        publications,
-        'published',
-        publicationKey,
-      )
-      delete record.publication_pending
-    }
-    return result
+    // The accepted bundle contains its content and submission evidence. Wiki
+    // compilation does not publish the separately managed document artifacts.
+    return compileBundle(bundle, {
+      ...projectOptions(bundle.project),
+      preview: preview === true,
+      ...buildHooks(bundle, record, preview, site),
+    })
   }
 
   function buildHooks(bundle, record, preview, site) {
     const hooks = { onCandidate: async (candidate, result) => {
-      await naming.prepareBuild(bundle.project)
-      naming.validateTree(bundle.project, join(candidate, bundle.project))
       if (site) result.site_build = buildRuntime.preview(bundle.project, bundle.bundle_id, candidate)
     } }
     if (!buildRuntime) return hooks
     if (!preview) {
       record.site_build_intent = buildRuntime.begin(record)
       writeJson(bundlePath(bundle.bundle_id), record)
-      hooks.afterPublish = async () => { await naming.prepareBuild(bundle.project); buildRuntime.captureFormal(record.site_build_intent) }
+      hooks.afterPublish = async result => {
+        let importError
+        try { await syncReviewedSources(bundle.project) } catch (error) { importError = error }
+        return buildRuntime.captureFormal(record.site_build_intent, result, importError)
+      }
     }
     return hooks
   }
@@ -749,7 +721,6 @@ export function createKnowledgeServer({
           409,
         )
     }
-    await quality.gate(record.bundle.project, record.document_artifacts)
     await quality.finish(
       record.bundle.project,
       pending.publications,
@@ -859,14 +830,11 @@ export function createKnowledgeServer({
       await discovery.projectInfo(identifier(data.project))
       if (path === '/document-review-decisions' && !reviewerIdentity)
         fail('Independent human reviewer authentication required', 403)
-      return {
-        data: await quality.mutate(
-          path.slice(1),
-          data,
-          req.headers['idempotency-key'],
-          reviewerIdentity ? req.headers.authorization.slice(7) : undefined,
-        ),
-      }
+      const event = await quality.mutate(
+        path.slice(1), data, req.headers['idempotency-key'],
+        reviewerIdentity ? req.headers.authorization.slice(7) : undefined,
+      )
+      return { data: event }
     }
     if (req.method === 'POST' && path === '/publish-document') {
       requireProjectConfiguration(data.project)
@@ -1000,7 +968,11 @@ export function createKnowledgeServer({
     if (req.method === 'GET' && !action) return { data: buildRuntime.list(project) }
     const data = await body(req)
     if (req.method !== 'POST') fail('Operation not found', 404)
-    if (action === '/build') return mutate(async () => { await naming.prepareBuild(project); return { data: buildRuntime.buildCurrent(project) } })
+    if (action === '/build') return mutate(async () => {
+      try { await syncReviewedSources(project) }
+      catch (error) { return { data: buildRuntime.blockedImport(project, error) } }
+      return { data: buildRuntime.buildCurrent(project) }
+    })
     if (action === '/preview') {
       const record = getBundle(data.bundle_id)
       if (record.bundle.project !== project) fail('Bundle belongs to another project', 404)
@@ -1017,10 +989,10 @@ export function createKnowledgeServer({
     if (!projectWikis) fail('Project Wiki storage is not configured', 503)
     const project = identifier(url.searchParams.get('project'))
     const action = url.pathname.slice('/internal/project-wiki'.length)
-    if (req.method === 'GET' && action === '') return { data: projectWikis.status(project) }
+    if (req.method === 'GET' && action === '') return { data: { ...projectWikis.status(project), documentSources: wikiSources.status(project) } }
     if (req.method !== 'POST') fail('Operation not found', 404)
     const data = await body(req)
-    return mutate(() => {
+    return mutate(async () => {
       if (action === '/configure') return { data: projectWikis.configure(project, data) }
       if (action === '/initialize') return { data: projectWikis.initialize(project) }
       fail('Operation not found', 404)
@@ -1178,8 +1150,4 @@ function projectStorage(options, projectWikis) {
 
 function resolveProjectWikis(value, { projectRoot, wikiRoot }) {
   return value === undefined ? createProjectWiki({ projectRoot, legacyRoot: wikiRoot }) : value
-}
-
-function connectNamingToBuild(runtime, naming) {
-  if (runtime) runtime.setNamingProvider(project => naming.buildManifest(project))
 }

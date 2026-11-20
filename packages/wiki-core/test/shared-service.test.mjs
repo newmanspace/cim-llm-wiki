@@ -116,7 +116,8 @@ test('conversion, freezing and publishing preserve original paths outside the pr
   assert.deepEqual(validateWiki({ projectRoot: f.projectRoot, wikiRoot: f.wikiRoot, roots: { team: moved } }).errors, [], 'Mount paths can change while provenance retains the original ingest path')
   save(join(f.shared, 'sources/original.xlsx'), 'modified original')
   assert.ok((await f.api('validate', {})).value.errors.some(e => e.code === 'original_drift'))
-  assert.equal((await f.api('compile', { bundle_id: f.bundle().bundle_id })).status, 422)
+  assert.equal((await f.api('compile', { bundle_id: f.bundle().bundle_id })).status, 200)
+  assert.equal((await f.submit(f.bundle('CR-DRIFTED-SOURCE'))).status, 409, 'New submissions still verify original sources')
   rmSync(join(f.shared, 'sources/original.xlsx'))
   assert.ok((await f.api('validate', {})).value.errors.some(e => e.code === 'original_unavailable'))
 })
@@ -151,13 +152,14 @@ test('human review binds to an immutable submitted bundle and low scores cannot 
   assert.equal((await f.api('compile', { bundle_id: replacement.bundle_id })).status, 409)
 })
 
-test('missing provenance and parsed-source drift block publication', async t => {
+test('submit verifies parsed sources while compilation uses the accepted document content', async t => {
   const f = await fixture(t); await ready(f)
   const b = f.bundle()
   assert.equal((await f.submit(b)).status, 200)
   save(join(f.shared, 'demo/parsed/terms.md'), '# Changed parsed document\n\nChanged content.')
-  assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 422)
-  assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md')), false)
+  assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 200)
+  assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md')), true)
+  assert.equal((await f.submit(f.bundle('CR-PARSED-DRIFT'))).status, 409)
   const response = await f.api('convert', { ...f.registration, source: 'shared://team/../secret', parsed: 'shared://team/new.md' })
   assert.notEqual(response.status, 200)
 })
@@ -284,7 +286,7 @@ test('product directory initialization runs through human review, strict compila
   const wikiRequire = createRequire(baseConfigUrl)
   const isolatedConfig = readFileSync(baseConfigPath, 'utf8')
     .replace("from 'vitepress'", `from ${JSON.stringify(pathToFileURL(wikiRequire.resolve('vitepress')).href)}`)
-    .replace("from '../../packages/wiki-core/validate.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/validate.mjs')).href)}`)
+    .replace("from '../../packages/wiki-core/markdown.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/markdown.mjs')).href)}`)
     .replace("from '../../packages/wiki-core/repository-docs.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/repository-docs.mjs')).href)}`)
     .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(baseConfigUrl)})`)
     .replace('export default defineConfig({', `export default defineConfig({\n  outDir: ${JSON.stringify(join(site, 'dist'))},\n  cacheDir: ${JSON.stringify(join(site, 'cache'))},`)
@@ -293,18 +295,25 @@ test('product directory initialization runs through human review, strict compila
   await runChild([join(repo, 'wiki/node_modules/vitepress/bin/vitepress.js'), 'build', site], env)
   assert.equal(existsSync(join(site, 'dist/demo/catalog/_index.html')), false)
   assert.ok(existsSync(join(site, 'dist/demo/doc/requirements/req-terms-001.html')))
+  // The compiler guard must also protect direct VitePress use without a snapshot.
+  writeFileSync(join(f.root, 'outside.md'), 'OUTSIDE_SNAPSHOT_SENTINEL')
+  writeFileSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md'), '# Include\n\n<!--@include: ' + join(f.root, 'outside.md') + '-->')
+  const rejected = await runChild([join(repo, 'wiki/node_modules/vitepress/bin/vitepress.js'), 'build', site], env, 1)
+  assert.match(rejected, /external_include/)
+  assert.doesNotMatch(readFileSync(join(site, 'dist/demo/doc/requirements/req-terms-001.html'), 'utf8'), /OUTSIDE_SNAPSHOT_SENTINEL/)
 })
 
-async function runChild(args, env) {
+async function runChild(args, env, expectedCode = 0) {
   const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
   let output = ''
   child.stdout.on('data', chunk => { output += chunk })
   child.stderr.on('data', chunk => { output += chunk })
   const [code] = await once(child, 'close')
-  assert.equal(code, 0, output)
+  assert.equal(code, expectedCode, output)
+  return output
 }
 
-test('a reviewed bundle cannot publish after its bound document contract is upgraded',async t=>{
+test('a reviewed bundle compiles with its accepted content after the current document contract is upgraded',async t=>{
   const f=await fixture(t,{autoPublish:false});await ready(f)
   const bundle=f.bundle('CR-20261113-0001','L1_expert')
   assert.equal((await f.submit(bundle)).status,200)
@@ -313,9 +322,11 @@ test('a reviewed bundle cannot publish after its bound document contract is upgr
   state.draft.name='New system contract'
   store.save(state.draft,state.revision,'Test Administrator');store.publish(state.revision+1,'Test Administrator')
   store.bind('demo',['terms'],{},store.state().published_version,true)
+  save(join(f.projectRoot,'data/documents/manifest.json'),{docs:[]})
   const result=await f.api('compile',{bundle_id:bundle.bundle_id})
-  assert.equal(result.status,409);assert.match(result.value.error,/contract changed/)
-  assert.equal(existsSync(join(f.wikiRoot,'demo/doc/requirements/req-terms-001.md')),false)
+  assert.equal(result.status,200,JSON.stringify(result.value))
+  assert.match(readFileSync(join(f.wikiRoot,'demo/doc/requirements/req-terms-001.md'),'utf8'),/Term requirement/)
+  assert.doesNotMatch(readFileSync(join(f.wikiRoot,'demo/doc/requirements/req-terms-001.md'),'utf8'),/New system contract/)
 })
 
 
@@ -370,9 +381,10 @@ test('approved preview is isolated and publication durably triggers a Git-based 
   assert.equal(formal.status, 200, JSON.stringify(formal.value))
   assert.equal(formal.value.site_build.mode, 'formal')
   assert.equal(formal.value.site_build.state, 'queued', JSON.stringify(formal.value.site_build))
-  assert.equal(formal.value.site_build.gitCommit, git(['rev-parse', 'HEAD']))
+  assert.equal(formal.value.site_build.baseCommit, baseline)
+  assert.equal(git(['rev-parse', 'HEAD']), baseline)
   assert.notEqual(formal.value.site_build.gitCommit, baseline)
-  assert.equal(git(['status', '--porcelain']), '')
+  assert.match(git(['status', '--porcelain', '--untracked-files=all']), /req-terms-001.md/)
   f.buildRuntime.reconcile()
   const jobs = (await internal('')).value.data
   assert.equal(jobs.filter(job => job.mode === 'formal').length, 1)
@@ -413,14 +425,14 @@ test('project storage API preserves review gates, previews candidates and commit
   process.env.WIKI_GITOPS_ENABLED = 'true'
   t.after(() => { if (previous === undefined) delete process.env.WIKI_GITOPS_ENABLED; else process.env.WIKI_GITOPS_ENABLED = previous })
   const blocked = await f.api('compile', { bundle_id: b.bundle_id })
-  assert.equal(blocked.status, 422)
+  assert.equal(blocked.status, 409)
   assert.match(blocked.value.error, /uncommitted/)
   assert.equal(existsSync(join(source, 'doc/requirements/req-terms-001.md')), false)
   rmSync(dirty)
   const published = await f.api('compile', { bundle_id: b.bundle_id })
   assert.equal(published.status, 200, JSON.stringify(published.value))
   assert.equal(published.value.site_build.state, 'queued', JSON.stringify(published.value))
-  assert.equal(f.projectWikis.status('demo').gitStatus, 'clean')
+  assert.equal(f.projectWikis.status('demo').gitStatus, 'dirty')
   assert.equal(existsSync(join(source, 'doc/requirements/req-terms-001.md')), true)
   assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md')), false)
 })
@@ -547,4 +559,14 @@ test('knowledge forwards the request ID to the document ledger', async t => {
   assert.equal(response.status, 200)
   await response.json()
   assert.ok(f.ledgerRequestIds.includes('ledger-correlation-001'))
+})
+
+test('submit rejects unresolved references before accepting a bundle', async t => {
+  const f = await fixture(t)
+  await ready(f)
+  const bundle = f.bundle('CR-BROKEN-LINK')
+  bundle.nodes[0].content += '\n\n[Missing document](missing-document.md)'
+  const result = await f.submit(bundle)
+  assert.equal(result.status, 422, JSON.stringify(result.value))
+  assert.match(result.value.error, /broken_link/)
 })

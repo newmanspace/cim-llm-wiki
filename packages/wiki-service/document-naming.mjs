@@ -1,10 +1,9 @@
 import { hashValue } from '../wiki-core/sources.mjs'
-import { identityErrors, validateNamedTree } from '../wiki-core/document-naming.mjs'
+import { identityErrors } from '../wiki-core/document-naming.mjs'
 
 function fail(code, message, status = 409) { throw Object.assign(new Error(message), { status, code }) }
 
 export function createDocumentNaming({ defaults, quality }) {
-  const snapshots = new Map()
   function policy(project) {
     if (!defaults.store.binding(project)) return null
     const binding = defaults.store.effective(project)
@@ -40,16 +39,5 @@ export function createDocumentNaming({ defaults, quality }) {
     if (result.errors.length) fail('DOCUMENT_IDENTITY_MISMATCH', JSON.stringify(result.errors), 422)
     return result
   }
-  async function prepareBuild(project) {
-    const definition = policy(project)
-    if (!definition) { snapshots.set(project, null); return }
-    const identities = await quality.all(project, 'document-identities')
-    snapshots.set(project, { project, policy: definition, identities })
-  }
-  function buildManifest(project) {
-    if (policy(project) && !snapshots.has(project)) fail('NAMING_SNAPSHOT_REQUIRED', 'Refresh the naming registry before capture')
-    return snapshots.get(project) || null
-  }
-  function validateTree(project, root) { validateNamedTree(root, buildManifest(project)) }
-  return { policy, describe, reserve, check, requireIdentity, prepareBuild, buildManifest, validateTree }
+  return { policy, describe, reserve, check, requireIdentity }
 }

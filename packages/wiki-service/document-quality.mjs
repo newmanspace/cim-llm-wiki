@@ -1,7 +1,10 @@
+import { assertNoFileIncludes } from '../wiki-core/markdown.mjs'
 import { documentResources } from '../wiki-core/document-package.mjs'
 import { validateOptionalScore } from '../wiki-core/quality-score.mjs'
 import { requestID } from './request-logs.mjs'
 import { createDefaultsStore } from '../wiki-core/document-defaults.mjs'
+import { checkCandidate } from '../wiki-core/local-ingest.mjs'
+import { NODE_TYPES } from '../wiki-core/contracts.mjs'
 import { documentDirectoryRule, validateDocumentTargetPath } from '../wiki-core/document-routing.mjs'
 import { verifyGitEvidence } from './source-evidence.mjs'
 import {
@@ -38,6 +41,7 @@ const identifier = (value) => {
 const parser = new MarkdownIt({ html: true })
 export const validateTarget = validateDocumentTargetPath
 function validateMarkdown(text, pack) {
+  try { assertNoFileIncludes(text) } catch (error) { fail(error.message) }
   if (!text.trim() || Buffer.byteLength(text) > 4 * 1024 * 1024)
     fail('Markdown is empty or exceeds the size limit')
   const tokens = parser.parse(text, {})
@@ -303,7 +307,9 @@ export function createDocumentQuality({
     const content = snapshot(project, data.content_uri)
     if (data.content_sha256 && data.content_sha256 !== content.sha256)
       fail('Artifact hash mismatch', 409)
-    validateMarkdown(readFileSync(content.path, 'utf8'), content.package)
+    const document = readFileSync(content.path, 'utf8')
+    validateMarkdown(document, content.package)
+    if (!draft) validateSubmission(project, data, document, binding)
     const parsed = snapshot(project, data.parsed_uri)
     data.parsed_sha256 = parsed.sha256
     data.parsed_snapshot_path = parsed.path
@@ -316,6 +322,17 @@ export function createDocumentQuality({
     await checkOriginalLinks(project, data, doc)
     data.content_sha256 = content.sha256
     data.snapshot_path = content.path
+  }
+  function validateSubmission(project, data, document, binding) {
+    let report
+    try {
+      report = checkCandidate({ project, ...binding.definition, binding, node_contracts: NODE_TYPES }, { ...data, project, document })
+    } catch (error) {
+      throw Object.assign(new Error(error.message), { status: 422, code: 'DOCUMENT_SUBMISSION_INVALID' })
+    }
+    if (report.errors.length) throw Object.assign(new Error('Document submission validation failed'), {
+      status: 422, code: 'DOCUMENT_SUBMISSION_INVALID', diagnostics: report.errors,
+    })
   }
   async function checkOriginalLinks(project, data, doc) {
     const links = data.source_links
@@ -405,10 +422,7 @@ export function createDocumentQuality({
     const evaluations = await all(project, 'document-evaluations'),
       out = []
     for (const id of new Set(artifactIds)) {
-      const artifact = await verifyArtifact(
-        project,
-        await find(project, 'document-results', id),
-      )
+      const artifact = await find(project, 'document-results', id)
       const evaluation = evaluations
         .filter((e) => e.artifact_id === artifact.id)
         .at(-1)
@@ -584,6 +598,28 @@ export function createDocumentQuality({
       throw e
     }
   }
+  async function reviewedSource(project, taskID) {
+    const task = await find(project, 'document-review-tasks', taskID)
+    const artifact = await find(project, 'document-results', task.artifact_id)
+    if (task.status !== 'approved' || artifact.workflow_state !== 'frozen' ||
+        task.artifact_digest !== (artifact.package_sha256 || artifact.content_sha256))
+      fail('The frozen document version must have an approved document review', 409)
+    const versions = await all(project, 'document-results')
+    if (versions.some(v => v.logical_key === artifact.logical_key && v.version > artifact.version)) fail('Reviewed document version is superseded', 409)
+    const document = readRegularFile(artifact.snapshot_path)
+    if (createHash('sha256').update(document).digest('hex') !== artifact.content_sha256) fail('Reviewed document snapshot changed', 409)
+    const pack = inputPackage(project, artifact.content_uri)
+    if (artifact.package_sha256 && pack?.package_sha256 !== artifact.package_sha256) fail('Reviewed document package changed', 409)
+    const files = [{ path: artifact.target_path, bytes: document }]
+    for (const item of pack?.files || []) {
+      if (item.path === pack.entry) continue
+      const path = join(dirname(artifact.target_path), relative(dirname(pack.entry), item.path))
+      const bytes = readRegularFile(uploads.file(project, item.uri).path)
+      if (createHash('sha256').update(bytes).digest('hex') !== item.sha256) fail('Reviewed attachment changed', 409)
+      files.push({ path, bytes })
+    }
+    return { artifact, task, files }
+  }
   async function preview(project, id, original = false) {
     const artifact = await find(project, 'document-results', id)
     verifySnapshot(artifact)
@@ -635,5 +671,6 @@ export function createDocumentQuality({
     publish,
     preview,
     resource,
+    reviewedSource,
   }
 }

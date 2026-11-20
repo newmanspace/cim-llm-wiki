@@ -39,8 +39,9 @@ export function validateWiki({
   roots = sharedRoots(),
   project,
   sourceRoot,
+  phase = 'publish',
 } = {}) {
-  if (sourceRoot) return validateProjectWiki({ projectRoot, wikiRoot, roots, project, sourceRoot })
+  if (sourceRoot) return validateProjectWiki({ projectRoot, wikiRoot, roots, project, sourceRoot, phase })
   wikiRoot = resolve(wikiRoot)
   const bindingCache = new Map()
   const errors = [],
@@ -109,7 +110,7 @@ export function validateWiki({
     try {
       if(!bindingCache.has(project))bindingCache.set(project,createDefaultsStore(projectRoot).effective(project))
       const binding=bindingCache.get(project)
-      const diagnostics=checkDocument(templateFor(binding.definition,page.fm),page.body,{terms:binding.definition.terms,documentPath:key,phase:'publish',reviewer:page.fm.reviewer})
+      const diagnostics=checkDocument(templateFor(binding.definition,page.fm),page.body,{terms:binding.definition.terms,documentPath:key,phase:phase === 'submit' ? 'draft' : 'publish',reviewer:page.fm.reviewer})
       for(const d of diagnostics) {
         const target=d.severity==='error'?errors:warnings
         target.push({code:d.rule_id,path:key,message:d.message,line:d.line})
@@ -146,7 +147,7 @@ export function validateWiki({
   }
 
   validatePageGraph()
-  validateSourceManifest()
+  if (phase !== 'submit') validateSourceManifest()
   function collectRegisteredProjects() {
     const registryPath = join(
       projectRoot,
@@ -207,7 +208,7 @@ export function validateWiki({
       const project = segments[0]
       pages.set(key, { ...page, project })
       checkPageIdentity(page, key, project, segments)
-      checkPublication(fm, key)
+      if (phase !== 'submit') checkPublication(fm, key)
       checkVocabulary(fm, key)
       checkApiPreconditions(page, key)
       checkBoundDocument(page,key,project)

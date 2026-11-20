@@ -9,7 +9,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import ListPagination from '@/components/ListPagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
-type Job = { id: string; mode: string; gitCommit: string; state: string; bundleId?: string; error?: string; diagnostics?: { code: string; message: string; issues?: { code: string; path?: string; message: string }[] }[]; expiresAt?: number; attempts: { stage: string; error?: string }[]; result?: { previewUrl?: string; updated?: boolean; reason?: string } }
+type Job = { id: string; mode: string; gitCommit: string; baseCommit?: string; state: string; bundleId?: string; error?: string; diagnostics?: { code: string; message: string; issues?: { code: string; path?: string; message: string }[] }[]; expiresAt?: number; attempts: { stage: string; error?: string }[]; result?: { previewUrl?: string; updated?: boolean; reason?: string } }
 const route = useRoute(), router = useRouter()
 const project = ref(String(route.query.project || ''))
 const projects = ref<{id: string; name: string}[]>([]), jobs = ref<Job[]>([])
@@ -78,7 +78,7 @@ onUnmounted(() => { disposed = true; generation++; clearInterval(poll) })
     <div class="table-scroll"><table v-if="jobs.length">
       <thead><tr><th>任务</th><th>类型 / Bundle</th><th>来源 Git commit</th><th>状态 / 阶段</th><th>尝试</th><th>诊断</th><th>操作</th></tr></thead>
       <tbody><tr v-for="job in pagedJobs" :key="job.id">
-        <td>{{ job.id }}</td><td>{{ job.mode }}<br />{{ job.bundleId }}</td><td><code>{{ job.gitCommit }}</code></td>
+        <td>{{ job.id }}</td><td>{{ job.mode }}<br />{{ job.bundleId }}</td><td><code>{{ job.gitCommit }}</code><small v-if="job.baseCommit && job.state !== 'succeeded'">（构建成功后提交）</small></td>
         <td><TTag size="small" variant="light" :theme="job.state === 'succeeded' ? 'success' : ['failed', 'blocked'].includes(job.state) ? 'danger' : 'default'">{{ ({ succeeded: '成功', failed: '失败', blocked: '构建受阻', queued: '排队中', running: '运行中', revoked: '已撤销', expired: '已过期' } as Record<string, string>)[job.state] || job.state }}</TTag><br />{{ job.attempts.at(-1)?.stage }}<br /><small v-if="job.expiresAt">失效：{{ new Date(job.expiresAt).toLocaleString() }}</small></td>
         <td>{{ job.attempts.length }}</td><td>
           {{ job.error || job.result?.reason || '—' }}

@@ -1,3 +1,4 @@
+import { assertNoFileIncludes } from './markdown.mjs'
 import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, posix, relative } from 'node:path'
@@ -43,6 +44,7 @@ export function documentationFiles(root) {
 export function assertRepositoryDocs(root) {
   const files = documentationFiles(root)
   if (!files.length) throw new Error('Documentation Git commit contains no Markdown pages')
+  for (const path of files) assertNoFileIncludes(readFileSync(join(root, path), 'utf8'))
   return files
 }
 export function repositoryNavigation(root) {

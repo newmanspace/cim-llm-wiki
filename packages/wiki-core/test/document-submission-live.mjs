@@ -1,6 +1,8 @@
+import { execFileSync } from 'node:child_process'
+import { createBuildRuntime } from '../../wiki-service/build-runtime.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
@@ -22,7 +24,13 @@ test('submitted documents are immediately listed and previewable without freeze,
   const save = (path, text) => writeFileSync(join(root, path), text)
   save('source.md', '# Source\n\nSource facts.')
   save('info.xml', '<info><entry revision="42"><repository><uuid>repo</uuid></repository></entry></info>')
-  const server = createKnowledgeServer({ projectRoot: root, projectWikis: null, roots: { team: root }, token: 'agent', ledgerURL, ledgerToken,
+  const wikiRoot = join(root, 'data/wiki'); mkdirSync(wikiRoot, { recursive: true })
+  const git = args => execFileSync('git', ['-C', wikiRoot, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim()
+  git(['init']); git(['config', 'user.name', 'Test']); git(['config', 'user.email', 'test@example.test']); git(['commit', '--allow-empty', '-m', 'Baseline'])
+  const baseline = git(['rev-parse', 'HEAD'])
+  const runtime = createBuildRuntime({ projectRoot: root, wikiRoot, roots: { team: root } })
+  t.after(() => runtime.close())
+  const server = createKnowledgeServer({ projectRoot: root, wikiRoot, buildRuntime: runtime, projectWikis: null, roots: { team: root }, token: 'agent', ledgerURL, ledgerToken,
     reviewerTokens: { Reviewer: reviewerToken }, logWriter: () => {} })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
   t.after(() => { server.closeAllConnections(); server.close() })
@@ -82,12 +90,24 @@ test('submitted documents are immediately listed and previewable without freeze,
   const tasks = (await ok('document-review-tasks?project=demo')).items
   assert.equal(tasks.find(row => row.id === task.id).status, 'approved')
   assert.equal((await ok('publications?project=demo')).items.length, 0)
+  const target = join(wikiRoot, 'demo', input.target_path)
+  assert.equal(existsSync(target), false, 'Approval does not write the source repository')
+  const buildResponse = await fetch(base + '/internal/wiki-builds/build?project=demo', { method: 'POST', headers: { Authorization: 'Bearer ' + ledgerToken, 'Content-Type': 'application/json' }, body: '{}' })
+  const build = await buildResponse.json()
+  assert.equal(buildResponse.status, 200, JSON.stringify(build))
+  assert.equal(build.data.state, 'queued', JSON.stringify(build))
+  assert.equal(readFileSync(target, 'utf8'), document, 'Build imports the exact approved snapshot without rewriting it')
+  assert.equal(git(['rev-parse', 'HEAD']), baseline, 'Import and capture must not commit before compilation')
+  assert.notEqual(build.data.gitCommit, baseline)
+  assert.equal(runtime.coordinator.list().length, 1)
 
-  // Structural content quality belongs to local ingest, not the server.
+
+  // Submit rechecks actual content instead of trusting an absent or stale local report.
   save('invalid.md', '# Missing template sections')
   assert.ok(checkCandidate(rules, { project: 'demo', template_id: 'sdd', document: '# Missing template sections' }).errors.length)
-  const structural = await ok('document-submit', { ...input, logical_key: 'local-errors', content_uri: 'shared://team/invalid.md', local_report: undefined })
-  assert.equal(structural.workflow_state, 'submitted')
+  const structural = await api('document-submit', { ...input, logical_key: 'local-errors', content_uri: 'shared://team/invalid.md', local_report: undefined })
+  assert.equal(structural.status, 422)
+  assert.equal(structural.value.code, 'DOCUMENT_SUBMISSION_INVALID')
   assert.equal((await api('document-submit', { ...input, target_path: 'doc/../escape.md' })).status, 422)
   assert.equal((await api('document-submit', { ...input, qscore: { total: 1 } })).status, 422)
   assert.equal((await api('document-submit', { ...input, local_report: { ...report, content_sha256: '0'.repeat(64) } })).status, 409)

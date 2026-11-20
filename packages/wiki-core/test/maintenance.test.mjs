@@ -255,13 +255,11 @@ test('portable skill client uses independent reviewer credentials and rejects in
     '{"decision":"approve"}',
   )
   assert.equal(requests.at(-1).auth, 'Bearer reviewer-unit-token')
-  await ok(script, ['validate'], env)
-  response = { errors: [{ code: 'invalid' }] }
-  assert.equal((await cli(script, ['validate'], env)).code, 1)
+  await ok(script, ['context', '--project', 'mes'], env)
   status = 403
   response = { error: 'forbidden' }
   assert.match(
-    (await cli(script, ['bundle', '--id', 'CR-TEST'], env)).stderr,
+    (await cli(script, ['context', '--project', 'mes'], env)).stderr,
     /403: forbidden/,
   )
   for (const args of [

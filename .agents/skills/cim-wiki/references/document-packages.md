@@ -52,7 +52,37 @@ PNG/JPEG/GIF/WebP 可预览；SVG 及其他附件只下载，不内联执行。�
 node "$SKILL/scripts/client.mjs" submit --json-file /local/work/submit.json --package-root /local/work/candidate --entry document.md --report /local/work/report.json --output /local/work/submit-response.json
 ```
 
-submit.json 填 project、run_id、logical_key、target_path、实际 template_id、正式 document_id（命名启用时）、parsed_uri、parsed_source_id（convert/register 返回的 document.doc_id）、recipe_version、source_links；候选 content_uri 和 local_report 由客户端补充。不要求 qscore，不提交 Wiki Bundle。客户端先核对报告，再重算本地包摘要，上传所有引用文件、封装不可变包后 submit。登记阶段元数据与报告不一致或文件变化时停止，不使用旧报告。
+submit.json 必填字段：
+- `project`：项目 ID
+- `run_id`：active 状态的 ingest run ID（通过 `list-ingest-runs` 查询，如无则需创建）
+- `logical_key`：必须与 document_id 相同（都是 UUID）
+- `document_id`：正式文档身份 UUID
+- `template_id`：专门模板必填且与 local_report.template_id 一致；通用标准格式留空（null）
+- `target_path`：目标路径
+- `parsed_uri`：解析稿 URI（shared:// 或 document-package://）
+- `parsed_source_id`：convert/register 返回的 document.doc_id
+- `recipe_version`：固定为 "agent-ingest-v1"
+- `source_links`：来源链接，source_version_id 必须来自已注册的原件
+
+候选 content_uri 和 local_report 由客户端补充。不要求 qscore，不提交 Wiki Bundle。客户端先核对报告，再重算本地包摘要，上传所有引用文件、封装不可变包后 submit。登记阶段元数据与报告不一致或文件变化时停止，不使用旧报告。
+
+**创建 ingest run**（如无 active run）：
+```bash
+node "$SKILL/scripts/client.mjs" ingest-runs --json-file /local/work/ingest-run.json --output /local/work/ingest-run-response.json
+```
+ingest-run.json 示例：
+```json
+{
+  "project": "example-project",
+  "source_id": "4",
+  "source_config_id": "6",
+  "source_type": "svn",
+  "recipe_version": "svn-skill-v1",
+  "revision": 2,
+  "operative_revision": "5521",
+  "repository_uuid": "6e427c94-d572-4580-95d9-8a44604e6099"
+}
+```
 
 submit 成功后立即在文档结果列表可见，可看正文、图片和下载附件，不依赖 freeze、review、compile。管理预览使用管理会话；Agent 不能将服务 Bearer 交给浏览器。
 
@@ -71,6 +101,17 @@ node "$SKILL/scripts/client.mjs" upload-package --project <project> --package-ro
 
 已配置仓库的项目仍需真实固定 Git/SVN 版本和观察记录。使用 git-source/svn-source 的 --output-root 本地目录，采集脚本自动上传原件和证据；Markdown 输出 source_package_uri 及 package_source_links。候选 source_links 覆盖原稿包所有附件，不改用 local_file 绕过仓库来源要求。
 
-没有配置任何仓库来源的项目才允许本地文件运行：通过 ingest-runs 提交 project、source_type=local_file、recipe_version，随后通过 source-observations 登记 run_id、repository_path（本地逻辑相对路径）、original_uri、original_sha256。原稿为包时哈希使用 register 返回的 original_sha256；整个包通过不可变 URI 保留。此类型明确表示本地文件，不能宣称 Git/SVN 来源证明。
+**source_version_id 获取**：
+- 通过 `list-source-observations --project <project>` 查询已注册的原件
+- 返回的 `id` 字段即为 source_version_id
+- source_links 中的 source_version_id 必须来自此列表
+
+**uploaded:// 文件限制**：
+- 通过 `upload` 命令上传的文件返回 `uploaded://` URI
+- 此类文件**不会**自动创建 source observation
+- 因此**不能**用于 submit 的 source_links
+- 如需使用 uploaded 文件作为来源，必须通过 SVN/Git 采集流程或手动创建 source observation
+
+**没有配置任何仓库来源的项目**才允许本地文件运行：通过 ingest-runs 提交 project、source_type=local_file、recipe_version，随后通过 source-observations 登记 run_id、repository_path（本地逻辑相对路径）、original_uri、original_sha256。原稿为包时哈希使用 register 返回的 original_sha256；整个包通过不可变 URI 保留。此类型明确表示本地文件，不能宣称 Git/SVN 来源证明。
 
 freeze 校验服务端已经保存的正文、图片、附件、解析稿及原稿包；本地后续修改不会影响已提交版本。再次提交产生新版本，旧版本及审核目标不变。Wiki 构建发布不属于 Skill。

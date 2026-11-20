@@ -296,6 +296,7 @@
                   <th>版本</th>
                   <th>质量分数</th>
                   <th>审核状态</th>
+                  <th>Wiki 发布状态</th>
                   <th>详情</th>
                 </tr>
               </thead>
@@ -313,6 +314,7 @@
                       >{{ documentStatusLabel(item) }}</span
                     >
                   </td>
+                  <td :title="sourceFor(item.id)?.error || sourceFor(item.id)?.gitCommit || ''">{{ sourceLabel(item) }}</td>
                   <td>
                     <button class="text-action" @click="selected = item">
                       查看
@@ -582,6 +584,13 @@ const sources = ref<Row[]>([]),
   events = ref<Row[]>([]),
   originals = ref<Row[]>([]),
   issues = ref<Row[]>([])
+const documentSources = ref<Row[]>([])
+function sourceFor(id: string) { return documentSources.value.find(row => row.artifactId === id) }
+function sourceLabel(item: Row) {
+  const state = sourceFor(item.id)?.state
+  if (state) return ({ written: '已入仓，待构建发布', published: '已发布', writing: '入仓未完成', failed: '入仓失败，重新构建可重试', superseded: '已被新版本替代' } as Record<string, string>)[state] || state
+  return documentStatus(item) === 'approved' ? '审核通过，构建时入仓' : '未入仓'
+}
 const busy = ref(false),
   error = ref(''),
   selected = ref<Row | null>(null),
@@ -660,7 +669,8 @@ async function load() {
       'source-observations',
       'quality-issues',
     ]
-    const values = await Promise.all(resources.map(list))
+    const [values, wiki] = await Promise.all([Promise.all(resources.map(list)), client.get(`/projects/${encodeURIComponent(props.projectId)}/wiki`)])
+    documentSources.value = wiki.data.data.documentSources || []
     ;[
       directories.value,
       sources.value,

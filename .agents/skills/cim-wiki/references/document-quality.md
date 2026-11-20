@@ -9,21 +9,54 @@ save-draft 对应 document-drafts，submit 对应 document-submit。两者成功
 ```json
 {
   "project": "example-project",
-  "run_id": "实际采集批次 ID",
-  "logical_key": "正式文档身份 ID 或未启用命名时的稳定业务标识",
+  "run_id": "active 状态的 ingest run ID（必需）",
+  "logical_key": "正式文档身份 UUID，必须与 document_id 相同",
   "document_id": "启用命名时的正式身份 UUID，草稿可省略",
-  "template_id": "实际匹配模板，无专门模板时省略",
+  "template_id": "专门模板填实际模板 ID；通用标准格式留空（null），与 local_report 一致",
   "target_path": "doc/50-designs/实际文件名.md",
   "content_uri": "document-package://候选包实际摘要",
-  "parsed_uri": "document-package://登记解析包实际摘要",
+  "parsed_uri": "shared:// 或 document-package:// 的解析稿 URI",
   "parsed_source_id": "convert/register 返回的 document.doc_id",
   "recipe_version": "agent-ingest-v1",
-  "source_links": [{"source_version_id":"实际原件观察记录 ID","location":{"section":"实际章节"}}],
+  "source_links": [{"source_version_id":"已注册的原件观察记录 ID","location":{"section":"实际章节"}}],
   "local_report": {"说明":"此处替换为 ingest.mjs 实际生成的完整报告对象，不能照抄本示意"}
 }
 ```
 
-run_id、source_links 来自项目真实采集台账；source_links 必须覆盖登记原件。候选、解析稿与原件独立保留，图片和附件使用包内相对引用，随完整文档包上传。通用标准格式不填伪造的 template_id。所有请求中的示意值必须替换成真实值。
+**run_id 要求**：
+- 必须是 active 状态的 ingest run
+- 通过 `list-ingest-runs --project <project>` 查询现有 run
+- 如无 active run，需创建新的 ingest run（见下文"创建 ingest run"）
+
+**logical_key 要求**：
+- 必须与 document_id 相同（都是 UUID）
+- 不能是 node_id 或其他标识
+
+**template_id 要求**：
+- 必须与 local_report.template_id 一致（服务端按 `local_report.template_id === (submit.template_id ?? null)` 校验）
+- 专门模板文档：submit 必须提供实际模板 ID，且与本地报告一致
+- 通用标准格式文档（无专门模板，如功能清单）：template_id 留空（null），本地报告 template_id 也为 null；不要伪造模板 ID
+
+**source_links 要求**：
+- source_version_id 必须来自已注册的原件（通过 `list-source-observations` 查询）
+- uploaded:// 的文件无法创建 source observation，不能用于 source_links
+- 项目配置了 SVN/Git 源时，必须使用对应的 source_version_id
+- source_links 必须覆盖所有登记原件
+
+**创建 ingest run**：
+```json
+{
+  "project": "example-project",
+  "source_id": "数据源 ID",
+  "source_config_id": "数据源配置 ID",
+  "source_type": "svn 或 git",
+  "recipe_version": "svn-skill-v1",
+  "revision": 2,
+  "operative_revision": "SVN revision 或 Git commit",
+  "repository_uuid": "仓库 UUID"
+}
+```
+通过 `ingest-runs --json-file <request.json>` 创建，返回的 run 状态为 running，可用于 submit。
 
 submit 客户端要求本地报告 errors 为空，且项目、正式身份、目标路径与报告一致；服务核对正文、附件包哈希和规则摘要，保存实际不可变快照，不复查章节和模板。qscore 可省略；提供时七维必须完整，total 必须正确，不用默认分数表示未知。
 

@@ -46,9 +46,7 @@ async function uploadCollected(transfers, project, localRoot, collected, type) {
   for (const file of collected.files) file.source_uri = (await transfers.upload(project, file.local_path)).uri
 }
 function collectionDirectory(options) {
-  const root = options['--output-root'] || options['--shared-root']
-  if (!root) throw new Error('--output-root LOCAL-DIRECTORY is required')
-  return root
+  return options['--output-root'] || options['--shared-root']
 }
 export async function runSourceCLI(collect, type) {
   const options = parseOptions(process.argv.slice(2))
@@ -107,6 +105,7 @@ export async function runSourceCLI(collect, type) {
     )
     throw error
   }
+  if (!localRoot) throw new Error('--output-root LOCAL-DIRECTORY is required')
   await uploadCollected(transfers, project, localRoot, collected, type)
   const prefix = randomUUID(),
     run = await call(

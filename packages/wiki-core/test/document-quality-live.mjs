@@ -96,8 +96,13 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  assert.equal((await api('bundles',{uri:'shared://team/nodes.json'})).status,409,'configured projects require document quality bindings')
  await ok('bundles',{uri:'shared://team/nodes.json',artifact_ids:[artifact.id]})
  await ok('review',{bundle_id:'CR-QUALITY-001',decision:'approve',note:'Reviewed node and source'},human)
+ // After acceptance, compiling Wiki must not re-read a mutable original.
+ save(join(shared,'original.docx'),'source changed after submission')
  await ok('compile',{bundle_id:'CR-QUALITY-001',preview:true})
  await ok('compile',{bundle_id:'CR-QUALITY-001'})
+ save(join(shared,'nodes.json'),{schema_version:'1.0',bundle_id:'CR-QUALITY-DRIFT',project:'demo',nodes:[node]})
+ assert.equal((await api('bundles',{uri:'shared://team/nodes.json',artifact_ids:[artifact.id]})).status,409,'a new submission still checks source evidence')
+ save(join(shared,'original.docx'),'source fixture')
  assert.match(readFileSync(join(wikiRoot,'demo/doc/requirements/req-source-001.md'),'utf8'),/Source requirement/)
  assert.equal((await api('document-result-preview?project=demo&id='+artifact.id,undefined,human)).status,200)
  const download=await ok('document-result-original?project=demo&id='+artifact.id,undefined,human)
@@ -130,6 +135,8 @@ test('live Node/Go/PostgreSQL document provenance, review, export and inherited 
  assert.equal((await api('publish-document',{project:'demo',artifact_id:artifact.id,evaluation_id:evaluation.id})).status,409)
  assert.equal((await ok('document-review-events?project=demo')).items.length,2)
  assert.equal((await api('publish-document',{project:'demo',artifact_id:autoArtifact.id,evaluation_id:autoEvaluation.id})).status,409,'automatic approval expires on policy changes')
+ await ok('compile',{bundle_id:'CR-QUALITY-001',preview:true})
+ await ok('compile',{bundle_id:'CR-QUALITY-001'})
 
  const gitConfig=await setup('data-sources',{name:'Git docs',type:'git',url:'git@example.test:team/docs.git',subpath:'docs',revision_selector:'main'})
  const gitContext=await ok('context?project=demo'),gitSource=gitContext.data_sources.find(s=>s.id===gitConfig.id)

@@ -15,7 +15,6 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { assertValidWiki } from './validate.mjs'
 
 const TRUTHY = new Set(['1', 'true', 'yes', 'on'])
 
@@ -52,8 +51,7 @@ export function ensureRepo(repoRoot) {
 }
 
 // 暂存全部变更并提交（无变更时跳过）。返回 { committed, hash, changed }。
-export function commitWiki(repoRoot, message, options = {}) {
-  assertValidWiki({ ...options, wikiRoot: repoRoot })
+export function commitWiki(repoRoot, message) {
   runGit(['add', '-A'], repoRoot)
   const hasStaged = spawnSync('git', ['-c', 'safe.directory=' + repoRoot, 'diff', '--cached', '--quiet'], { cwd: repoRoot })
   if (hasStaged.status === 0) {

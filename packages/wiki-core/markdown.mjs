@@ -4,7 +4,7 @@ import { unnumberedTitle } from './document-format.mjs'
 
 const markdown = new MarkdownIt({ html: true })
 
-export function parsePage(text) {
+export function parsePage(text, { preserveTrace = false } = {}) {
   const match = text.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
   if (!match) throw new Error('Missing or unterminated YAML frontmatter')
   const doc = parseDocument(match[1], { uniqueKeys: true, schema: 'core' })
@@ -13,9 +13,8 @@ export function parsePage(text) {
   const fm = doc.toJS({ maxAliasCount: 0 })
   if (!fm || Array.isArray(fm) || typeof fm !== 'object')
     throw new Error('Frontmatter must be an object')
-  const body = text
-    .slice(match[0].length)
-    .replace(
+  const rawBody = text.slice(match[0].length)
+  const body = preserveTrace ? rawBody : rawBody.replace(
       /\n---\r?\n> \*\*来源文档\*\*: [^\n]*\r?\n> \*\*置信度\*\*: [^\n]*\r?\n> \*\*适用版本\*\*: [^\n]*(?:\r?\n)*$/,
       '',
     )
@@ -203,6 +202,13 @@ export function pageLinks(tokens) {
     }
   }
   return result
+}
+
+// VitePress expands these before Markdown parsing, including inside code fences.
+// File expansion would introduce inputs outside the accepted snapshot/digest.
+export function assertNoFileIncludes(text) {
+  if (/<!--\s*@include:\s*(.*?)\s*-->/g.test(text))
+    throw new Error('[external_include] File include directives are not supported; embed the content before submission')
 }
 
 // Markdown is document data. VitePress must not compile executable HTML/Vue

@@ -46,8 +46,8 @@ try {
   for (const resource of ['ingest-runs','source-observations','document-evaluations']) routes[resource] = ['POST',resource]
   if (!routes[command]) throw new Error('Usage: client.mjs project|templates|initialize|directories|context|document|convert|register|state|save-draft|submit|freeze|review [--project ID|--source URI|--id ID|--json-file FILE] [--output FILE] [--summary]')
   const base = process.env.CIM_WIKI_URL
-  const token = process.env.CIM_WIKI_TOKEN
-  if (!base || !token) throw new Error('Set CIM_WIKI_URL and CIM_WIKI_TOKEN')
+  const token = command === 'review' ? (process.env.CIM_WIKI_REVIEW_TOKEN || process.env.CIM_WIKI_TOKEN) : process.env.CIM_WIKI_TOKEN
+  if (!base || !token) throw new Error(command === 'review' ? 'Human reviewers must set CIM_WIKI_URL and their independent CIM_WIKI_REVIEW_TOKEN' : 'Set CIM_WIKI_URL and CIM_WIKI_TOKEN')
   const origin = new URL(base)
   if (origin.pathname !== '/' || origin.search || origin.hash) throw new Error('CIM_WIKI_URL must be the service origin without an API path')
   const url = new URL(base.replace(/\/+$/, '') + '/api/v2/knowledge/' + routes[command][1])
