@@ -41,6 +41,7 @@ func NormalizeCodeRepository(r *types.RepoBinding) error {
 	r.Branch = r.RevisionSelector
 	return nil
 }
+
 func (s *Store) SaveCodeSource(ctx context.Context, project string, r types.RepoBinding, expected int) error {
 	if expected < 0 {
 		return &documentquality.Error{Status: 422, Message: "Invalid expected configuration revision"}

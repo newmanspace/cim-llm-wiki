@@ -22,9 +22,11 @@ export function gitopsEnabled() {
   return TRUTHY.has((process.env.WIKI_GITOPS_ENABLED || '').toLowerCase())
 }
 
-
 function runGit(args, cwd) {
-  const r = spawnSync('/usr/bin/git', ['-c', 'safe.directory=' + cwd, ...args], { cwd, encoding: 'utf-8' })
+  const r = spawnSync('/usr/bin/git', ['-c', 'safe.directory=' + cwd, ...args], {
+    cwd,
+    encoding: 'utf-8',
+  })
   if (r.status !== 0) {
     const err = new Error((r.stderr || r.stdout || `git ${args.join(' ')} failed`).trim())
     err.gitArgs = args
@@ -40,20 +42,30 @@ export function ensureRepo(repoRoot) {
     e.code = 'ENOENT'
     throw e
   }
-  const inside = spawnSync('/usr/bin/git', ['rev-parse', '--is-inside-work-tree'], { cwd: repoRoot, encoding: 'utf-8' })
+  const inside = spawnSync('/usr/bin/git', ['rev-parse', '--is-inside-work-tree'], {
+    cwd: repoRoot,
+    encoding: 'utf-8',
+  })
   const isIndependentRepo = existsSync(join(repoRoot, '.git'))
   if (inside.status === 0 && isIndependentRepo) return { initialized: false }
 
   runGit(['init'], repoRoot)
   runGit(['config', 'user.name', process.env.WIKI_GIT_AUTHOR_NAME || 'cim-wiki-pipeline'], repoRoot)
-  runGit(['config', 'user.email', process.env.WIKI_GIT_AUTHOR_EMAIL || 'pipeline@cim-wiki.local'], repoRoot)
+  runGit(
+    ['config', 'user.email', process.env.WIKI_GIT_AUTHOR_EMAIL || 'pipeline@cim-wiki.local'],
+    repoRoot,
+  )
   return { initialized: true }
 }
 
 // 暂存全部变更并提交（无变更时跳过）。返回 { committed, hash, changed }。
 export function commitWiki(repoRoot, message) {
   runGit(['add', '-A'], repoRoot)
-  const hasStaged = spawnSync('/usr/bin/git', ['-c', 'safe.directory=' + repoRoot, 'diff', '--cached', '--quiet'], { cwd: repoRoot })
+  const hasStaged = spawnSync(
+    '/usr/bin/git',
+    ['-c', 'safe.directory=' + repoRoot, 'diff', '--cached', '--quiet'],
+    { cwd: repoRoot },
+  )
   if (hasStaged.status === 0) {
     return { committed: false, reason: 'no-change' }
   }
@@ -67,7 +79,8 @@ export function commitWiki(repoRoot, message) {
 export function pushWiki(repoRoot) {
   const remote = process.env.WIKI_GIT_REMOTE
   if (!remote) return { pushed: false, reason: 'no-remote' }
-  const branch = process.env.WIKI_GIT_BRANCH || runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot)
+  const branch =
+    process.env.WIKI_GIT_BRANCH || runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot)
   // 若 remote 是 URL 且尚未登记，则临时按 URL 推送。
   const remotes = runGit(['remote'], repoRoot).split('\n').filter(Boolean)
   const target = remotes.includes(remote) ? remote : null

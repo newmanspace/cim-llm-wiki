@@ -20,15 +20,8 @@ import { createHash } from 'node:crypto'
 import { adminEnabled, pushSyncStatus } from './admin-client.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PROJECT_ROOT = resolve(
-  process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'),
-)
-const REGISTRY_PATH = join(
-  PROJECT_ROOT,
-  'data',
-  'documents',
-  'project-registry.json',
-)
+const PROJECT_ROOT = resolve(process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'))
+const REGISTRY_PATH = join(PROJECT_ROOT, 'data', 'documents', 'project-registry.json')
 
 function loadRegistry() {
   if (!existsSync(REGISTRY_PATH)) {
@@ -63,18 +56,14 @@ function detectDocChanges(project, results) {
     const docPath = resolve(PROJECT_ROOT, doc.path)
     if (!existsSync(docPath)) continue
 
-    const hash = createHash('sha256')
-      .update(readFileSync(docPath))
-      .digest('hex')
+    const hash = createHash('sha256').update(readFileSync(docPath)).digest('hex')
     if (doc.sha256 && doc.sha256 !== hash) {
       results.changedFiles.push({
         repo: 'docs',
         path: doc.path,
         type: 'modified',
       })
-      results.affectedModules.add(
-        doc.module || project.modules?.[0] || 'unknown',
-      )
+      results.affectedModules.add(doc.module || project.modules?.[0] || 'unknown')
       console.log(`  文档变更: ${doc.doc_id} (sha256 不匹配)`)
     }
     doc.sha256 = hash
@@ -106,12 +95,13 @@ function collectChangedFiles(repo, repoPath, headSHA, lastSHA, results) {
 }
 
 function scanRepository(repo, results) {
-  if (!repo.submodule) { results.errors.push(`${repo.name}: 本地代码工作区尚未绑定，请先通过项目 Skill 采集代码`); return }
+  if (!repo.submodule) {
+    results.errors.push(`${repo.name}: 本地代码工作区尚未绑定，请先通过项目 Skill 采集代码`)
+    return
+  }
   const repoPath = resolve(PROJECT_ROOT, repo.submodule)
   if (!existsSync(repoPath)) {
-    results.errors.push(
-      `submodule 不存在: ${repo.submodule} (请先 git submodule update --init)`,
-    )
+    results.errors.push(`submodule 不存在: ${repo.submodule} (请先 git submodule update --init)`)
     return
   }
 
@@ -143,9 +133,7 @@ function scanRepository(repo, results) {
   // Update sync state
   repo.last_sync_sha = headSHA
   repo.synced_at = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
-  const repoChanged = results.changedFiles.filter(
-    (c) => c.repo === repo.name,
-  ).length
+  const repoChanged = results.changedFiles.filter((c) => c.repo === repo.name).length
   results.repoSyncs.push({
     repoName: repo.name,
     fromSHA: lastSHA || '',
@@ -168,7 +156,10 @@ function detectChanges(project, projectId) {
 
   for (const repo of project.repos || []) {
     if (repo.enabled === false) continue
-    if (repo.type === 'svn') { results.errors.push(`${repo.name}: SVN code sources require the SVN Skill workflow`); continue }
+    if (repo.type === 'svn') {
+      results.errors.push(`${repo.name}: SVN code sources require the SVN Skill workflow`)
+      continue
+    }
     scanRepository(repo, results)
   }
 
@@ -250,9 +241,7 @@ function saveSyncReports(allResults) {
   if (uniqueAffected.length) {
     console.log(`\n=== 下一步 ===`)
     console.log(`受影响模块: ${uniqueAffected.join(', ')}`)
-    console.log(
-      '请使用 cim-wiki skill 对受影响模块的源文档重新执行 Stage 1-6 流水线',
-    )
+    console.log('请使用 cim-wiki skill 对受影响模块的源文档重新执行 Stage 1-6 流水线')
   } else {
     console.log('\n所有项目均为最新，无需重新摄取。')
   }
@@ -282,9 +271,7 @@ async function pushStatuses(projects, allResults) {
         })
         pushed++
       } catch (err) {
-        console.warn(
-          `admin: sync-status 回写失败 (${r.projectId}/${s.repoName}): ${err.message}`,
-        )
+        console.warn(`admin: sync-status 回写失败 (${r.projectId}/${s.repoName}): ${err.message}`)
       }
     }
   }
@@ -297,9 +284,7 @@ async function main() {
   const allProjects = args.includes('--all')
 
   const projects = loadRegistry()
-  const projectIds = allProjects
-    ? Object.keys(projects)
-    : args.filter((a) => !a.startsWith('--'))
+  const projectIds = allProjects ? Object.keys(projects) : args.filter((a) => !a.startsWith('--'))
 
   if (!projectIds.length) {
     console.error('用法: node sync-repo.mjs <project-id> [--dry-run]')

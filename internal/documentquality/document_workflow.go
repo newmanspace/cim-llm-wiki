@@ -37,6 +37,9 @@ func documentIdentity(tx Tx, r Record) error {
 	return nil
 }
 
+// freezeDocument appends a frozen state for the latest submitted version only
+// when its revision, content hash and attachment package hash still match.
+// The artifact bytes remain immutable; lifecycle changes are separate events.
 func freezeDocument(tx Tx, r Record) (Record, error) {
 	artifact, err := documentArtifact(tx, Text(r, "artifact_id"))
 	if err != nil {
@@ -65,6 +68,9 @@ func freezeDocument(tx Tx, r Record) (Record, error) {
 	return documentArtifact(tx, id(artifact))
 }
 
+// requestDocumentReview requires the latest frozen snapshot and reuses a pending
+// task only if its policy digest is still current. Otherwise older pending tasks
+// are superseded before a new manual review is requested.
 func requestDocumentReview(tx Tx, r Record) (Record, error) {
 	artifact, err := documentArtifact(tx, Text(r, "artifact_id"))
 	if err != nil {
@@ -107,6 +113,8 @@ func requestDocumentReview(tx Tx, r Record) (Record, error) {
 	return tx.Insert("review_tasks", taskRecord)
 }
 
+// decideDocument applies a review decision to the exact frozen document digest.
+// It records the authenticated actor and updates the task without altering content.
 func decideDocument(tx Tx, actor string, r, task, artifact Record) (Record, error) {
 	if Text(artifact, "workflow_state") != "frozen" || Text(task, "artifact_digest") != documentDigest(artifact) {
 		return nil, problem(409, "Review requires the frozen document snapshot")
@@ -156,6 +164,9 @@ func documentArtifact(tx Tx, artifactID string) (Record, error) {
 	}
 	return projectDocumentState(artifact, states), nil
 }
+
+// projectDocumentState overlays the highest recorded lifecycle revision on a copy
+// of the immutable artifact, leaving the stored content version unchanged.
 func projectDocumentState(artifact Record, states []Record) Record {
 	result := copyRecord(artifact)
 	for _, state := range states {

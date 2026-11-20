@@ -24,9 +24,7 @@ import { fileURLToPath } from 'node:url'
 import { upsertDraft } from './docstore.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PROJECT_ROOT = resolve(
-  process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'),
-)
+const PROJECT_ROOT = resolve(process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'))
 
 import { convertInput, embedImages } from '../wiki-service/parsers.mjs'
 
@@ -60,16 +58,7 @@ function stripVersion(name) {
   return result.slice(0, end)
 }
 
-function outputLayout({
-  system,
-  version,
-  category,
-  subcategory,
-  docName,
-  input,
-  outBase,
-  module,
-}) {
+function outputLayout({ system, version, category, subcategory, docName, input, outBase, module }) {
   // 输出路径：结构化规约 or 旧 module 布局
   const VERSION_IN_NAME = /\b[vV]?\d+([._-]\d+)+\b/
   let outDir, stem, docMeta
@@ -115,17 +104,10 @@ async function main() {
   const subcategory = opt('--subcategory')
   const docName = opt('--name')
   const forcedEngine = opt('--engine')
-  if (
-    forcedEngine &&
-    !['mineru', 'docling', 'markitdown'].includes(forcedEngine)
-  ) {
-    fail(
-      `--engine 仅支持 mineru|docling|markitdown（均为服务端引擎），收到: ${forcedEngine}`,
-    )
+  if (forcedEngine && !['mineru', 'docling', 'markitdown'].includes(forcedEngine)) {
+    fail(`--engine 仅支持 mineru|docling|markitdown（均为服务端引擎），收到: ${forcedEngine}`)
   }
-  const outBase = opt('--outdir')
-    ? resolve(opt('--outdir'))
-    : join(PROJECT_ROOT, 'data', 'raw')
+  const outBase = opt('--outdir') ? resolve(opt('--outdir')) : join(PROJECT_ROOT, 'data', 'raw')
 
   if (!existsSync(input)) fail(`输入文件不存在: ${input}`)
   const ext = extname(input).toLowerCase()
@@ -133,8 +115,7 @@ async function main() {
   const result = await convertInput(input, forcedEngine)
   const { md: content, images, engine } = result
 
-  if (!content.trim())
-    fail('解析结果为空（可能是图片型 PDF，需 OCR），本次摄取终止。')
+  if (!content.trim()) fail('解析结果为空（可能是图片型 PDF，需 OCR），本次摄取终止。')
 
   const { outDir, stem, docMeta } = outputLayout({
     system,
@@ -157,18 +138,13 @@ async function main() {
   const { record } = upsertDraft(PROJECT_ROOT, {
     ...docMeta,
     path: relPath,
-    source_file: existsSync(rawCopy)
-      ? relative(PROJECT_ROOT, rawCopy).split('\\').join('/')
-      : null,
+    source_file: existsSync(rawCopy) ? relative(PROJECT_ROOT, rawCopy).split('\\').join('/') : null,
   })
 
   console.log(`engine: ${engine}`)
   console.log(`output: ${outPath}`)
   console.log(`chars: ${embedded.md.length}`)
-  if (images.length)
-    console.log(
-      `images: ${embedded.written}/${images.length} -> ${stem}_assets/`,
-    )
+  if (images.length) console.log(`images: ${embedded.written}/${images.length} -> ${stem}_assets/`)
   console.log(`manifest: ${record.doc_id} [${record.state}] (${relPath})`)
 }
 

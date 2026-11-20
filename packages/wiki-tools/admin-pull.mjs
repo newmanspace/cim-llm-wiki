@@ -31,7 +31,7 @@ function saveRegistry(reg) {
 }
 
 async function main() {
-  const args = process.argv.slice(2).filter(a => !a.startsWith('--'))
+  const args = process.argv.slice(2).filter((a) => !a.startsWith('--'))
   const all = process.argv.includes('--all')
   const reg = loadRegistry()
 
@@ -52,9 +52,13 @@ async function main() {
     try {
       const cfg = await fetchProjectConfig(id)
       reg.projects[id] = cfg
-      console.log(`  ✓ ${id}: ${cfg.name || ''} docs=${(cfg.docs || []).length} repos=${(cfg.repos || []).length} modules=${(cfg.modules || []).length}`)
+      console.log(
+        `  ✓ ${id}: ${cfg.name || ''} docs=${(cfg.docs || []).length} repos=${(cfg.repos || []).length} modules=${(cfg.modules || []).length}`,
+      )
     } catch (err) {
-      console.warn(`  ✗ ${id}: 拉取失败 (${err.message})${err.status === 401 ? ' — 检查 ADMIN_PROJECT_TOKEN' : ''}`)
+      console.warn(
+        `  ✗ ${id}: 拉取失败 (${err.message})${err.status === 401 ? ' — 检查 ADMIN_PROJECT_TOKEN' : ''}`,
+      )
     }
   }
   saveRegistry(reg)
@@ -68,4 +72,7 @@ function ADMIN_HINT() {
   return url.slice(0, end)
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

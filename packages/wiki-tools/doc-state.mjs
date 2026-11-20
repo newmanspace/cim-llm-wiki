@@ -1,9 +1,5 @@
 #!/usr/bin/env node
-import {
-  resolveSource,
-  resolveShared,
-  hashFile,
-} from '../wiki-core/sources.mjs'
+import { resolveSource, resolveShared, hashFile } from '../wiki-core/sources.mjs'
 // 文档状态管控 CLI：data/documents/manifest.json
 // 状态机: draft ──freeze──▶ frozen ──activate(或 compile 自动)──▶ active ──新版本active──▶ superseded
 //
@@ -22,9 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { loadManifest, findDoc, transition, sha256 } from './docstore.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const ROOT = resolve(
-  process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'),
-)
+const ROOT = resolve(process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'))
 
 function fail(msg) {
   console.error(msg)
@@ -43,8 +37,7 @@ function referencedBundles() {
     for (const s of new Set(
       [d.source_doc, ...(d.nodes || []).map((n) => n.source)].filter(Boolean),
     )) {
-      if (!String(s).startsWith('data/') && !String(s).startsWith('shared://'))
-        continue
+      if (!String(s).startsWith('data/') && !String(s).startsWith('shared://')) continue
       ;(out[s] ||= []).push({
         bundle: d.bundle_id || b,
         compiled: !!d.compiled_at,
@@ -65,10 +58,7 @@ async function main() {
   const m = loadManifest(ROOT)
   const need = (target) => {
     const rec = findDoc(m, target)
-    if (!rec)
-      fail(
-        `manifest 中找不到文档: ${target}\n可先执行: node doc-state.mjs list`,
-      )
+    if (!rec) fail(`manifest 中找不到文档: ${target}\n可先执行: node doc-state.mjs list`)
     return rec
   }
 
@@ -80,13 +70,7 @@ async function main() {
       }
       const bundles = referencedBundles()
       const rows = m.docs.map((r) =>
-        [
-          r.doc_id,
-          r.state,
-          r.version ?? '-',
-          (bundles[r.path] || []).length,
-          r.path,
-        ].join('  '),
+        [r.doc_id, r.state, r.version ?? '-', (bundles[r.path] || []).length, r.path].join('  '),
       )
       console.log('doc_id  state  version  bundles  path')
       console.log(rows.join('\n'))
@@ -106,9 +90,7 @@ async function main() {
         by: process.env.USER || 'user',
         note: opt('--note') || '修正完成，正文定稿',
       })
-      console.log(
-        `frozen: ${updated.doc_id} (${updated.version ?? '-'}) sha256=${h.slice(0, 12)}…`,
-      )
+      console.log(`frozen: ${updated.doc_id} (${updated.version ?? '-'}) sha256=${h.slice(0, 12)}…`)
       return
     },
     unfreeze: async () => {
@@ -124,15 +106,10 @@ async function main() {
       const rec = need(args[1])
       if (!flag('--force')) {
         const bs = referencedBundles()[rec.path] || []
-        if (!bs.length)
-          fail(
-            `${rec.doc_id}: 无任何 bundle 引用该文档，不能激活。 (--force 跳过)`,
-          )
+        if (!bs.length) fail(`${rec.doc_id}: 无任何 bundle 引用该文档，不能激活。 (--force 跳过)`)
         const pending = bs.filter((b) => !b.compiled).map((b) => b.bundle)
         if (pending.length)
-          fail(
-            `${rec.doc_id}: 以下 bundle 尚未编译入库，不能激活: ${pending.join(', ')}`,
-          )
+          fail(`${rec.doc_id}: 以下 bundle 尚未编译入库，不能激活: ${pending.join(', ')}`)
       }
       const updated = await transition(ROOT, rec.doc_id, 'active', {
         by: process.env.USER || 'user',
@@ -159,10 +136,7 @@ async function main() {
           bad++
           continue
         }
-        if (
-          r.original_uri &&
-          hashFile(resolveShared(r.original_uri)) !== r.original_sha256
-        ) {
+        if (r.original_uri && hashFile(resolveShared(r.original_uri)) !== r.original_sha256) {
           console.log(`ERROR [original_drift] ${r.doc_id}`)
           bad++
         }
@@ -176,11 +150,7 @@ async function main() {
           }
         }
       }
-      console.log(
-        bad
-          ? `\nverify: ${bad} error`
-          : `verify: ${m.docs.length} 篇文档全部通过`,
-      )
+      console.log(bad ? `\nverify: ${bad} error` : `verify: ${m.docs.length} 篇文档全部通过`)
       process.exit(bad ? 1 : 0)
       return
     },

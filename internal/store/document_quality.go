@@ -96,6 +96,10 @@ func qualityError(err error) error {
 	}
 	return err
 }
+
+// WithProject locks the project row before running a ledger command, serializing
+// mutations for that project. The command and its receipt commit together; errors
+// roll back database changes, but cannot roll back external side effects.
 func (s *Store) WithProject(ctx context.Context, project, actor string, fn func(documentquality.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -111,6 +115,7 @@ func (s *Store) WithProject(ctx context.Context, project, actor string, fn func(
 	}
 	return qualityError(tx.Commit(ctx))
 }
+
 func (q *qualityTx) table(kind string) (string, error) {
 	if !qualityTables[kind] {
 		return "", &documentquality.Error{Status: 404, Message: "Unknown document resource"}
@@ -137,6 +142,7 @@ func (q *qualityTx) Get(kind, id string) (documentquality.Record, error) {
 	e = json.Unmarshal(b, &r)
 	return r, e
 }
+
 func (q *qualityTx) List(kind string) ([]documentquality.Record, error) {
 	table, e := q.table(kind)
 	if e != nil {
@@ -168,6 +174,7 @@ func (q *qualityTx) List(kind string) ([]documentquality.Record, error) {
 	}
 	return out, rows.Err()
 }
+
 func payload(r documentquality.Record) ([]byte, error) {
 	out := map[string]any{}
 	for k, v := range r {
@@ -180,6 +187,7 @@ func payload(r documentquality.Record) ([]byte, error) {
 	}
 	return json.Marshal(out)
 }
+
 func (q *qualityTx) Insert(kind string, r documentquality.Record) (documentquality.Record, error) {
 	table, e := q.table(kind)
 	if e != nil {
@@ -208,6 +216,8 @@ var updatableTables = map[string]bool{
 	"publications":      true,
 }
 
+// Update allows mutable ledger resources only and uses the expected revision to
+// reject stale writes. Historical artifacts, assessments and events stay append-only.
 func (q *qualityTx) Update(kind, id string, revision int, r documentquality.Record) (documentquality.Record, error) {
 	if !updatableTables[kind] {
 		return nil, fmt.Errorf("history cannot be updated")

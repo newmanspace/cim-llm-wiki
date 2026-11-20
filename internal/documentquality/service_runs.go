@@ -4,6 +4,9 @@ import (
 	"strconv"
 )
 
+// beginPublication validates the latest artifact, assessment and review before
+// reserving publication. It only records ledger state; external build and file
+// operations run separately and must report their outcome through finishPublication.
 func beginPublication(tx Tx, r Record) (Record, error) {
 	artifact, e := documentArtifact(tx, Text(r, "artifact_id"))
 	if e != nil {
@@ -50,6 +53,8 @@ func beginPublication(tx Tx, r Record) (Record, error) {
 	})
 }
 
+// finishPublication records the outcome of an active publication reservation.
+// It does not undo external file writes or rebuild previously published output.
 func finishPublication(tx Tx, r Record) (Record, error) {
 	pub, e := tx.Get("publications", Text(r, "id"))
 	if e != nil {
@@ -67,6 +72,9 @@ func finishPublication(tx Tx, r Record) (Record, error) {
 	return tx.Update("publications", id(pub), revision(pub), next)
 }
 
+// saveRun dispatches run creation, collection failures and terminal updates.
+// A new repository-backed run must use the current enabled source configuration
+// and pin its Git commit or SVN revision before accepting observations.
 func saveRun(tx Tx, r Record) (Record, error) {
 	if Text(r, "source_type") == "local_file" && Text(r, "id") == "" {
 		return saveLocalFileRun(tx, r)
@@ -118,6 +126,8 @@ func linkRun(tx Tx, kind, field string, run, record Record) error {
 	return e
 }
 
+// saveObservation links source evidence to an active run. Re-observing the same
+// repository version reuses its record, but conflicting content hashes are rejected.
 func saveObservation(tx Tx, r Record) (Record, error) {
 	if e := required(r, "run_id", "repository_path", "original_uri", "original_sha256"); e != nil {
 		return nil, e
@@ -161,6 +171,8 @@ func saveObservation(tx Tx, r Record) (Record, error) {
 	return out, nil
 }
 
+// saveLocalFileRun accepts local ingestion only when no project data sources are
+// configured; it cannot bypass the evidence required for a bound Git or SVN source.
 func saveLocalFileRun(tx Tx, r Record) (Record, error) {
 	if err := required(r, "recipe_version"); err != nil {
 		return nil, err
@@ -179,6 +191,8 @@ func saveLocalFileRun(tx Tx, r Record) (Record, error) {
 	})
 }
 
+// finishRun permits a single transition from running to a terminal status.
+// Repeated completion is handled by the command receipt, not by rewriting the run.
 func finishRun(tx Tx, r Record) (Record, error) {
 	old, e := tx.Get("ingest_runs", Text(r, "id"))
 	if e != nil {

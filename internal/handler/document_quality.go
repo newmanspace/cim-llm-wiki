@@ -37,6 +37,7 @@ func NewDocumentQualityHandler(s *store.Store) *DocumentQualityHandler {
 	_ = json.Unmarshal([]byte(os.Getenv("CIM_WIKI_REVIEW_TOKENS")), &h.reviewers)
 	return h
 }
+
 func (h *DocumentQualityHandler) Ready() bool { return len(h.token) >= 32 }
 func (h *DocumentQualityHandler) InternalAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -49,6 +50,7 @@ func (h *DocumentQualityHandler) InternalAuth() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
 func qualityReply(c *gin.Context, v any, err error) {
 	if err == nil {
 		c.JSON(200, gin.H{"data": v})
@@ -62,6 +64,8 @@ func qualityReply(c *gin.Context, v any, err error) {
 	c.JSON(503, gin.H{"error": "Document ledger unavailable"})
 }
 
+// checkOperationPermission separates human configuration edits from internal
+// document workflow commands. Authentication itself is enforced by route middleware.
 func checkOperationPermission(internal bool, op string) error {
 	isConfig := configurationOperation(op)
 	if !internal && !isConfig {
@@ -80,6 +84,8 @@ func checkOperationPermission(internal bool, op string) error {
 	return nil
 }
 
+// resolveReviewer derives the actor from an independent review token instead of
+// request data. The ledger service credential cannot also authorize human review.
 func resolveReviewer(c *gin.Context, reviewers map[string]string, ledgerToken string) (string, error) {
 	provided := c.GetHeader("X-Document-Review-Token")
 	for name, secret := range reviewers {
@@ -263,6 +269,8 @@ func configurationOperation(op string) bool {
 	return configOps[op]
 }
 
+// filterDirectoryCatalogRows preserves the distinction between an omitted parent
+// (all levels) and an explicitly empty parent (root directories only).
 func filterDirectoryCatalogRows(rows []documentquality.Record, query url.Values) []documentquality.Record {
 	items := make([]documentquality.Record, 0, len(rows))
 	q := strings.ToLower(query.Get("q"))
@@ -348,6 +356,7 @@ func qualityRecordPage(
 	}
 	return gin.H{"items": filtered, "next_cursor": next}
 }
+
 func matchesQualityRecord(
 	c *gin.Context, resource string, r documentquality.Record,
 	filters func(documentquality.Record) bool,
@@ -363,6 +372,7 @@ func matchesQualityRecord(
 	}
 	return true
 }
+
 func matchesStatusAndFolder(c *gin.Context, r documentquality.Record) bool {
 	if status := c.Query("status"); status != "" && documentquality.Text(r, "status") != status {
 		return false
@@ -373,6 +383,7 @@ func matchesStatusAndFolder(c *gin.Context, r documentquality.Record) bool {
 	}
 	return true
 }
+
 func qualityPageLimit(c *gin.Context, fallback int) (int, error) {
 	if raw := c.Query("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -419,6 +430,7 @@ func (f artifactFilterIndex) matches(r documentquality.Record) bool {
 	}
 	return f.qualityStatus == "" || f.qualityStatus == status
 }
+
 func (f artifactFilterIndex) matchesSource(r documentquality.Record) bool {
 	if f.sourceID != "" {
 		found := false

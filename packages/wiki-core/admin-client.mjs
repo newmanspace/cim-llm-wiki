@@ -35,7 +35,11 @@ async function adminFetch(path, { method = 'GET', body, useToken = false } = {})
   const text = await res.text()
   let data = null
   if (text) {
-    try { data = JSON.parse(text) } catch { data = { raw: text } }
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = { raw: text }
+    }
   }
   if (!res.ok) {
     const err = new Error(data?.error || `HTTP ${res.status}`)

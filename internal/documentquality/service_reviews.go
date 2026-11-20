@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+// supersedePending invalidates pending tasks for an artifact while preserving
+// review history. Each status change receives an immutable audit event.
 func supersedePending(tx Tx, artifactID string) error {
 	tasks, e := tx.List("review_tasks")
 	if e != nil {
@@ -34,6 +36,9 @@ func supersedePending(tx Tx, artifactID string) error {
 	return nil
 }
 
+// saveEvaluation binds scores and issues to the current artifact hash and policy.
+// It supersedes pending reviews and creates the replacement review task in the
+// caller's transaction, so assessment and review state cannot diverge.
 func saveEvaluation(tx Tx, r Record) (Record, error) {
 	artifact, e := documentArtifact(tx, Text(r, "artifact_id"))
 	if e != nil {
@@ -101,6 +106,9 @@ func saveEvaluation(tx Tx, r Record) (Record, error) {
 	return eval, nil
 }
 
+// createEvaluationReview records automatic approval only when Assess has found
+// complete evidence and no review requirement. The approval event preserves the
+// score, threshold and policy digest that justified that decision.
 func createEvaluationReview(
 	tx Tx, artifact, evaluation Record, policy Effective, assessment Assessment,
 ) (Record, error) {
@@ -142,6 +150,9 @@ func createEvaluationReview(
 	return task, err
 }
 
+// saveDecision rejects stale tasks, superseded artifacts and changed policies.
+// The actor must already be authenticated by the caller; the decision and task
+// status update share the project transaction.
 func saveDecision(tx Tx, actor string, r Record) (Record, error) {
 	if e := required(r, "task_id", "note", "decision"); e != nil {
 		return nil, e

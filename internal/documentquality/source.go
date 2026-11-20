@@ -45,6 +45,7 @@ func normalizeGitURL(raw string) (string, error) {
 	u.Host = strings.ToLower(u.Host)
 	return strings.TrimRight(u.String(), "/"), nil
 }
+
 func hasGitRefBoundaryIssue(ref string) bool {
 	if strings.Contains(ref, "..") || strings.Contains(ref, "//") {
 		return true
@@ -63,6 +64,7 @@ func validGitReference(ref string) bool {
 	}
 	return true
 }
+
 func sourceType(r Record) string {
 	if Text(r, "source_type") == "local_file" {
 		return "local_file"
@@ -72,12 +74,14 @@ func sourceType(r Record) string {
 	}
 	return "svn"
 }
+
 func sourceRevision(r Record) string {
 	if sourceType(r) == "git" {
 		return Text(r, "commit_sha")
 	}
 	return Text(r, "operative_revision")
 }
+
 func repositoryIdentity(r Record) string {
 	if sourceType(r) == "git" {
 		return Text(r, "repository_url")
@@ -151,6 +155,7 @@ func normalizeSourceURL(kind, remote string) (string, string, error) {
 	}
 	return remote, auth, nil
 }
+
 func validateSourceSubpath(sub string) error {
 	if sub != "" {
 		for _, part := range strings.Split(sub, "/") {

@@ -14,9 +14,11 @@ type Tx interface {
 	Insert(string, Record) (Record, error)
 	Update(string, string, int, Record) (Record, error)
 }
+
 type Repository interface {
 	WithProject(context.Context, string, string, func(Tx) error) error
 }
+
 type Service struct{ Repository Repository }
 type Error struct {
 	Status   int
@@ -31,6 +33,7 @@ func Text(r Record, key string) string {
 	v, _ := r[key].(string)
 	return v
 }
+
 func number(r Record, key string) float64 {
 	switch v := r[key].(type) {
 	case float64:
@@ -41,16 +44,19 @@ func number(r Record, key string) float64 {
 		return 0
 	}
 }
+
 func object(r Record, key string) map[string]any {
 	v, _ := r[key].(map[string]any)
 	return v
 }
+
 func copyRecord(r Record) Record {
 	b, _ := json.Marshal(r)
 	var n Record
 	_ = json.Unmarshal(b, &n)
 	return n
 }
+
 func id(r Record) string    { return Text(r, "id") }
 func revision(r Record) int { return int(number(r, "revision")) }
 func required(r Record, keys ...string) error {
@@ -61,6 +67,7 @@ func required(r Record, keys ...string) error {
 	}
 	return nil
 }
+
 func policies(tx Tx) ([]Policy, error) {
 	rows, err := tx.List("quality_policies")
 	if err != nil {
@@ -79,6 +86,7 @@ func policies(tx Tx) ([]Policy, error) {
 	}
 	return out, nil
 }
+
 func effective(tx Tx, path string) (Effective, error) {
 	p, err := policies(tx)
 	if err != nil {
@@ -86,6 +94,7 @@ func effective(tx Tx, path string) (Effective, error) {
 	}
 	return Resolve(p, path)
 }
+
 func folder(path string) string {
 	i := strings.LastIndex(path, "/")
 	if i < 0 {
@@ -93,6 +102,9 @@ func folder(path string) string {
 	}
 	return path[:i]
 }
+
+// nonPublishing blocks guarded mutations until an in-flight publication is reconciled.
+// This keeps the policy and document evidence stable while publication is active.
 func nonPublishing(tx Tx) error {
 	rows, e := tx.List("publications")
 	if e != nil {
@@ -151,6 +163,7 @@ func commandDigest(operation string, input Record) string {
 	}
 	return Digest(input)
 }
+
 func populateArtifactWorkflowStates(tx Tx, rows []Record) error {
 	hasWorkflow := false
 	for _, row := range rows {
@@ -182,6 +195,8 @@ func filterLiveDirectories(rows []Record) []Record {
 	return active
 }
 
+// Read returns a project-scoped ledger view. Workflow states are projected from
+// immutable events, and deleted directories are omitted from directory listings.
 func (s Service) Read(ctx context.Context, project, actor, resource string) ([]Record, error) {
 	var rows []Record
 	err := s.Repository.WithProject(ctx, project, actor, func(tx Tx) error {
@@ -197,6 +212,7 @@ func (s Service) Read(ctx context.Context, project, actor, resource string) ([]R
 	}
 	return rows, err
 }
+
 func (s Service) Policy(ctx context.Context, project, actor, path string) (Effective, error) {
 	var p Effective
 	e := s.Repository.WithProject(ctx, project, actor, func(tx Tx) error {
@@ -206,6 +222,7 @@ func (s Service) Policy(ctx context.Context, project, actor, path string) (Effec
 	})
 	return p, e
 }
+
 func (s Service) executeOperation(tx Tx, actor, operation string, input Record) (Record, error) {
 	handlers := map[string]func(Tx, Record) (Record, error){
 		"naming-settings":           saveNamingSettings,
@@ -227,6 +244,7 @@ func (s Service) executeOperation(tx Tx, actor, operation string, input Record) 
 	}
 	return s.mutate(tx, actor, operation, input)
 }
+
 func (s Service) mutate(tx Tx, actor, op string, r Record) (Record, error) {
 	if op != "publication-start" && op != "publication-finish" && op != "ingest-runs" {
 		if e := nonPublishing(tx); e != nil {
@@ -259,6 +277,7 @@ func (s Service) mutate(tx Tx, actor, op string, r Record) (Record, error) {
 		return nil, problem(404, "Unknown document quality operation")
 	}
 }
+
 func saveSource(tx Tx, r Record) (Record, error) {
 	normalized, e := NormalizeSourceConfig(r)
 	if e != nil {
@@ -313,6 +332,7 @@ func saveSource(tx Tx, r Record) (Record, error) {
 		"config_revision": config["config_revision"],
 	})
 }
+
 func savePolicy(tx Tx, r Record) (Record, error) {
 	if expected := Text(r, "expected_digest"); expected != "" {
 		current, e := effective(tx, Text(r, "path"))
@@ -361,6 +381,10 @@ func savePolicy(tx Tx, r Record) (Record, error) {
 	}
 	return tx.Insert("quality_policies", Record{"path": path, "patch": patch, "policy_revision": n})
 }
+
+// saveArtifact reuses an identical artifact version or appends a new immutable one.
+// Source evidence must belong to an active run; a new version supersedes pending
+// reviews of its predecessor within the same project transaction.
 func saveArtifact(tx Tx, r Record) (Record, error) {
 	requiredFields := []string{
 		"run_id", "target_path", "content_uri", "content_sha256",
@@ -422,6 +446,7 @@ func saveArtifact(tx Tx, r Record) (Record, error) {
 	}
 	return initializeDocumentState(tx, saved, r)
 }
+
 func saveDirectory(tx Tx, r Record) (Record, error) {
 	return mutateDirectory(tx, r)
 }
@@ -481,6 +506,8 @@ func autoApprovalIneligible(eval Record, p Effective) bool {
 	return eval["total"] == nil || number(eval, "total") < p.Threshold
 }
 
+// verifyPublicationApproval requires approval of the latest assessment. Automatic
+// approval must still satisfy the effective policy when publication begins.
 func verifyPublicationApproval(tx Tx, artifact, eval Record, p Effective) error {
 	assessments, err := tx.List("evaluations")
 	if err != nil {

@@ -168,6 +168,7 @@ func validateDocumentReservation(tx Tx, r Record) error {
 	}
 	return nil
 }
+
 func rejectExistingDocument(tx Tx, r Record) error {
 	rows, err := tx.List("document_identities")
 	if err != nil {
@@ -184,6 +185,7 @@ func rejectExistingDocument(tx Tx, r Record) error {
 	}
 	return nil
 }
+
 func reserveDocumentIdentity(tx Tx, r Record) (Record, error) {
 	if err := validateDocumentReservation(tx, r); err != nil {
 		return nil, err
