@@ -82,7 +82,10 @@ func (s *Store) GetProject(ctx context.Context, id string) (*types.ProjectConfig
 	p.CreatedAt = createdAt.Format(time.RFC3339)
 	p.UpdatedAt = updatedAt.Format(time.RFC3339)
 
-	for _, load := range []func(context.Context, *types.ProjectConfig) error{s.loadProjectDocs, s.loadProjectRepos, s.loadProjectModules, s.loadProjectWikiNodes} {
+	loaders := []func(context.Context, *types.ProjectConfig) error{
+		s.loadProjectDocs, s.loadProjectRepos, s.loadProjectModules, s.loadProjectWikiNodes,
+	}
+	for _, load := range loaders {
 		if err := load(ctx, &p); err != nil {
 			return nil, err
 		}
@@ -117,9 +120,10 @@ func (s *Store) loadProjectDocs(ctx context.Context, p *types.ProjectConfig) err
 
 func (s *Store) loadProjectRepos(ctx context.Context, p *types.ProjectConfig) error {
 	// Load repos with module mappings
-	repoRows, err := s.pool.Query(ctx,
-		`SELECT id, name, url, branch, COALESCE(submodule,''), COALESCE(last_sync_sha,''), synced_at,source_type,source_subpath,revision_selector,enabled,config_revision
-		 FROM project_repos WHERE project_id = $1 ORDER BY name`, p.ID)
+	query := `SELECT id, name, url, branch, COALESCE(submodule,''), COALESCE(last_sync_sha,''), ` +
+		`synced_at,source_type,source_subpath,revision_selector,enabled,config_revision ` +
+		`FROM project_repos WHERE project_id = $1 ORDER BY name`
+	repoRows, err := s.pool.Query(ctx, query, p.ID)
 	if err != nil {
 		return err
 	}
@@ -128,7 +132,11 @@ func (s *Store) loadProjectRepos(ctx context.Context, p *types.ProjectConfig) er
 		var r types.RepoBinding
 		var repoDBID int
 		var synced *time.Time
-		if err := repoRows.Scan(&repoDBID, &r.Name, &r.URL, &r.Branch, &r.Submodule, &r.LastSyncSHA, &synced, &r.Type, &r.Subpath, &r.RevisionSelector, &r.Enabled, &r.ConfigRevision); err != nil {
+		err := repoRows.Scan(
+			&repoDBID, &r.Name, &r.URL, &r.Branch, &r.Submodule, &r.LastSyncSHA,
+			&synced, &r.Type, &r.Subpath, &r.RevisionSelector, &r.Enabled, &r.ConfigRevision,
+		)
+		if err != nil {
 			return err
 		}
 		if synced != nil {
@@ -199,6 +207,8 @@ func (s *Store) loadProjectWikiNodes(ctx context.Context, p *types.ProjectConfig
 			p.WikiNodes.Doc = append(p.WikiNodes.Doc, path)
 		case "code":
 			p.WikiNodes.Code = append(p.WikiNodes.Code, path)
+		default:
+			// Ignore other planes
 		}
 	}
 
@@ -211,7 +221,8 @@ func (s *Store) CreateProject(ctx context.Context, p *types.NewProject, director
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO projects (id, name, product, version) VALUES ($1, $2, $3, $4)`, p.ID, p.Name, p.Product, p.Version); err != nil {
+	insertProject := `INSERT INTO projects (id, name, product, version) VALUES ($1, $2, $3, $4)`
+	if _, err = tx.Exec(ctx, insertProject, p.ID, p.Name, p.Product, p.Version); err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
 	if err := insertDocumentDirectories(ctx, tx, p.ID, directories); err != nil {
@@ -239,7 +250,8 @@ func (s *Store) UpdateProjectBasics(ctx context.Context, id string, patch map[st
 	}
 	defer tx.Rollback(ctx)
 	var name, product, version string
-	if err := tx.QueryRow(ctx, `SELECT name, product, version FROM projects WHERE id=$1 FOR UPDATE`, id).Scan(&name, &product, &version); err != nil {
+	query := `SELECT name, product, version FROM projects WHERE id=$1 FOR UPDATE`
+	if err := tx.QueryRow(ctx, query, id).Scan(&name, &product, &version); err != nil {
 		return err
 	}
 	current := map[string]string{"name": name, "product": product, "version": version}
@@ -253,7 +265,8 @@ func (s *Store) UpdateProjectBasics(ctx context.Context, id string, patch map[st
 		}
 	}
 	if len(assignments) > 0 {
-		if _, err := tx.Exec(ctx, "UPDATE projects SET "+strings.Join(assignments, ", ")+" WHERE id=$1", args...); err != nil {
+		updateQuery := "UPDATE projects SET " + strings.Join(assignments, ", ") + " WHERE id=$1"
+		if _, err := tx.Exec(ctx, updateQuery, args...); err != nil {
 			return err
 		}
 	}
@@ -263,7 +276,9 @@ func (s *Store) UpdateProjectBasics(ctx context.Context, id string, patch map[st
 // ─── Token Management ────────────────────────────────────────────────────────
 
 // IssueToken creates a new project token and returns the plaintext token (shown once).
-func (s *Store) IssueToken(ctx context.Context, projectID string, scopes []string, expiresAt *time.Time, createdBy string) (string, error) {
+func (s *Store) IssueToken(
+	ctx context.Context, projectID string, scopes []string, expiresAt *time.Time, createdBy string,
+) (string, error) {
 	// Generate random token
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -317,46 +332,63 @@ func (s *Store) RevokeToken(ctx context.Context, tokenHash string) error {
 
 // ─── Sync Status ─────────────────────────────────────────────────────────────
 
-func (s *Store) RecordSync(ctx context.Context, projectID, repoName, fromSHA, toSHA string,
-	changedFiles int, affectedModules []string, status, errMsg string, durationMs int) error {
+type RecordSyncParams struct {
+	ProjectID       string
+	RepoName        string
+	FromSHA         string
+	ToSHA           string
+	ChangedFiles    int
+	AffectedModules []string
+	Status          string
+	ErrorMessage    string
+	DurationMs      int
+}
+
+func (s *Store) RecordSync(ctx context.Context, p RecordSyncParams) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO sync_logs (project_id, repo_name, from_sha, to_sha, changed_files,
 		 affected_modules, status, error_message, duration_ms)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		projectID, repoName, fromSHA, toSHA, changedFiles, affectedModules, status, errMsg, durationMs)
+		p.ProjectID, p.RepoName, p.FromSHA, p.ToSHA, p.ChangedFiles,
+		p.AffectedModules, p.Status, p.ErrorMessage, p.DurationMs)
 	if err != nil {
 		return err
 	}
 	// Update repo last_sync_sha
-	if toSHA != "" {
+	if p.ToSHA != "" {
 		_, _ = s.pool.Exec(ctx,
 			`UPDATE project_repos SET last_sync_sha = $1, synced_at = now() WHERE project_id = $2 AND name = $3`,
-			toSHA, projectID, repoName)
+			p.ToSHA, p.ProjectID, p.RepoName)
 	}
 	return nil
 }
 
-func (s *Store) GetSyncLogs(ctx context.Context, projectID string, limit int) ([]SyncLog, error) {
+func (s *Store) GetSyncLogs(ctx context.Context, projectID string, limit, offset int) ([]SyncLog, int, error) {
+	var total int
+	query := `SELECT COUNT(*) FROM sync_logs WHERE project_id = $1`
+	if err := s.pool.QueryRow(ctx, query, projectID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, project_id, COALESCE(repo_name,''), COALESCE(from_sha,''), COALESCE(to_sha,''),
 		 changed_files, affected_modules, status, COALESCE(error_message,''), COALESCE(duration_ms,0), synced_at
-		 FROM sync_logs WHERE project_id = $1 ORDER BY synced_at DESC LIMIT $2`,
-		projectID, limit)
+		 FROM sync_logs WHERE project_id = $1 ORDER BY synced_at DESC, id DESC LIMIT $2 OFFSET $3`,
+		projectID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var out []SyncLog
+	out := make([]SyncLog, 0)
 	for rows.Next() {
 		var l SyncLog
 		if err := rows.Scan(&l.ID, &l.ProjectID, &l.RepoName, &l.FromSHA, &l.ToSHA,
 			&l.ChangedFiles, &l.AffectedModules, &l.Status, &l.ErrorMessage, &l.DurationMs, &l.SyncedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, l)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 type SyncLog struct {
@@ -428,7 +460,9 @@ func insertDocumentDirectories(ctx context.Context, tx pgx.Tx, project string, e
 		if err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO dq_directories(project_id,payload,created_by) VALUES($1,$2,'system:document-template') ON CONFLICT DO NOTHING`, project, payload); err != nil {
+		query := `INSERT INTO dq_directories(project_id,payload,created_by) ` +
+			`VALUES($1,$2,'system:document-template') ON CONFLICT DO NOTHING`
+		if _, err = tx.Exec(ctx, query, project, payload); err != nil {
 			return err
 		}
 	}

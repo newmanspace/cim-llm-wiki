@@ -2,14 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
-import {
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-  existsSync,
-} from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -78,28 +71,17 @@ test('maintenance conversion and source lifecycle enforce frozen hashes and comp
   const root = workspace(t),
     env = envFor(root)
   await ok('scripts/ci-wiki-fixture.mjs', [root], env)
-  for (const script of [
-    'packages/wiki-core/cli.mjs',
-    'packages/wiki-tools/validate.mjs',
-  ]) {
+  for (const script of ['packages/wiki-core/cli.mjs', 'packages/wiki-tools/validate.mjs']) {
     const result = await ok(
       script,
-      [
-        'validate',
-        join(root, 'data/wiki'),
-        '--project-root',
-        root,
-        '--json',
-      ].slice(script.includes('wiki-tools') ? 1 : 0),
+      ['validate', join(root, 'data/wiki'), '--project-root', root, '--json'].slice(
+        script.includes('wiki-tools') ? 1 : 0,
+      ),
       env,
     )
     assert.equal(JSON.parse(result.stdout).errors.length, 0)
   }
-  await ok(
-    'packages/wiki-core/cli.mjs',
-    ['validate', '--project-root', root],
-    env,
-  )
+  await ok('packages/wiki-core/cli.mjs', ['validate', '--project-root', root], env)
   const input = join(root, 'source.txt')
   write(input, '# Source\nOriginal requirement')
   await ok('packages/wiki-tools/parse.mjs', [input, '--module', 'wip'], env)
@@ -109,35 +91,20 @@ test('maintenance conversion and source lifecycle enforce frozen hashes and comp
   assert.equal(record.state, 'draft')
   await ok('packages/wiki-tools/doc-state.mjs', ['list'], env)
   await ok('packages/wiki-tools/doc-state.mjs', ['show', record.doc_id], env)
-  await ok(
-    'packages/wiki-tools/doc-state.mjs',
-    ['freeze', path, '--note', 'reviewed'],
-    env,
-  )
+  await ok('packages/wiki-tools/doc-state.mjs', ['freeze', path, '--note', 'reviewed'], env)
   await ok('packages/wiki-tools/doc-state.mjs', ['verify'], env)
   write(join(root, path), '# Changed source')
-  assert.equal(
-    (await cli('packages/wiki-tools/doc-state.mjs', ['verify'], env)).code,
-    1,
-  )
+  assert.equal((await cli('packages/wiki-tools/doc-state.mjs', ['verify'], env)).code, 1)
   await ok('packages/wiki-tools/doc-state.mjs', ['unfreeze', path], env)
   await ok('packages/wiki-tools/doc-state.mjs', ['freeze', path], env)
-  assert.equal(
-    (await cli('packages/wiki-tools/doc-state.mjs', ['activate', path], env))
-      .code,
-    1,
-  )
+  assert.equal((await cli('packages/wiki-tools/doc-state.mjs', ['activate', path], env)).code, 1)
   const bundlePath = join(root, 'data/work/CR-LIFECYCLE/nodes.json')
   write(bundlePath, {
     bundle_id: 'CR-LIFECYCLE',
     source_doc: path,
     nodes: [{ source: path }, { source: 'untracked' }],
   })
-  assert.equal(
-    (await cli('packages/wiki-tools/doc-state.mjs', ['activate', path], env))
-      .code,
-    1,
-  )
+  assert.equal((await cli('packages/wiki-tools/doc-state.mjs', ['activate', path], env)).code, 1)
   write(bundlePath, {
     bundle_id: 'CR-LIFECYCLE',
     source_doc: path,
@@ -166,26 +133,32 @@ test('maintenance conversion and source lifecycle enforce frozen hashes and comp
     env,
   )
   assert.ok(existsSync(join(root, 'data/raw/MES/V1/design/wip/user-manual.md')))
-  for (const args of [
-    [],
-    [input, '--engine', 'unknown'],
-    [input, '--name', 'orphan'],
-  ])
-    assert.equal(
-      (await cli('packages/wiki-tools/parse.mjs', args, env)).code,
-      1,
-    )
+  for (const args of [[], [input, '--engine', 'unknown'], [input, '--name', 'orphan']])
+    assert.equal((await cli('packages/wiki-tools/parse.mjs', args, env)).code, 1)
   write(input, '')
-  assert.equal(
-    (await cli('packages/wiki-tools/parse.mjs', [input], env)).code,
-    1,
-  )
+  assert.equal((await cli('packages/wiki-tools/parse.mjs', [input], env)).code, 1)
   for (const args of [['show', 'missing'], ['unknown']])
-    assert.equal(
-      (await cli('packages/wiki-tools/doc-state.mjs', args, env)).code,
-      1,
-    )
+    assert.equal((await cli('packages/wiki-tools/doc-state.mjs', args, env)).code, 1)
   await ok('packages/wiki-tools/doc-state.mjs', [], env)
+})
+
+test('structured parsing removes versions adjacent to document names', async (t) => {
+  const root = workspace(t),
+    env = envFor(root)
+  const input = join(root, 'input.txt')
+  write(input, 'Document content')
+  for (const [name, stem] of [
+    ['Manualv1.2', 'manual'],
+    ['用户手册V2.22.4', '用户手册'],
+    ['Manual _- v1.2 details', 'manual-details'],
+  ]) {
+    await ok(
+      'packages/wiki-tools/parse.mjs',
+      [input, '--system', 'MES', '--version', 'V1', '--category', 'design', '--name', name],
+      env,
+    )
+    assert.ok(existsSync(join(root, 'data/raw/MES/V1/design', stem + '.md')), name)
+  }
 })
 
 test('conversion CLI delegates Office parsing to HTTP and preserves returned images', async (t) => {
@@ -200,9 +173,7 @@ test('conversion CLI delegates Office parsing to HTTP and preserves returned ima
       JSON.stringify({
         document: {
           md_content: '# Converted\n\n<!-- image -->',
-          images: [
-            { ext: 'png', data: Buffer.from('image-bytes').toString('base64') },
-          ],
+          images: [{ ext: 'png', data: Buffer.from('image-bytes').toString('base64') }],
         },
       }),
     )
@@ -221,10 +192,7 @@ test('conversion CLI delegates Office parsing to HTTP and preserves returned ima
     readFileSync(join(root, 'data/raw/wip/manual_assets/img-001.png'), 'utf8'),
     'image-bytes',
   )
-  assert.equal(
-    readFileSync(join(root, 'data/raw/wip/manual.xlsx'), 'utf8'),
-    'source-office-bytes',
-  )
+  assert.equal(readFileSync(join(root, 'data/raw/wip/manual.xlsx'), 'utf8'), 'source-office-bytes')
 })
 
 test('portable skill client uses independent reviewer credentials and rejects invalid origins', async (t) => {
@@ -248,22 +216,12 @@ test('portable skill client uses independent reviewer credentials and rejects in
   }
   await ok(script, ['context', '--project', 'mes'], env)
   assert.equal(requests.at(-1).path, '/api/v2/knowledge/context?project=mes')
-  await ok(
-    script,
-    ['review', '--json-file', '-'],
-    env,
-    '{"decision":"approve"}',
-  )
+  await ok(script, ['review', '--json-file', '-'], env, '{"decision":"approve"}')
   assert.equal(requests.at(-1).auth, 'Bearer reviewer-unit-token')
-  await ok(script, ['validate'], env)
-  response = { errors: [{ code: 'invalid' }] }
-  assert.equal((await cli(script, ['validate'], env)).code, 1)
+  await ok(script, ['context', '--project', 'mes'], env)
   status = 403
   response = { error: 'forbidden' }
-  assert.match(
-    (await cli(script, ['bundle', '--id', 'CR-TEST'], env)).stderr,
-    /403: forbidden/,
-  )
+  assert.match((await cli(script, ['context', '--project', 'mes'], env)).stderr, /403: forbidden/)
   for (const args of [
     [],
     ['unknown'],
@@ -281,19 +239,10 @@ test('portable skill client uses independent reviewer credentials and rejects in
     'http://user:pass@example.test',
     base + '?query=1',
   ])
-    assert.equal(
-      (await cli(script, ['context'], { ...env, CIM_WIKI_URL: origin })).code,
-      1,
-    )
+    assert.equal((await cli(script, ['context'], { ...env, CIM_WIKI_URL: origin })).code, 1)
   assert.equal(
-    (
-      await cli(
-        script,
-        ['review', '--json-file', '-'],
-        { ...env, CIM_WIKI_REVIEW_TOKEN: '' },
-        '{}',
-      )
-    ).code,
+    (await cli(script, ['review', '--json-file', '-'], { ...env, CIM_WIKI_REVIEW_TOKEN: '' }, '{}'))
+      .code,
     1,
   )
 })
@@ -308,9 +257,7 @@ test('Admin client refreshes a configured project without leaking another projec
     res.writeHead(status, { 'Content-Type': 'application/json' })
     res.end(
       JSON.stringify(
-        status === 200
-          ? { id: 'mes', name: 'MES', modules: ['wip'] }
-          : { error: 'denied' },
+        status === 200 ? { id: 'mes', name: 'MES', modules: ['wip'] } : { error: 'denied' },
       ),
     )
   })
@@ -325,10 +272,7 @@ test('Admin client refreshes a configured project without leaking another projec
   await ok('packages/wiki-tools/admin-pull.mjs', ['mes'], env)
   assert.equal(json(registryPath).projects.mes.name, 'MES')
   await ok('packages/wiki-tools/admin-pull.mjs', ['mes'], envFor(root))
-  assert.equal(
-    (await cli('packages/wiki-tools/admin-pull.mjs', [], env)).code,
-    1,
-  )
+  assert.equal((await cli('packages/wiki-tools/admin-pull.mjs', [], env)).code, 1)
 })
 
 function git(root, ...args) {
@@ -384,13 +328,8 @@ test('repository synchronization maps changed files by longest module prefix and
   )
   const snapshot = json(join(root, 'data/sync/mes-diff-snapshot.json'))
   assert.ok(snapshot.affected_modules.includes('wip'))
-  assert.ok(
-    snapshot.changed_files.some((file) => file.path === 'src/wip/a.txt'),
-  )
+  assert.ok(snapshot.changed_files.some((file) => file.path === 'src/wip/a.txt'))
   await ok('packages/wiki-tools/sync-repo.mjs', ['mes'], env)
   await ok('packages/wiki-tools/sync-repo.mjs', ['missing'], env)
-  assert.equal(
-    (await cli('packages/wiki-tools/sync-repo.mjs', [], env)).code,
-    1,
-  )
+  assert.equal((await cli('packages/wiki-tools/sync-repo.mjs', [], env)).code, 1)
 })

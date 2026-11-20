@@ -3,7 +3,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PROJECT_ROOT } from './contracts.mjs'
-import { validateWiki, assertValidWiki } from './validate.mjs'
+import { validateWiki } from './validate.mjs'
+import { assertBuildInput } from './build-validation.mjs'
 import { compileBundle } from './compile.mjs'
 import { adminEnabled, pushWikiNodes } from './admin-client.mjs'
 import {
@@ -106,12 +107,11 @@ export async function runCli(argv = process.argv.slice(2)) {
       preview: !!values['--preview'],
       afterPublish: async (result) => {
         if (gitopsEnabled() && result.written.length) {
-          assertValidWiki({ wikiRoot, projectRoot })
+          assertBuildInput({ wikiRoot, projectRoot })
           ensureRepo(repoRoot)
           const commit = commitWiki(
             repoRoot,
             `chore(wiki): ${result.project} ${result.bundleId} - ${result.written.length} node(s)`,
-            { projectRoot },
           )
           if (commit.committed) pushWiki(repoRoot)
         }

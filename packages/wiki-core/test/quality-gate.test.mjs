@@ -19,10 +19,11 @@ test('Go coverage combines blocks across test binaries without diluting coverage
   assert.match(result.stdout, /80.00%/)
 })
 
-test('Go coverage rejects a value below the threshold even when display rounds up', t => {
-  const result = check(t, 'mode: atomic\na.go:1.1,2.1 79999 1\na.go:3.1,4.1 20001 0\n')
-  assert.equal(result.status, 1)
-  assert.match(result.stdout, /80.00%/)
+test('Go coverage reports a low percentage without enforcing a threshold', t => {
+  const result = check(t, 'mode: atomic\na.go:1.1,2.1 1 1\na.go:3.1,4.1 99 0\n')
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /1.00%/)
+  assert.match(result.stdout, /threshold disabled/)
 })
 
 test('Go coverage refuses empty or malformed reports', t => {

@@ -21,7 +21,7 @@ defineProps<{ title: string; subtitle?: string }>()
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .page-header__title {
@@ -40,7 +40,8 @@ defineProps<{ title: string; subtitle?: string }>()
 .page-header__actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 767px) {

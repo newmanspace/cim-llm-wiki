@@ -41,16 +41,19 @@ test('project registry, token and synchronization requests preserve their API co
     data: { token: 'issued-once' },
   })
   vi.mocked(client.get).mockResolvedValue({
-    data: { logs: [{ status: 'success' }], nodes: [{ plane: 'doc' }] },
+    data: { logs: [{ status: 'success' }], total: 1, nodes: [{ plane: 'doc' }] },
   })
-  expect(await api.getSyncLogs('mes')).toEqual([{ status: 'success' }])
+  expect(await api.getSyncLogs('mes')).toEqual({ logs: [{ status: 'success' }], total: 1 })
   expect(client.get).toHaveBeenLastCalledWith('/admin/projects/mes/sync-logs', {
-    params: { limit: 20 },
+    params: { limit: 20, offset: 0 },
   })
   expect(await api.getWikiNodes('mes')).toEqual([{ plane: 'doc' }])
   vi.mocked(client.get).mockResolvedValue({ data: {} })
-  expect(await api.getSyncLogs('mes', 50)).toEqual([])
+  await expect(api.getSyncLogs('mes', 50, 10)).rejects.toThrow('同步历史分页响应无效')
   expect(await api.getWikiNodes('mes')).toEqual([])
+  vi.mocked(client.get).mockResolvedValue({ data: { logs: [], total: 101 } })
+  expect(await api.getSyncLogs('mes', 20, 120)).toEqual({ logs: [], total: 101 })
+  expect(client.get).toHaveBeenLastCalledWith('/admin/projects/mes/sync-logs', { params: { limit: 20, offset: 120 } })
 })
 
 test('project Wiki requests keep the URL project scope and return directory settings', async () => {

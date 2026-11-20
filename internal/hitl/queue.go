@@ -105,7 +105,9 @@ func (q *Queue) save() error {
 }
 
 // Push creates a ChangeBundle from the given nodes and stores it as pending.
-func (q *Queue) Push(ctx context.Context, sourceDoc, module string, nodes []types.KnowledgeNode) (*types.ChangeBundle, error) {
+func (q *Queue) Push(
+	ctx context.Context, sourceDoc, module string, nodes []types.KnowledgeNode,
+) (*types.ChangeBundle, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -185,7 +187,9 @@ func (q *Queue) Reject(ctx context.Context, bundleID, reviewer, note string) (*t
 	return q.transition(ctx, bundleID, types.BundleRejected, reviewer, note)
 }
 
-func (q *Queue) transition(ctx context.Context, bundleID string, status types.BundleStatus, reviewer, note string) (*types.ChangeBundle, error) {
+func (q *Queue) transition(
+	ctx context.Context, bundleID string, status types.BundleStatus, reviewer, note string,
+) (*types.ChangeBundle, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 

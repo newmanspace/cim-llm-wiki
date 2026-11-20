@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import MarkdownPreview from './MarkdownPreview.vue'
-const props = defineProps<{ markdown: string; parsed: string; project: string }>()
+import DocumentPackagePreview from './DocumentPackagePreview.vue'
+type Package = { entry: string; files: { path: string; media_type: string }[] }
+const props = defineProps<{ markdown: string; parsed: string; project: string; base?: string; artifactId?: string; candidatePackage?: Package | null; parsedPackage?: Package | null }>()
 const mode = ref('render')
 const differences = computed(() => {
   const left = props.parsed.split('\n'), right = props.markdown.split('\n')
@@ -24,8 +25,8 @@ const differences = computed(() => {
       <pre v-for="(line, index) in differences" :key="index" :class="line.kind">{{ line.kind === 'added' ? '+' : '−' }} {{ line.text }}</pre>
     </div>
     <div v-else class="comparison">
-      <section><h4>候选正文</h4><MarkdownPreview v-if="mode === 'render'" :markdown="markdown" /><pre v-else>{{ markdown }}</pre></section>
-      <section><h4>原文转换稿</h4><MarkdownPreview v-if="mode === 'render'" :markdown="parsed" /><pre v-else>{{ parsed }}</pre></section>
+      <section><h4>候选正文</h4><DocumentPackagePreview v-if="mode === 'render'" :markdown="markdown" :pack="candidatePackage" :base="base || ''" :artifact-id="artifactId || ''" scope="candidate" /><pre v-else>{{ markdown }}</pre></section>
+      <section><h4>原文转换稿</h4><DocumentPackagePreview v-if="mode === 'render'" :markdown="parsed" :pack="parsedPackage" :base="base || ''" :artifact-id="artifactId || ''" scope="parsed" /><pre v-else>{{ parsed }}</pre></section>
     </div>
   </section>
 </template>

@@ -1,10 +1,6 @@
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  PROJECT_ROOT,
-  schemaErrors,
-  REFERENCE_TYPES,
-} from './contracts.mjs'
+import { PROJECT_ROOT, schemaErrors, REFERENCE_TYPES } from './contracts.mjs'
 import { structureErrors } from './markdown.mjs'
 
 function checkRule(rule, contract, wikiRoot, project) {
@@ -14,9 +10,7 @@ function checkRule(rule, contract, wikiRoot, project) {
     throw new Error(`${rule.id}: modules is only valid for module scope`)
   if (rule.scope === 'module') {
     if (!contract.modules?.length)
-      throw new Error(
-        `${rule.id}: module scope requires a nonempty project module inventory`,
-      )
+      throw new Error(`${rule.id}: module scope requires a nonempty project module inventory`)
     for (const module of rule.modules || contract.modules) {
       if (!contract.modules.includes(module))
         throw new Error(`${rule.id}: undeclared module ${module}`)
@@ -43,33 +37,24 @@ function checkDeliveryContract(contract, wikiRoot, project) {
     throw new Error(`Delivery configuration must match Project: ${project}`)
   const ids = new Set()
   for (const rule of contract.documents) {
-    if (ids.has(rule.id))
-      throw new Error(`Duplicate document rule ID: ${rule.id}`)
+    if (ids.has(rule.id)) throw new Error(`Duplicate document rule ID: ${rule.id}`)
     ids.add(rule.id)
     checkRule(rule, contract, wikiRoot, project)
   }
   for (const rule of contract.documents)
     for (const ref of rule.references || []) {
       const target = contract.documents.find((r) => r.id === ref.target_rule)
-      if (!target)
-        throw new Error(
-          `${rule.id}: unknown reference target rule ${ref.target_rule}`,
-        )
+      if (!target) throw new Error(`${rule.id}: unknown reference target rule ${ref.target_rule}`)
       if (!REFERENCE_TYPES[ref.field].includes(target.type))
-        throw new Error(
-          `${rule.id}: ${ref.field} cannot target document type ${target.type}`,
-        )
+        throw new Error(`${rule.id}: ${ref.field} cannot target document type ${target.type}`)
     }
   return contract
 }
 
 const matches = (rule, page, contract) =>
   page.fm.type === rule.type &&
-  Object.entries(rule.where || {}).every(
-    ([field, value]) => page.fm[field] === value,
-  ) &&
-  (rule.scope !== 'module' ||
-    (rule.modules || contract.modules).includes(page.fm.module))
+  Object.entries(rule.where || {}).every(([field, value]) => page.fm[field] === value) &&
+  (rule.scope !== 'module' || (rule.modules || contract.modules).includes(page.fm.module))
 
 function checkReference(ref, rule, page, key, selected, resolveLink, add) {
   const targets = new Set(
@@ -79,9 +64,7 @@ function checkReference(ref, rule, page, key, selected, resolveLink, add) {
       .map(([key]) => key),
   )
   const found = new Set()
-  for (const link of Array.isArray(page.fm[ref.field])
-    ? page.fm[ref.field]
-    : []) {
+  for (const link of Array.isArray(page.fm[ref.field]) ? page.fm[ref.field] : []) {
     if (typeof link !== 'string' || !/^\[\[[^\]]+\]\]$/.test(link)) continue
     const dest = resolveLink(link.slice(2, -2), key, true)
     if (dest && targets.has(dest)) found.add(dest)
@@ -102,29 +85,18 @@ function checkDeliveryPage(rule, page, key, selected, resolveLink, add) {
         ...(rule.structure.tables || []).map((t) => t.section),
       ]),
     ]
-    const extra = structureErrors(
-      page.tokens,
-      { ...rule.structure, requiredSections },
-      page.fm,
-    )
+    const extra = structureErrors(page.tokens, { ...rule.structure, requiredSections }, page.fm)
     for (const error of extra)
-      add(
-        'document_structure',
-        key,
-        `${rule.id}: [${error.code}] ${error.message}`,
-      )
+      add('document_structure', key, `${rule.id}: [${error.code}] ${error.message}`)
   }
   for (const ref of rule.references || [])
     checkReference(ref, rule, page, key, selected, resolveLink, add)
 }
 
 function checkCounts(rule, contract, entries, path, add) {
-  const scopes =
-    rule.scope === 'module' ? rule.modules || contract.modules : [null]
+  const scopes = rule.scope === 'module' ? rule.modules || contract.modules : [null]
   for (const module of scopes) {
-    const count = entries.filter(
-      ([, p]) => module === null || p.fm.module === module,
-    ).length
+    const count = entries.filter(([, p]) => module === null || p.fm.module === module).length
     if (count < rule.min || (rule.max !== undefined && count > rule.max)) {
       add(
         'document_count',
@@ -147,24 +119,17 @@ function checkInventory(contract, active, add) {
       contract.allow_unlisted === false &&
       !contract.documents.some((rule) => matches(rule, page, contract))
     )
-      add(
-        'document_unlisted',
-        key,
-        'Published document is outside the declared delivery list',
-      )
+      add('document_unlisted', key, 'Published document is outside the declared delivery list')
   }
 }
 
-export function validateDocumentSets({
-  wikiRoot,
-  projects,
-  pages,
-  resolveLink,
-  contractFor,
-}) {
+// Validate published pages as a project delivery set: required inventories,
+// document counts and cross-document references. Contract failures are reported
+// per project so independent projects can still be checked.
+export function validateDocumentSets({ wikiRoot, projects, pages, resolveLink, contractFor }) {
   const errors = []
   const add = (code, path, message) => errors.push({ code, path, message })
-  for (const project of [...projects].sort()) {
+  for (const project of [...projects].sort((a, b) => a.localeCompare(b))) {
     const path = `${project}/delivery`
     let contract
     try {

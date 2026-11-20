@@ -35,24 +35,28 @@ func Register(info EngineInfo, factory func(cfg *config.Config) DocParser) {
 // For returns the best DocParser for the given file extension, using cfg
 // to build the engine. If engineName is non-empty, that engine is selected
 // directly; otherwise auto-selection applies.
-func For(ctx context.Context, cfg *config.Config, filePath, engineName string) (DocParser, error) {
-	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(filePath), "."))
-
+func For(_ context.Context, cfg *config.Config, filePath, engineName string) (DocParser, error) {
 	if engineName != "" {
-		// Explicit engine requested
-		for _, r := range registry {
-			if r.info.Name == engineName {
-				p := r.factory(cfg)
-				if !p.Available() {
-					return nil, fmt.Errorf("parser: engine %q is not available", engineName)
-				}
-				return p, nil
-			}
-		}
-		return nil, fmt.Errorf("parser: unknown engine %q", engineName)
+		return findExplicitEngine(cfg, engineName)
 	}
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(filePath), "."))
+	return findAutoEngine(cfg, ext)
+}
 
-	// Auto-select: pick the first registered engine that supports this extension
+func findExplicitEngine(cfg *config.Config, engineName string) (DocParser, error) {
+	for _, r := range registry {
+		if r.info.Name == engineName {
+			p := r.factory(cfg)
+			if !p.Available() {
+				return nil, fmt.Errorf("parser: engine %q is not available", engineName)
+			}
+			return p, nil
+		}
+	}
+	return nil, fmt.Errorf("parser: unknown engine %q", engineName)
+}
+
+func findAutoEngine(cfg *config.Config, ext string) (DocParser, error) {
 	preferred := autoSelect(ext)
 	for _, name := range preferred {
 		for _, r := range registry {

@@ -89,15 +89,16 @@ test('Project delivery versions stay pinned until an explicit binding change', t
   assert.ok(codes(f).includes('document_count'))
 })
 
-test('compilation enforces Project counts before changing published content', async t => {
+test('compilation accepts renderable pages independently of current delivery minimums', async t => {
   const f = fixture(t); bind(f); const dest = page(f), before = readFileSync(dest, 'utf8')
   bind(f, [{ id: 'requirements', type: 'requirement', scope: 'project', min: 3 }])
   const bundle = { schema_version: '1.0', bundle_id: 'add-requirement', project: 'demo', nodes: [
     { ...node('REQ-WIP-002'), title: 'New requirement', content: managedBody('# New requirement\n\nConcrete new behavior.').replace(/^# [^\n]+\n/, '') },
   ] }
-  await assert.rejects(compileBundle(bundle, f), /document_count/)
+  await compileBundle(bundle, f)
   assert.equal(readFileSync(dest, 'utf8'), before)
-  assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-wip-002.md')), false)
+  assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-wip-002.md')), true)
+  assert.ok(validateWiki(f).errors.some(error => error.code === 'document_count'), 'Explicit contract validation still reports delivery gaps')
   bind(f, [{ id: 'requirements', type: 'requirement', scope: 'project', min: 2 }])
   await compileBundle(bundle, f)
   assert.deepEqual(validateWiki(f).errors, [])

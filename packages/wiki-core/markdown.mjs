@@ -4,21 +4,21 @@ import { unnumberedTitle } from './document-format.mjs'
 
 const markdown = new MarkdownIt({ html: true })
 
-export function parsePage(text) {
+export function parsePage(text, { preserveTrace = false } = {}) {
   const match = text.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
   if (!match) throw new Error('Missing or unterminated YAML frontmatter')
   const doc = parseDocument(match[1], { uniqueKeys: true, schema: 'core' })
-  if (doc.errors.length)
-    throw new Error(doc.errors.map((e) => e.message).join('; '))
+  if (doc.errors.length) throw new Error(doc.errors.map((e) => e.message).join('; '))
   const fm = doc.toJS({ maxAliasCount: 0 })
   if (!fm || Array.isArray(fm) || typeof fm !== 'object')
     throw new Error('Frontmatter must be an object')
-  const body = text
-    .slice(match[0].length)
-    .replace(
-      /\n---\r?\n> \*\*来源文档\*\*: [^\n]*\r?\n> \*\*置信度\*\*: [^\n]*\r?\n> \*\*适用版本\*\*: [^\n]*(?:\r?\n)*$/,
-      '',
-    )
+  const rawBody = text.slice(match[0].length)
+  const body = preserveTrace
+    ? rawBody
+    : rawBody.replace(
+        /\n---\r?\n> \*\*来源文档\*\*: [^\n]*\r?\n> \*\*置信度\*\*: [^\n]*\r?\n> \*\*适用版本\*\*: [^\n]*(?:\r?\n)*$/,
+        '',
+      )
   return { fm, body, tokens: markdown.parse(body, {}) }
 }
 
@@ -58,16 +58,14 @@ export function headings(tokens) {
 }
 
 function sectionMatch(heading, selector) {
-  const m = selector.match(/^(#{1,6})\s+(.+)$/)
+  const m = selector.match(/^(#{1,6})[ \t]+([^\s\r\n].*)$/)
   if (!m) return false
   const title = m[2].trim()
-  if (heading.level >= m[1].length && unnumberedTitle(heading.title) === title)
-    return true
+  if (heading.level >= m[1].length && unnumberedTitle(heading.title) === title) return true
   if (
     heading.level >= m[1].length &&
     /^\d+(?:\.\d+)+\s/.test(heading.title) &&
-    (heading.title.endsWith(`(${title})`) ||
-      heading.title.endsWith(`（${title}）`))
+    (heading.title.endsWith(`(${title})`) || heading.title.endsWith(`（${title}）`))
   )
     return true
   if (heading.level !== m[1].length) return false
@@ -108,15 +106,12 @@ function sectionRanges(tokens, hs, contract, selectors, add) {
     const sections = []
     for (const start of found) {
       const end =
-        hs.find((h) => h.index > start.index && h.level <= start.level)
-          ?.index ?? tokens.length
+        hs.find((h) => h.index > start.index && h.level <= start.level)?.index ?? tokens.length
       const content = tokens.slice(start.index + 3, end)
       sections.push(content)
       if (
         !content.some(
-          (t) =>
-            ['inline', 'fence', 'code_block', 'image'].includes(t.type) &&
-            t.content.trim(),
+          (t) => ['inline', 'fence', 'code_block', 'image'].includes(t.type) && t.content.trim(),
         )
       ) {
         add('section_empty', `Required section has no content: ${selector}`)
@@ -132,19 +127,11 @@ function tableHeaders(content) {
   for (let i = 0; i < content.length; i++) {
     if (content[i].type !== 'thead_open') continue
     const cells = []
-    for (
-      let j = i + 1;
-      j < content.length && content[j].type !== 'thead_close';
-      j++
-    ) {
+    for (let j = i + 1; j < content.length && content[j].type !== 'thead_close'; j++) {
       if (content[j].type === 'inline') cells.push(content[j].content.trim())
     }
     let hasRows = false
-    for (
-      let j = i + 1;
-      j < content.length && content[j].type !== 'table_close';
-      j++
-    ) {
+    for (let j = i + 1; j < content.length && content[j].type !== 'table_close'; j++) {
       if (content[j].type === 'tbody_open') hasRows = true
     }
     if (hasRows) headers.push(cells)
@@ -164,9 +151,7 @@ export function structureErrors(tokens, contract, fm) {
   for (const table of contract.tables || []) {
     for (const content of ranges.get(table.section) || [[]]) {
       const headers = tableHeaders(content)
-      if (
-        !headers.some((cols) => table.columns.every((c) => cols.includes(c)))
-      ) {
+      if (!headers.some((cols) => table.columns.every((c) => cols.includes(c)))) {
         add(
           'table_columns',
           `${table.section} requires a table with columns: ${table.columns.join(', ')}`,
@@ -193,16 +178,24 @@ export function pageLinks(tokens) {
     if (token.type !== 'inline') continue
     for (const child of token.children || []) {
       if (child.type === 'text') {
-        for (const [, target] of child.content.matchAll(/\[\[([^\]]+)\]\]/g))
+        for (const [, target] of child.content.matchAll(/\[\[([^[\]\r\n]+)\]\]/g))
           result.push({ target: target.split('|')[0], wiki: true })
       }
-      if (child.type === 'link_open')
-        result.push({ target: child.attrGet('href'), wiki: false })
+      if (child.type === 'link_open') result.push({ target: child.attrGet('href'), wiki: false })
       if (child.type === 'image')
         result.push({ target: child.attrGet('src'), wiki: false, image: true })
     }
   }
   return result
+}
+
+// VitePress expands these before Markdown parsing, including inside code fences.
+// File expansion would introduce inputs outside the accepted snapshot/digest.
+export function assertNoFileIncludes(text) {
+  if (/<!--\s*@include:/.test(text))
+    throw new Error(
+      '[external_include] File include directives are not supported; embed the content before submission',
+    )
 }
 
 // Markdown is document data. VitePress must not compile executable HTML/Vue
@@ -217,8 +210,7 @@ export function renderingErrors(tokens) {
         html.endsWith('-->') &&
         !html.slice(4, -3).includes('<!--') &&
         !html.slice(4, -3).includes('-->')
-      const safeTags =
-        /^(?:<\/?(?:br|hr|sub|sup|kbd|details|summary)\s*\/?>\s*)+$/i.test(html)
+      const safeTags = /^(?:<\/?(?:br|hr|sub|sup|kbd|details|summary)\s*\/?>\s*)+$/i.test(html)
       if (!comment && !safeTags)
         errors.push({
           code: 'active_content',
@@ -229,8 +221,7 @@ export function renderingErrors(tokens) {
     if (token.type === 'text' && /\{\{|\}\}/.test(token.content))
       errors.push({
         code: 'active_content',
-        message:
-          'Vue interpolation must be shown as code, not executable document content',
+        message: 'Vue interpolation must be shown as code, not executable document content',
       })
     for (const child of token.children || []) visit(child)
   }

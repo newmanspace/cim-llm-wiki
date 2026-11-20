@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +70,9 @@ func (h *AdminHandler) GetProject(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found", "id": id})
 		return
 	}
+	if !loadRegisteredProjectDocs(c, p) {
+		return
+	}
 	c.JSON(http.StatusOK, p)
 }
 
@@ -85,6 +89,9 @@ func (h *AdminHandler) GetProjectConfig(c *gin.Context) {
 	p, err := h.store.GetProject(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+	if !loadRegisteredProjectDocs(c, p) {
 		return
 	}
 	c.JSON(http.StatusOK, p)
@@ -108,7 +115,10 @@ func (h *AdminHandler) CreateProject(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Project lookup failed"})
 		return
 	}
-	directories, err := NewDocumentDefaultsHandler(h.store).InitializeProject(c, p.ID, p.Name, p.Version, fields["wiki_source_directory"])
+	defaultsHandler := NewDocumentDefaultsHandler(h.store)
+	directories, err := defaultsHandler.InitializeProject(
+		c, p.ID, p.Name, p.Version, fields["wiki_source_directory"],
+	)
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Project document initialization failed", "detail": err.Error()})
 		return
@@ -142,6 +152,13 @@ func (h *AdminHandler) UpdateProject(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "id": c.Param("id")})
 }
 
+func isAllowedProjectField(field string, creating bool) bool {
+	if field == "name" || field == "product" || field == "version" {
+		return true
+	}
+	return creating && (field == "id" || field == "wiki_source_directory")
+}
+
 func readProjectFields(c *gin.Context, creating bool) (map[string]string, bool) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16*1024)
 	decoder := json.NewDecoder(c.Request.Body)
@@ -156,7 +173,7 @@ func readProjectFields(c *gin.Context, creating bool) (map[string]string, bool) 
 	}
 	patch := map[string]string{}
 	for field, value := range input {
-		if (field != "name" && field != "product" && field != "version" && !(creating && (field == "id" || field == "wiki_source_directory"))) || value == nil {
+		if value == nil || !isAllowedProjectField(field, creating) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Only allowed project string fields may be supplied"})
 			return nil, false
 		}
@@ -281,8 +298,17 @@ func (h *AdminHandler) RecordSyncStatus(c *gin.Context) {
 	}
 
 	start := time.Now()
-	err := h.store.RecordSync(c.Request.Context(), id, req.RepoName, req.FromSHA, req.ToSHA,
-		req.ChangedFiles, req.AffectedModules, req.Status, req.ErrorMessage, req.DurationMs)
+	err := h.store.RecordSync(c.Request.Context(), store.RecordSyncParams{
+		ProjectID:       id,
+		RepoName:        req.RepoName,
+		FromSHA:         req.FromSHA,
+		ToSHA:           req.ToSHA,
+		ChangedFiles:    req.ChangedFiles,
+		AffectedModules: req.AffectedModules,
+		Status:          req.Status,
+		ErrorMessage:    req.ErrorMessage,
+		DurationMs:      req.DurationMs,
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -291,7 +317,7 @@ func (h *AdminHandler) RecordSyncStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "recorded", "project_id": id})
 }
 
-// GetSyncLogs GET /api/v1/admin/projects/:id/sync-logs?limit=20
+// GetSyncLogs GET /api/v1/admin/projects/:id/sync-logs?limit=20&offset=0
 func (h *AdminHandler) GetSyncLogs(c *gin.Context) {
 	id := c.Param("id")
 	limit := 20
@@ -300,12 +326,21 @@ func (h *AdminHandler) GetSyncLogs(c *gin.Context) {
 			limit = n
 		}
 	}
-	logs, err := h.store.GetSyncLogs(c.Request.Context(), id, limit)
+	offset := 0
+	if value := c.Query("offset"); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "offset must be a non-negative integer"})
+			return
+		}
+		offset = n
+	}
+	logs, total, err := h.store.GetSyncLogs(c.Request.Context(), id, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"project_id": id, "logs": logs, "count": len(logs)})
+	c.JSON(http.StatusOK, gin.H{"project_id": id, "logs": logs, "count": len(logs), "total": total})
 }
 
 func parseInt(s string) (int, error) {
@@ -357,7 +392,10 @@ func (h *AdminHandler) SaveCodeSource(c *gin.Context) {
 		c.JSON(422, gin.H{"error": "Code source JSON object required"})
 		return
 	}
-	if err := h.store.SaveCodeSource(c.Request.Context(), c.Param("id"), input.RepoBinding, input.ExpectedRevision); err != nil {
+	err := h.store.SaveCodeSource(
+		c.Request.Context(), c.Param("id"), input.RepoBinding, input.ExpectedRevision,
+	)
+	if err != nil {
 		qualityReply(c, nil, err)
 		return
 	}

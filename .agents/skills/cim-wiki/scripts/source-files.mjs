@@ -1,7 +1,7 @@
 import { mkdirSync, lstatSync, realpathSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
-export const extensions = /\.(pdf|docx?|xlsx?|pptx?|md|txt|html?)$/i
+export const extensions = /\.(pdf|docx?|xlsx?|pptx?|md|txt|html?|png|jpe?g|gif|webp|svg|csv|zip)$/i
 export function validateBinding(project, mount) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(project))
     throw new Error('Invalid project binding')

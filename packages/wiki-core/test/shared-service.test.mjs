@@ -29,11 +29,11 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
   mkdirSync(join(wikiRoot, 'demo'), { recursive: true })
   save(join(shared, 'sources/original.xlsx'), 'original XLSX fixture bytes')
   const reviewToken = 'human-review-only-' + 'r'.repeat(32)
-  const calls = []
+  const calls = [], requestLogs = [], ledgerRequestIds = []
   const ledgerToken = 'private-build-service-' + 'l'.repeat(32)
   let ledgerURL
   if (builds) {
-    const ledger = createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: req.url.endsWith('/project') ? { id: 'demo', repos: [], modules: ['terms'], docs: [] } : { items: [], next_cursor: '' } })) })
+    const ledger = createServer((req, res) => { ledgerRequestIds.push(req.headers['x-request-id']); res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: req.url.endsWith('/project') ? { id: 'demo', repos: [], modules: ['terms'], docs: [] } : { items: [], next_cursor: '' } })) })
     ledger.listen(0, '127.0.0.1'); await once(ledger, 'listening')
     ledgerURL = `http://127.0.0.1:${ledger.address().port}`
     t.after(() => { ledger.closeAllConnections(); ledger.close() })
@@ -46,7 +46,7 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
   }
   const buildRuntime = builds ? createBuildRuntime({ projectRoot, wikiRoot, roots, projectWikis, socketPath: join(root, 'build.sock') }) : undefined
   if (buildRuntime) t.after(() => buildRuntime.close())
-  const server = createKnowledgeServer({ projectWikis, projectRoot, wikiRoot, roots, autoPublish, buildRuntime, ledgerURL, ledgerToken: builds ? ledgerToken : undefined, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
+  const server = createKnowledgeServer({ logWriter: line => requestLogs.push(JSON.parse(line)), projectWikis, projectRoot, wikiRoot, roots, autoPublish, buildRuntime, ledgerURL, ledgerToken: builds ? ledgerToken : undefined, token: 'test-token', reviewerTokens: { 'Domain Reviewer': reviewToken }, parser: async (input, engine) => {
     calls.push({ input, engine }); return { md: '# Terms\n\nA source-backed definition.\n', images: [] }
   } })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -66,7 +66,7 @@ async function fixture(t, { autoPublish = true, builds = false, projectStorage =
     qscore: { auth: 1, comp: 1, rel: 1, fresh: 1, struct: 1, reuse: 1, risk: .1, total: .99 },
   }] })
   const submit = async b => { save(join(shared, 'demo/work/nodes.json'), b); return api('bundles', { uri: 'shared://team/demo/work/nodes.json' }) }
-  return { projectWikis, reviewToken, ledgerToken, buildRuntime, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
+  return { ledgerRequestIds, requestLogs, projectWikis, reviewToken, ledgerToken, buildRuntime, root, projectRoot, wikiRoot, shared, roots, calls, api, origin, registration, bundle, submit }
 }
 async function ready(f) {
   const converted = await f.api('convert', f.registration)
@@ -116,7 +116,8 @@ test('conversion, freezing and publishing preserve original paths outside the pr
   assert.deepEqual(validateWiki({ projectRoot: f.projectRoot, wikiRoot: f.wikiRoot, roots: { team: moved } }).errors, [], 'Mount paths can change while provenance retains the original ingest path')
   save(join(f.shared, 'sources/original.xlsx'), 'modified original')
   assert.ok((await f.api('validate', {})).value.errors.some(e => e.code === 'original_drift'))
-  assert.equal((await f.api('compile', { bundle_id: f.bundle().bundle_id })).status, 422)
+  assert.equal((await f.api('compile', { bundle_id: f.bundle().bundle_id })).status, 200)
+  assert.equal((await f.submit(f.bundle('CR-DRIFTED-SOURCE'))).status, 409, 'New submissions still verify original sources')
   rmSync(join(f.shared, 'sources/original.xlsx'))
   assert.ok((await f.api('validate', {})).value.errors.some(e => e.code === 'original_unavailable'))
 })
@@ -151,13 +152,14 @@ test('human review binds to an immutable submitted bundle and low scores cannot 
   assert.equal((await f.api('compile', { bundle_id: replacement.bundle_id })).status, 409)
 })
 
-test('missing provenance and parsed-source drift block publication', async t => {
+test('submit verifies parsed sources while compilation uses the accepted document content', async t => {
   const f = await fixture(t); await ready(f)
   const b = f.bundle()
   assert.equal((await f.submit(b)).status, 200)
   save(join(f.shared, 'demo/parsed/terms.md'), '# Changed parsed document\n\nChanged content.')
-  assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 422)
-  assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md')), false)
+  assert.equal((await f.api('compile', { bundle_id: b.bundle_id })).status, 200)
+  assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md')), true)
+  assert.equal((await f.submit(f.bundle('CR-PARSED-DRIFT'))).status, 409)
   const response = await f.api('convert', { ...f.registration, source: 'shared://team/../secret', parsed: 'shared://team/new.md' })
   assert.notEqual(response.status, 200)
 })
@@ -284,7 +286,7 @@ test('product directory initialization runs through human review, strict compila
   const wikiRequire = createRequire(baseConfigUrl)
   const isolatedConfig = readFileSync(baseConfigPath, 'utf8')
     .replace("from 'vitepress'", `from ${JSON.stringify(pathToFileURL(wikiRequire.resolve('vitepress')).href)}`)
-    .replace("from '../../packages/wiki-core/validate.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/validate.mjs')).href)}`)
+    .replace("from '../../packages/wiki-core/markdown.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/markdown.mjs')).href)}`)
     .replace("from '../../packages/wiki-core/repository-docs.mjs'", `from ${JSON.stringify(pathToFileURL(join(repo, 'packages/wiki-core/repository-docs.mjs')).href)}`)
     .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(baseConfigUrl)})`)
     .replace('export default defineConfig({', `export default defineConfig({\n  outDir: ${JSON.stringify(join(site, 'dist'))},\n  cacheDir: ${JSON.stringify(join(site, 'cache'))},`)
@@ -293,18 +295,25 @@ test('product directory initialization runs through human review, strict compila
   await runChild([join(repo, 'wiki/node_modules/vitepress/bin/vitepress.js'), 'build', site], env)
   assert.equal(existsSync(join(site, 'dist/demo/catalog/_index.html')), false)
   assert.ok(existsSync(join(site, 'dist/demo/doc/requirements/req-terms-001.html')))
+  // The compiler guard must also protect direct VitePress use without a snapshot.
+  writeFileSync(join(f.root, 'outside.md'), 'OUTSIDE_SNAPSHOT_SENTINEL')
+  writeFileSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md'), '# Include\n\n<!--@include: ' + join(f.root, 'outside.md') + '-->')
+  const rejected = await runChild([join(repo, 'wiki/node_modules/vitepress/bin/vitepress.js'), 'build', site], env, 1)
+  assert.match(rejected, /external_include/)
+  assert.doesNotMatch(readFileSync(join(site, 'dist/demo/doc/requirements/req-terms-001.html'), 'utf8'), /OUTSIDE_SNAPSHOT_SENTINEL/)
 })
 
-async function runChild(args, env) {
+async function runChild(args, env, expectedCode = 0) {
   const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
   let output = ''
   child.stdout.on('data', chunk => { output += chunk })
   child.stderr.on('data', chunk => { output += chunk })
   const [code] = await once(child, 'close')
-  assert.equal(code, 0, output)
+  assert.equal(code, expectedCode, output)
+  return output
 }
 
-test('a reviewed bundle cannot publish after its bound document contract is upgraded',async t=>{
+test('a reviewed bundle compiles with its accepted content after the current document contract is upgraded',async t=>{
   const f=await fixture(t,{autoPublish:false});await ready(f)
   const bundle=f.bundle('CR-20261113-0001','L1_expert')
   assert.equal((await f.submit(bundle)).status,200)
@@ -313,9 +322,11 @@ test('a reviewed bundle cannot publish after its bound document contract is upgr
   state.draft.name='New system contract'
   store.save(state.draft,state.revision,'Test Administrator');store.publish(state.revision+1,'Test Administrator')
   store.bind('demo',['terms'],{},store.state().published_version,true)
+  save(join(f.projectRoot,'data/documents/manifest.json'),{docs:[]})
   const result=await f.api('compile',{bundle_id:bundle.bundle_id})
-  assert.equal(result.status,409);assert.match(result.value.error,/contract changed/)
-  assert.equal(existsSync(join(f.wikiRoot,'demo/doc/requirements/req-terms-001.md')),false)
+  assert.equal(result.status,200,JSON.stringify(result.value))
+  assert.match(readFileSync(join(f.wikiRoot,'demo/doc/requirements/req-terms-001.md'),'utf8'),/Term requirement/)
+  assert.doesNotMatch(readFileSync(join(f.wikiRoot,'demo/doc/requirements/req-terms-001.md'),'utf8'),/New system contract/)
 })
 
 
@@ -370,9 +381,10 @@ test('approved preview is isolated and publication durably triggers a Git-based 
   assert.equal(formal.status, 200, JSON.stringify(formal.value))
   assert.equal(formal.value.site_build.mode, 'formal')
   assert.equal(formal.value.site_build.state, 'queued', JSON.stringify(formal.value.site_build))
-  assert.equal(formal.value.site_build.gitCommit, git(['rev-parse', 'HEAD']))
+  assert.equal(formal.value.site_build.baseCommit, baseline)
+  assert.equal(git(['rev-parse', 'HEAD']), baseline)
   assert.notEqual(formal.value.site_build.gitCommit, baseline)
-  assert.equal(git(['status', '--porcelain']), '')
+  assert.match(git(['status', '--porcelain', '--untracked-files=all']), /req-terms-001.md/)
   f.buildRuntime.reconcile()
   const jobs = (await internal('')).value.data
   assert.equal(jobs.filter(job => job.mode === 'formal').length, 1)
@@ -413,14 +425,148 @@ test('project storage API preserves review gates, previews candidates and commit
   process.env.WIKI_GITOPS_ENABLED = 'true'
   t.after(() => { if (previous === undefined) delete process.env.WIKI_GITOPS_ENABLED; else process.env.WIKI_GITOPS_ENABLED = previous })
   const blocked = await f.api('compile', { bundle_id: b.bundle_id })
-  assert.equal(blocked.status, 422)
+  assert.equal(blocked.status, 409)
   assert.match(blocked.value.error, /uncommitted/)
   assert.equal(existsSync(join(source, 'doc/requirements/req-terms-001.md')), false)
   rmSync(dirty)
   const published = await f.api('compile', { bundle_id: b.bundle_id })
   assert.equal(published.status, 200, JSON.stringify(published.value))
   assert.equal(published.value.site_build.state, 'queued', JSON.stringify(published.value))
-  assert.equal(f.projectWikis.status('demo').gitStatus, 'clean')
+  assert.equal(f.projectWikis.status('demo').gitStatus, 'dirty')
   assert.equal(existsSync(join(source, 'doc/requirements/req-terms-001.md')), true)
   assert.equal(existsSync(join(f.wikiRoot, 'demo/doc/requirements/req-terms-001.md')), false)
+})
+
+test('submission reports indexed schema diagnostics before template, identity or source checks', async t => {
+  const f = await fixture(t)
+  const bundle = f.bundle('CR-SCHEMA-001')
+  delete bundle.nodes[0].type
+  bundle.nodes[0].node_type = 'sdd'
+  bundle.nodes[0].template_id = 'sdd-alarm'
+  bundle.nodes[0].document_id = bundle.nodes[0].id
+  bundle.nodes[0].metadata = { product: 'Example' }
+  bundle.nodes.push(null)
+  const result = await f.submit(bundle)
+  assert.equal(result.status, 422)
+  assert.equal(result.value.code, 'BUNDLE_SCHEMA_INVALID')
+  const paths = result.value.diagnostics.map(d => d.path)
+  for (const path of ['/nodes/0/type', '/nodes/0/node_type', '/nodes/0/metadata', '/nodes/0/document_id', '/nodes/1']) assert.ok(paths.includes(path), path)
+  assert.ok(result.value.diagnostics.every(d => !['/nodes/0/api_type', '/nodes/0/rule_type', '/nodes/0/pattern'].includes(d.path)))
+  assert.doesNotMatch(result.value.error, /undefined|Source must be frozen/)
+  assert.equal((await f.api('bundle?id=' + bundle.bundle_id)).status, 404)
+})
+
+test('submission continues to fill server-owned fields after early schema validation', async t => {
+  const f = await fixture(t); await ready(f)
+  const bundle = f.bundle('CR-SCHEMA-002')
+  for (const field of ['schema_version', 'reviewer', 'status', 'created_at', 'updated_at', 'confidence']) delete bundle.nodes[0][field]
+  const result = await f.submit(bundle)
+  assert.equal(result.status, 200, JSON.stringify(result.value))
+  const node = result.value.bundle.nodes[0]
+  assert.equal(node.reviewer, 'auto')
+  assert.equal(node.confidence, .99)
+  assert.equal(node.status, 'published')
+  assert.equal(node.schema_version, '1.0')
+  assert.ok(Number.isFinite(Date.parse(node.created_at)))
+})
+
+
+test('registered sources are immediately visible to administrators with current lifecycle and project isolation', async t => {
+  const f = await fixture(t, { builds: true })
+  const list = async (project = 'demo', credential = f.ledgerToken) => {
+    const response = await fetch(`${f.origin}/internal/source-documents?project=${project}`, { headers: { Authorization: `Bearer ${credential}` } })
+    return { status: response.status, value: await response.json() }
+  }
+  assert.deepEqual((await list()).value.documents, [])
+  save(join(f.shared, 'demo/parsed/terms.md'), '# Registered source\n\nText')
+  assert.equal((await f.api('register', f.registration)).status, 200)
+  let result = await list()
+  assert.equal(result.status, 200)
+  assert.equal(result.value.documents.length, 1)
+  assert.equal(result.value.documents[0].path, f.registration.parsed)
+  assert.equal(result.value.documents[0].state, 'draft')
+  assert.equal(result.value.documents[0].original_uri, f.registration.source)
+  assert.equal('original_path' in result.value.documents[0], false)
+  assert.equal('markdown' in result.value.documents[0], false)
+  assert.equal((await f.api('register', f.registration)).status, 409)
+  assert.equal((await list()).value.documents.length, 1)
+  assert.equal((await f.api('state', { source: f.registration.parsed, action: 'freeze', reviewer: 'Test Operator' })).status, 200)
+  result = await list()
+  assert.equal(result.value.documents[0].state, 'frozen')
+  assert.equal(result.value.documents[0].history.at(-1).to, 'frozen')
+  assert.equal((await f.api('state', { source: f.registration.parsed, action: 'unfreeze' })).status, 200)
+  assert.equal((await list()).value.documents[0].state, 'draft')
+  assert.deepEqual((await list('another-project')).value.documents, [])
+  assert.equal((await list('demo', 'test-token')).status, 403)
+})
+
+
+test('HTTP logs correlate failed submissions without recording secrets or document bodies', async t => {
+  const f = await fixture(t)
+  const response = await fetch(`${f.origin}/api/v2/knowledge/bundles?token=query-secret`, {
+    method: 'POST', headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json', 'X-Request-ID': 'submit-correlation-001' },
+    body: JSON.stringify({ project: 'demo', uri: 'shared://team/missing.json', content: 'private-document-marker', password: 'private-password-marker' }),
+  })
+  assert.equal(response.headers.get('x-request-id'), 'submit-correlation-001')
+  assert.equal(response.status, 422)
+  await response.json()
+  const records = f.requestLogs.filter(r => r.http.request.id === 'submit-correlation-001')
+  assert.equal(records[0].event.action, 'request.started')
+  assert.equal(records.at(-1).event.action, 'request.completed')
+  assert.equal(records.at(-1).event.outcome, 'failure')
+  assert.equal(records.at(-1).operation.step, 'bundle.read')
+  assert.equal(records.at(-1).cim.project, 'demo')
+  assert.equal(records.at(-1).http.response.status_code, 422)
+  assert.ok(records.at(-1).event.duration > 0)
+  assert.equal(records.filter(r => r.event.action === 'request.failed').length, 1)
+  const text = JSON.stringify(records)
+  for (const secret of ['test-token', 'query-secret', 'private-document-marker', 'private-password-marker']) assert.equal(text.includes(secret), false)
+  const malformed = await fetch(`${f.origin}/api/v2/knowledge/bundles`, {
+    method: 'POST', headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json', 'X-Request-ID': 'invalid request id' }, body: '{"content":"secret-json-marker",',
+  })
+  assert.equal(malformed.status, 400)
+  assert.match(malformed.headers.get('x-request-id'), /^[a-zA-Z0-9._-]+$/)
+  await malformed.json()
+  assert.equal(JSON.stringify(f.requestLogs).includes('secret-json-marker'), false)
+})
+
+
+test('successful registration logs persistence while concurrent requests keep separate context', async t => {
+  const f = await fixture(t)
+  save(join(f.shared, 'demo/parsed/terms.md'), '# Private converted body marker')
+  assert.equal((await f.api('register', f.registration)).status, 200)
+  assert.equal((await f.api('register', f.registration)).status, 409)
+  assert.equal(f.requestLogs.filter(r => r.operation?.step === 'source.persisted' && r.event.action === 'operation.step').length, 1)
+  assert.equal(JSON.stringify(f.requestLogs).includes('Private converted body marker'), false)
+  await Promise.all(['demo', 'other-project'].map(async project => {
+    const res = await fetch(`${f.origin}/api/v2/knowledge/bundles`, {
+      method: 'POST', headers: { Authorization: 'Bearer test-token', 'X-Request-ID': `parallel-${project}` },
+      body: JSON.stringify({ project, uri: 'shared://team/missing.json' }),
+    })
+    await res.json()
+  }))
+  for (const project of ['demo', 'other-project']) {
+    const records = f.requestLogs.filter(r => r.http.request.id === `parallel-${project}` && r.cim.project)
+    assert.ok(records.length > 1)
+    assert.ok(records.every(r => r.cim.project === project))
+  }
+})
+
+
+test('knowledge forwards the request ID to the document ledger', async t => {
+  const f = await fixture(t, { builds: true })
+  const response = await fetch(`${f.origin}/api/v2/knowledge/document-results?project=demo`, { headers: { Authorization: 'Bearer test-token', 'X-Request-ID': 'ledger-correlation-001' } })
+  assert.equal(response.status, 200)
+  await response.json()
+  assert.ok(f.ledgerRequestIds.includes('ledger-correlation-001'))
+})
+
+test('submit rejects unresolved references before accepting a bundle', async t => {
+  const f = await fixture(t)
+  await ready(f)
+  const bundle = f.bundle('CR-BROKEN-LINK')
+  bundle.nodes[0].content += '\n\n[Missing document](missing-document.md)'
+  const result = await f.submit(bundle)
+  assert.equal(result.status, 422, JSON.stringify(result.value))
+  assert.match(result.value.error, /broken_link/)
 })

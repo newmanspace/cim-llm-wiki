@@ -7,7 +7,6 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
-import { assertValidWiki } from '../../packages/wiki-core/validate.mjs'
 import { NODE_TYPES, PROJECT_ROOT } from '../../packages/wiki-core/contracts.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -21,7 +20,6 @@ if (process.env.WIKI_CONTENT_KIND === repositoryKind) {
   writeFileSync(OUT, `export const sidebar = ${JSON.stringify(navigation.sidebar)}\nexport const nav = ${JSON.stringify(navigation.nav)}\n`)
   process.exit(0)
 }
-assertValidWiki({ projectRoot: PROJECT_WORKSPACE, wikiRoot: WIKI_ROOT, project: process.env.WIKI_PROJECT || undefined })
 
 // 双平面物理分库：doc = 领域知识库（文档视图/高层导航），code = 代码契约库（工程实现/自动化编译）
 const PLANES = [

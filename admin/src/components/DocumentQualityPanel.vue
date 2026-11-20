@@ -255,6 +255,9 @@
               >审核状态
               <select v-model="statusFilter">
                 <option value="">全部</option>
+                <option value="draft">草稿</option>
+                <option value="submitted">已提交，待冻结</option>
+                <option value="frozen">已冻结，待申请审核</option>
                 <option value="pending">待审核</option>
                 <option value="approved">已通过</option>
                 <option value="rejected">已驳回</option>
@@ -281,7 +284,7 @@
                 <option value="needs_review">需人工核对</option>
                 <option value="blocked">存在阻断问题</option>
                 <option value="qualified">分数合格</option>
-                <option value="not_assessed">未完成评估</option>
+                <option value="not_assessed">未评分</option>
               </select></label
             >
           </div>
@@ -293,23 +296,25 @@
                   <th>版本</th>
                   <th>质量分数</th>
                   <th>审核状态</th>
+                  <th>Wiki 发布状态</th>
                   <th>详情</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="item in visibleArtifacts" :key="item.id">
+                <tr v-for="item in pagedArtifacts" :key="item.id">
                   <td>{{ item.target_path }}</td>
                   <td>{{ item.version }}</td>
                   <td>
-                    {{ latestEvaluation(item.id)?.total ?? '未完成评估' }}
+                    {{ latestEvaluation(item.id)?.total ?? '未评分' }}
                   </td>
                   <td>
                     <span
                       class="status-badge"
-                      :data-status="taskFor(item.id)?.status"
-                      >{{ reviewStatusLabel(taskFor(item.id)?.status, taskFor(item.id)?.approval_mode) }}</span
+                      :data-status="documentStatus(item)"
+                      >{{ documentStatusLabel(item) }}</span
                     >
                   </td>
+                  <td :title="sourceFor(item.id)?.error || sourceFor(item.id)?.gitCommit || ''">{{ sourceLabel(item) }}</td>
                   <td>
                     <button class="text-action" @click="selected = item">
                       查看
@@ -319,6 +324,7 @@
               </tbody>
             </table>
           </div>
+          <ListPagination v-model:page="resultPage" v-model:page-size="resultPageSize" :total="visibleArtifacts.length" />
           <div v-if="!busy && !visibleArtifacts.length" class="results-empty">
             <span class="empty-symbol">▤</span>
             <h4>{{ hasFilters ? '没有匹配的文档' : '此目录暂无文档' }}</h4>
@@ -327,7 +333,7 @@
               {{
                 hasFilters
                   ? '请调整检索条件，或清除筛选后重试。'
-                  : '文档采集、转换并登记归类结果后，将在这里展示。'
+                  : '文档提交成功后即可在此查看，无需等待冻结、审核或 Wiki 构建。'
               }}
             </p>
             <button v-if="hasFilters" @click="resetFilters">清除筛选</button>
@@ -351,6 +357,13 @@
                 {{ source.repository_path }} · 摘要 {{ source.original_sha256 }}
               </li>
             </ul>
+            <p>文档状态：{{ documentStatusLabel(selected) }}</p>
+            <template v-if="selected.local_report">
+              <h4>本地检查报告</h4>
+              <p>内容摘要：{{ selected.local_report.content_sha256 }}</p>
+              <p>保真核对：{{ selected.local_report.fidelity === 'checked' ? 'Agent 已核对' : '尚未完成' }}</p>
+              <ul><li v-for="(diagnostic, index) in [...(selected.local_report.errors || []), ...(selected.local_report.warnings || [])]" :key="index">{{ diagnostic.severity }} · {{ diagnostic.message }}</li></ul>
+            </template>
             <h4>质量评估</h4>
             <div v-for="evaluation in selectedEvaluations" :key="evaluation.id">
               <p>
@@ -396,7 +409,7 @@
             /></label>
             <button @click="preview">查看候选正文与原文转换稿</button>
             <template v-if="previewData"
-              ><DocumentPreview :key="projectId + selected.id" :markdown="previewData.markdown" :parsed="previewData.parsed" :project="projectId" />
+              ><DocumentPreview :key="projectId + selected.id" :markdown="previewData.markdown" :parsed="previewData.parsed" :project="projectId" :base="base" :artifact-id="selected.id" :candidate-package="previewData.candidate_package" :parsed-package="previewData.parsed_package" />
               <button @click="downloadOriginal">下载原件核对</button></template
             >
             <label>审核意见 <textarea v-model="reviewNote" /></label>
@@ -426,6 +439,8 @@
 </template>
 
 <script setup lang="ts">
+import ListPagination from '@/components/ListPagination.vue'
+import { usePagination } from '@/composables/usePagination'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import client from '@/api/client'
@@ -569,6 +584,13 @@ const sources = ref<Row[]>([]),
   events = ref<Row[]>([]),
   originals = ref<Row[]>([]),
   issues = ref<Row[]>([])
+const documentSources = ref<Row[]>([])
+function sourceFor(id: string) { return documentSources.value.find(row => row.artifactId === id) }
+function sourceLabel(item: Row) {
+  const state = sourceFor(item.id)?.state
+  if (state) return ({ written: '已入仓，待构建发布', published: '已发布', writing: '入仓未完成', failed: '入仓失败，重新构建可重试', superseded: '已被新版本替代' } as Record<string, string>)[state] || state
+  return documentStatus(item) === 'approved' ? '审核通过，构建时入仓' : '未入仓'
+}
 const busy = ref(false),
   error = ref(''),
   selected = ref<Row | null>(null),
@@ -647,7 +669,8 @@ async function load() {
       'source-observations',
       'quality-issues',
     ]
-    const values = await Promise.all(resources.map(list))
+    const [values, wiki] = await Promise.all([Promise.all(resources.map(list)), client.get(`/projects/${encodeURIComponent(props.projectId)}/wiki`)])
+    documentSources.value = wiki.data.data.documentSources || []
     ;[
       directories.value,
       sources.value,
@@ -745,7 +768,15 @@ function latestEvaluation(id: string) {
 }
 function taskFor(id: string) {
   const evaluation = latestEvaluation(id)
-  return tasks.value.find((t) => t.evaluation_id === evaluation?.id)
+  return tasks.value.filter(t => t.artifact_id === id && (t.scope === 'document' || (evaluation && t.evaluation_id === evaluation.id))).at(-1)
+}
+function documentStatus(artifact: Row) {
+  return taskFor(artifact.id)?.status || artifact.workflow_state || ''
+}
+function documentStatusLabel(artifact: Row) {
+  const status = documentStatus(artifact)
+  const label: Record<string, string> = { draft: '草稿', submitted: '已提交，待冻结', frozen: '已冻结，待申请审核' }
+  return label[status] || reviewStatusLabel(status, taskFor(artifact.id)?.approval_mode)
 }
 function matchesQualityFilters(artifact: Row) {
   if (
@@ -787,9 +818,10 @@ const visibleArtifacts = computed(() =>
         )) &&
       (!folderFilter.value ||
         a.target_path.startsWith(folderFilter.value + '/')) &&
-      (!statusFilter.value || taskFor(a.id)?.status === statusFilter.value),
+      (!statusFilter.value || documentStatus(a) === statusFilter.value),
   ),
 )
+const { page: resultPage, pageSize: resultPageSize, paged: pagedArtifacts } = usePagination(visibleArtifacts, [searchText, folderFilter, statusFilter, sourceFilter, qualityFilter])
 const selectedSources = computed(() =>
   originals.value.filter((s) =>
     selected.value?.source_links.some(
@@ -827,17 +859,15 @@ async function humanRequest(path: string, body?: Row) {
 async function preview() {
   await run(async () => {
     const project = props.projectId, id = selected.value!.id
-    const data = await humanRequest(
-      `document-result-preview?project=${encodeURIComponent(project)}&id=${id}`,
-    )
+    const response = await client.get(base.value + 'preview', { params: { id } })
+    const data = response.data.data
     if (props.projectId === project && selected.value?.id === id) previewData.value = data
   })
 }
 async function downloadOriginal() {
   await run(async () => {
-    const value = await humanRequest(
-      `document-result-original?project=${encodeURIComponent(props.projectId)}&id=${selected.value!.id}`,
-    )
+    const response = await client.get(base.value + 'original', { params: { id: selected.value!.id } })
+    const value = response.data.data
     const bytes = Uint8Array.from(atob(value.base64), (c) => c.charCodeAt(0))
     const url = URL.createObjectURL(new Blob([bytes]))
     const link = document.createElement('a')
@@ -926,7 +956,7 @@ h4 {
 .document-browser {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
-  min-height: 640px;
+  min-height: 0;
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-stroke);
   border-radius: 10px;
@@ -1023,14 +1053,14 @@ h4 {
 }
 .directory-content {
   min-width: 0;
-  padding: 24px;
+  padding: 12px 16px;
 }
 .workspace-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 20px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--td-component-stroke);
   margin-bottom: 20px;
 }
@@ -1038,6 +1068,9 @@ h4 {
   font-size: 18px;
 }
 .directory-path {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   color: var(--td-text-color-secondary);
   font-size: 12px;
   margin-top: 4px;
@@ -1104,7 +1137,7 @@ button:disabled {
 button.primary {
   background: var(--td-brand-color);
   border-color: var(--td-brand-color);
-  color: white;
+  color: var(--cim-brand-on-color);
 }
 button.text-action {
   padding: 2px 0;
@@ -1225,6 +1258,7 @@ summary {
 }
 .results-table {
   overflow: auto;
+  max-height: 60vh;
 }
 table {
   width: 100%;
@@ -1233,7 +1267,7 @@ table {
 }
 th,
 td {
-  padding: 13px 12px;
+  padding: 5px 12px;
   border-bottom: 1px solid var(--td-component-stroke);
   text-align: left;
 }

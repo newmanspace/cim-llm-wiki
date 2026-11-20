@@ -1,4 +1,4 @@
-import { sharedRoots, nodeProvenance } from './sources.mjs'
+import { sharedRoots } from './sources.mjs'
 import {
   cpSync,
   existsSync,
@@ -23,7 +23,7 @@ import {
   slugify,
 } from './contracts.mjs'
 import { renderPage } from './markdown.mjs'
-import { assertValidWiki } from './validate.mjs'
+import { assertBuildInput } from './build-validation.mjs'
 import { activateFrozenRecords } from './docstore.mjs'
 
 const json = (path) =>
@@ -54,7 +54,7 @@ function replaceFiles(changes) {
   }
 }
 
-function normalizeNode(node, data, sourceManifest, now) {
+function normalizeNode(node, data, now) {
   if (!node || typeof node !== 'object' || Array.isArray(node))
     throw new Error('Each node must be an object')
   const defaults = {
@@ -68,8 +68,6 @@ function normalizeNode(node, data, sourceManifest, now) {
   }
   for (const [key, value] of Object.entries(defaults))
     if (node[key] == null) node[key] = value
-  const provenance = nodeProvenance(node, sourceManifest)
-  if (provenance.length) node.provenance = provenance
   node.updated_at = now
   node.status =
     node.status === 'approved' ? 'published' : (node.status ?? 'published')
@@ -88,10 +86,7 @@ function normalizeBundle(input, projectRoot, now) {
     !Array.isArray(data.nodes)
   )
     throw new Error('A versioned bundle object with nodes is required')
-  const sourceManifest = json(
-    join(projectRoot, 'data/documents/manifest.json'),
-  ) || { docs: [] }
-  for (const node of data.nodes) normalizeNode(node, data, sourceManifest, now)
+  for (const node of data.nodes) normalizeNode(node, data, now)
   const problems = schemaErrors('bundle', data)
   if (problems.length)
     throw new Error(`Bundle schema validation failed:\n${problems.join('\n')}`)
@@ -103,6 +98,14 @@ function normalizeBundle(input, projectRoot, now) {
     unique.add(slug)
   }
   return data
+}
+
+function assertPublicationState(data, preview) {
+  if (preview) return
+  for (const node of data.nodes) {
+    if (node.status === 'draft' || node.status === 'pending') throw new Error('Unapproved nodes cannot be published')
+    if (['L1_expert', 'L2_arch'].includes(node.review_level) && node.reviewer === 'auto') throw new Error('Human review level requires an identified human reviewer')
+  }
 }
 
 function copyCandidate(wikiRoot, candidateRoot) {
@@ -231,8 +234,9 @@ export async function compileBundle(
     sourceRoot,
   } = {},
 ) {
-  const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
+  const now = new Date().toISOString()
   const data = normalizeBundle(input, projectRoot, now)
+  assertPublicationState(data, preview)
   projectRoot = resolve(projectRoot)
   wikiRoot = resolve(wikiRoot)
   const docsDir = join(projectRoot, 'data/documents')
@@ -266,7 +270,7 @@ export async function compileBundle(
       sourceRoot,
     )
     try {
-      assertValidWiki({ projectRoot, wikiRoot: candidateRoot, roots, project: sourceRoot ? data.project : undefined })
+      assertBuildInput({ projectRoot, wikiRoot: candidateRoot, roots, project: sourceRoot ? data.project : undefined })
     } catch (e) {
       throw new Error(e.message.replaceAll(candidateRoot, wikiRoot), {
         cause: e,

@@ -67,6 +67,11 @@ func isolatedAdminStore(t *testing.T) *store.Store {
 
 func TestAdminRegistryAndTokenLifecycle(t *testing.T) {
 	templateService := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/internal/source-documents" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"documents":[{"doc_id":"registered-source","path":"shared://team/test/parsed.md","state":"draft"}]}`))
+			return
+		}
 		var request struct {
 			Modules []string `json:"modules"`
 		}
@@ -120,8 +125,10 @@ func TestAdminRegistryAndTokenLifecycle(t *testing.T) {
 	call("POST", "/projects", `{"id":"no-modules","name":"No modules"}`, "", 200)
 	t.Setenv("CIM_WIKI_KNOWLEDGE_URL", "http://127.0.0.1:1")
 	call("PATCH", "/projects/no-modules", `{"name":"Updated empty project"}`, "", 200)
-	if call("GET", "/projects/no-modules", "", "", 200)["name"] != "Updated empty project" {
-		t.Fatal("empty project edit was not persisted")
+	call("GET", "/projects/no-modules", "", "", 503)
+	edited, err := s.GetProject(context.Background(), "no-modules")
+	if err != nil || edited.Name != "Updated empty project" {
+		t.Fatal("empty project edit was not persisted", err)
 	}
 	call("DELETE", "/projects/no-modules", "", "", 200)
 	t.Setenv("CIM_WIKI_KNOWLEDGE_URL", templateService.URL)
@@ -137,6 +144,10 @@ func TestAdminRegistryAndTokenLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := call("GET", "/projects/test", "", "", 200)
+	sources, ok := before["docs"].([]any)
+	if !ok || len(sources) != 1 || sources[0].(map[string]any)["doc_id"] != "registered-source" {
+		t.Fatal("project did not use the registration ledger", before["docs"])
+	}
 	call("PATCH", "/projects/test", `{"name":"Changed name"}`, "", 200)
 	after := call("GET", "/projects/test", "", "", 200)
 	for _, key := range []string{"product", "version", "modules", "docs", "repos", "wiki_nodes", "sync_state", "created_at"} {

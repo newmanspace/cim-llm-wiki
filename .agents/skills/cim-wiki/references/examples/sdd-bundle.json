@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "bundle_id": "CR-20260101-0001",
+  "project": "example-project",
+  "nodes": [
+    {
+      "schema_version": "1.0",
+      "id": "EXAMPLE-SPC-SDD-ALARM-MODULE-DESIGN-001",
+      "document_id": "00000000-0000-4000-8000-000000000001",
+      "type": "design",
+      "template_id": "sdd",
+      "plane": "doc",
+      "product": "Example Product",
+      "version": "V1.0",
+      "domain": "example",
+      "module": "alarm",
+      "source": ["shared://team/example-project/parsed/sdd-alarm.md"],
+      "source_location": { "section": "Example section" },
+      "title": "Example Alarm Module Design",
+      "content": "Replace this string with the complete SDD Markdown that passed check-document under the current Project binding. Exclude its leading level-one heading because the service adds title. This structural example is not ready for submission.",
+      "qscore": { "auth": 0.9, "comp": 0.9, "rel": 0.9, "fresh": 0.9, "struct": 0.9, "reuse": 0.9, "risk": 0.1, "total": 0.9 },
+      "confidence": 0.9,
+      "review_level": "L2_arch",
+      "reviewer": "auto",
+      "status": "published",
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}

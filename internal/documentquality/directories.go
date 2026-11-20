@@ -7,8 +7,12 @@ import (
 	"unicode/utf8"
 )
 
-func liveDirectory(r Record) bool      { return r["deleted"] != true }
-func directoryName(path string) string { parts := strings.Split(path, "/"); return parts[len(parts)-1] }
+func liveDirectory(r Record) bool { return r["deleted"] != true }
+func directoryName(path string) string {
+	parts := strings.Split(path, "/")
+	return parts[len(parts)-1]
+}
+
 func directoryMode(patch map[string]any) string {
 	if len(patch) == 0 {
 		return "inherit"
@@ -25,6 +29,7 @@ func directoryMode(patch map[string]any) string {
 	}
 	return "independent"
 }
+
 func directoryBlocked(tx Tx, path string) (bool, error) {
 	groups := map[string][]Record{}
 	for _, kind := range []string{"directories", "artifact_versions", "quality_policies", "publications"} {
@@ -36,29 +41,32 @@ func directoryBlocked(tx Tx, path string) (bool, error) {
 	}
 	return blockedDirectoryRows(path, groups), nil
 }
+
+func isRowBlocked(path, kind string, row Record) bool {
+	if kind == "directories" {
+		return liveDirectory(row) && strings.HasPrefix(Text(row, "path"), path+"/")
+	}
+	target := Text(row, "path")
+	if kind != "quality_policies" {
+		target = folder(Text(row, "target_path"))
+	}
+	return target == path || strings.HasPrefix(target, path+"/")
+}
+
 func blockedDirectoryRows(path string, groups map[string][]Record) bool {
 	if path == "doc" || path == "code" {
 		return true
 	}
 	for kind, rows := range groups {
 		for _, row := range rows {
-			if kind == "directories" {
-				if liveDirectory(row) && strings.HasPrefix(Text(row, "path"), path+"/") {
-					return true
-				}
-				continue
-			}
-			target := Text(row, "path")
-			if kind != "quality_policies" {
-				target = folder(Text(row, "target_path"))
-			}
-			if target == path || strings.HasPrefix(target, path+"/") {
+			if isRowBlocked(path, kind, row) {
 				return true
 			}
 		}
 	}
 	return false
 }
+
 func mutateDirectory(tx Tx, r Record) (Record, error) {
 	rows, err := tx.List("directories")
 	if err != nil {
@@ -109,9 +117,15 @@ func mutateDirectory(tx Tx, r Record) (Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.Insert("directory_events", Record{"directory_id": id(saved), "action": action, "before": old, "after": saved})
+	_, err = tx.Insert("directory_events", Record{
+		"directory_id": id(saved),
+		"action":       action,
+		"before":       old,
+		"after":        saved,
+	})
 	return saved, err
 }
+
 func catalog(tx Tx) ([]Record, error) {
 	dirs, err := tx.List("directories")
 	if err != nil {
@@ -133,7 +147,12 @@ func catalog(tx Tx) ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	groups := map[string][]Record{"directories": dirs, "artifact_versions": artifacts, "quality_policies": policyRows, "publications": pubRows}
+	groups := map[string][]Record{
+		"directories":       dirs,
+		"artifact_versions": artifacts,
+		"quality_policies":  policyRows,
+		"publications":      pubRows,
+	}
 	entries := map[string]Record{}
 
 	for _, r := range dirs {
@@ -166,11 +185,17 @@ func catalog(tx Tx) ([]Record, error) {
 	sort.Slice(out, func(i, j int) bool { return Text(out[i], "path") < Text(out[j], "path") })
 	return out, nil
 }
+
 func (s Service) DirectoryCatalog(ctx context.Context, project string) ([]Record, error) {
 	var rows []Record
-	err := s.Repository.WithProject(ctx, project, "reader", func(tx Tx) error { var e error; rows, e = catalog(tx); return e })
+	err := s.Repository.WithProject(ctx, project, "reader", func(tx Tx) error {
+		var e error
+		rows, e = catalog(tx)
+		return e
+	})
 	return rows, err
 }
+
 func (s Service) PreviewPolicy(ctx context.Context, project string, r Record) (Record, error) {
 	var result Record
 	err := s.Repository.WithProject(ctx, project, "administrator", func(tx Tx) error {
@@ -219,6 +244,7 @@ func directoryAction(r Record) (string, error) {
 	}
 	return action, nil
 }
+
 func directoryBeforeMutation(tx Tx, r Record, action, path string) (Record, string, error) {
 	var old Record
 	if action != "create" {
@@ -236,6 +262,7 @@ func directoryBeforeMutation(tx Tx, r Record, action, path string) (Record, stri
 	}
 	return old, path, nil
 }
+
 func validateDirectoryEdit(tx Tx, old Record, action, path string) error {
 	if old != nil && action == "update" && folder(path) != folder(Text(old, "path")) {
 		return problem(422, "Only the path segment of an empty directory can change")
@@ -246,11 +273,14 @@ func validateDirectoryEdit(tx Tx, old Record, action, path string) error {
 			return e
 		}
 		if blocked {
-			return problem(409, "Directory has children, policy history or document references; only its display name can change")
+			msg := "Directory has children, policy history or document references; " +
+				"only its display name can change"
+			return problem(409, msg)
 		}
 	}
 	return nil
 }
+
 func uniqueDirectoryPath(rows []Record, old Record, path string) error {
 	for _, row := range rows {
 		if liveDirectory(row) && Text(row, "path") == path && id(row) != id(old) {
@@ -259,6 +289,7 @@ func uniqueDirectoryPath(rows []Record, old Record, path string) error {
 	}
 	return nil
 }
+
 func createDirectoryParents(tx Tx, rows []Record, r Record, path string) error {
 	parts := strings.Split(path, "/")
 	missing := []string{}
@@ -298,6 +329,7 @@ func addCatalogPath(entries map[string]Record, path string) {
 		}
 	}
 }
+
 func catalogCounts(path string, entries map[string]Record, artifacts []Record, ps []Policy) (int, int, string) {
 	childCount := 0
 	for p := range entries {

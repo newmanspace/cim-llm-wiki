@@ -1,14 +1,15 @@
+import { createWikiSource } from './wiki-source.mjs'
+import { createDocumentUploads } from './document-uploads.mjs'
+import { createRequestLogs, requestFields, requestStep, requestFailure, requestID } from './request-logs.mjs'
 import { createDocumentNaming } from './document-naming.mjs'
 import { createProjectWiki } from './project-wiki.mjs'
 import { createBuildRuntime } from './build-runtime.mjs'
 import { publicJob } from './build-coordinator.mjs'
 import { createDocumentDefaults } from './document-defaults.mjs'
-import {
-  checkDocument,
-  templateFor,
-} from '../wiki-core/document-defaults.mjs'
+import { templateFor } from '../wiki-core/document-defaults.mjs'
 import { createDocumentQuality } from './document-quality.mjs'
 import { createProjectContext } from './project-context.mjs'
+import { createProjectQueries } from './project-queries.mjs'
 import { projectDeliveryContract, projectDirectory } from '../wiki-core/project-document-config.mjs'
 import { createServer } from 'node:http'
 import {
@@ -28,12 +29,13 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   PROJECT_ROOT,
   schemaErrors,
+  schemaDiagnostics,
   readContractJson,
   nodeLocation,
   slugify,
 } from '../wiki-core/contracts.mjs'
 import { compileBundle } from '../wiki-core/compile.mjs'
-import { validateWiki } from '../wiki-core/validate.mjs'
+import { assertValidWiki, validateWiki } from '../wiki-core/validate.mjs'
 import {
   loadManifest,
   saveManifest,
@@ -56,6 +58,7 @@ const fail = (message, status = 400) => {
   throw Object.assign(new Error(message), { status })
 }
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'))
+const responseStatus = error => error.status || (error instanceof SyntaxError ? 400 : 422)
 const now = () => new Date().toISOString()
 function writeJson(path, data) {
   mkdirSync(dirname(path), { recursive: true })
@@ -145,6 +148,7 @@ export function createKnowledgeServer({
   organizedRoot = process.env.CIM_WIKI_ORGANIZED_ROOT,
   buildRuntime,
   projectWikis: configuredWikis,
+  logWriter,
 } = {}) {
   validateCredentials(token, reviewerTokens, ledgerToken)
   projectRoot = resolve(projectRoot)
@@ -153,10 +157,37 @@ export function createKnowledgeServer({
   const projectWikis = resolveProjectWikis(configuredWikis, options)
   const { wikiPath, projectOptions } = projectStorage(options, projectWikis)
   const publishedPath = path => { const [project, ...parts] = path.split('/'); return wikiPath(project, ...parts) }
+  const wikiSources = createWikiSource({ projectRoot,
+    sourceFor: project => projectWikis ? projectWikis.source(project) : wikiRoot,
+    prefixFor: project => projectWikis ? '' : project,
+  })
+  async function importReviewedSource(project, taskID) {
+    if (projectWikis?.kind(project) === 'repository_docs') fail('Documentation repositories do not accept document imports', 409)
+    const { artifact, task, files } = await quality.reviewedSource(project, taskID)
+    if (projectWikis) projectWikis.initialize(project)
+    return wikiSources.materialize(project, artifact, task, files)
+  }
+  async function syncReviewedSources(project) {
+    if (!quality.enabled || projectWikis?.kind(project) === 'repository_docs') return
+    const tasks = await quality.all(project, 'document-review-tasks')
+    const versions = await quality.all(project, 'document-results'), eligible = new Set()
+    for (const task of tasks.filter(t => t.scope === 'document' && t.status === 'approved' && tasks.filter(other => other.artifact_id === t.artifact_id && other.scope === 'document').at(-1)?.id === t.id)) {
+      const artifact = versions.find(v => v.id === task.artifact_id)
+      if (artifact && !versions.some(v => v.logical_key === artifact.logical_key && v.version > artifact.version)) {
+        await importReviewedSource(project, task.id)
+        eligible.add(artifact.id)
+      }
+    }
+    wikiSources.assertEligible(project, eligible)
+  }
   const docs = () => loadManifest(projectRoot)
-  const getDoc = (source) =>
-    docs().docs.find((d) => d.path === source) ||
-    fail('Registered document not found', 404)
+  const getDoc = (source, project, sourceID) => {
+    if (source?.startsWith('document-package://') && !project) fail('Project is required for a parsed package')
+    const matches = docs().docs.filter(record => record.path === source && (!project || record.project === project) && (!sourceID || record.doc_id === sourceID))
+    if (!matches.length) fail('Registered document not found', 404)
+    if (matches.length !== 1) fail('Parsed package has multiple sources; provide parsed_source_id', 409)
+    return matches[0]
+  }
   const bundlePath = (id) =>
     join(
       projectRoot,
@@ -167,10 +198,12 @@ export function createKnowledgeServer({
     existsSync(bundlePath(id))
       ? json(bundlePath(id))
       : fail('Bundle not found', 404)
+  const uploads = createDocumentUploads({ projectRoot, roots })
   let naming
   const quality = createDocumentQuality({
     ledgerURL,
     ledgerToken,
+    uploads,
     namingCheck: (...args) => naming.requireIdentity(...args),
     organizedRoot,
     projectRoot,
@@ -180,7 +213,6 @@ export function createKnowledgeServer({
   })
   const defaults = createDocumentDefaults(projectRoot)
   naming = createDocumentNaming({ defaults, quality })
-  connectNamingToBuild(buildRuntime, naming)
   let queue = Promise.resolve()
 
   function requireProjectConfiguration(project) {
@@ -257,6 +289,8 @@ export function createKnowledgeServer({
   }
 
   async function register(data, convert) {
+    if (/^(uploaded|document-package):/.test(data.source || '')) return registerUpload(data, convert)
+    requestStep(convert ? 'source.convert' : 'source.register')
     const { original, parsedUri, parsed, beforeHash } = prepareRegistration(
       data,
       convert,
@@ -289,7 +323,44 @@ export function createKnowledgeServer({
     const manifest = docs()
     manifest.docs.push(record)
     saveManifest(projectRoot, manifest)
+    requestFields({ source_doc_id: record.doc_id })
+    requestStep('source.persisted')
     return { document: record, markdown: readFileSync(parsed, 'utf8') }
+  }
+
+  async function registerUpload(data, convert) {
+    await discovery.projectInfo(identifier(data.project))
+    if (['system', 'version', 'category'].some(key => typeof data[key] !== 'string' || !data[key].trim())) fail('system, version and category are required')
+    const original = uploads.resolve(data.project, data.source)
+    const originalHash = hashFile(original)
+    let pack
+    if (!convert || data.source.startsWith('document-package://')) {
+      pack = uploads.getPackage(data.project, data.parsed || data.source)
+    } else {
+      const result = await parser(original, data.engine)
+      if (!result.md?.trim()) fail('Parser returned empty Markdown', 422)
+      const assets = []
+      const embedded = embedImages(result.md, result.images || [], '', 'document', (path, bytes) => {
+        const saved = uploads.put(data.project, basename(path), bytes)
+        assets.push({ path, uri: saved.uri, sha256: saved.sha256 })
+      })
+      if (embedded.written !== (result.images || []).length) fail('Parser images do not match Markdown placeholders; conversion requires reconciliation', 422)
+      const entry = uploads.put(data.project, 'document.md', Buffer.from(embedded.md))
+      pack = uploads.seal(data.project, { entry: 'document.md', files: [{ path: 'document.md', uri: entry.uri, sha256: entry.sha256 }, ...assets] })
+    }
+    if (hashFile(original) !== originalHash) fail('Original changed during conversion', 409)
+    const parsedHash = hashFile(uploads.resolve(data.project, pack.uri))
+    const key = hashValue({ project: data.project, source: data.source, parsed: pack.uri, version: data.version })
+    const manifest = docs()
+    let record = manifest.docs.find(item => item.doc_id === 'uploaded-' + key.slice(0, 20))
+    if (!record) {
+      record = { doc_id: 'uploaded-' + key.slice(0, 20), project: data.project, system: data.system, version: data.version, category: data.category,
+        path: pack.uri, original_uri: data.source, original_path: original, original_sha256: originalHash, parsed_sha256: parsedHash,
+        package_sha256: pack.package_sha256, state: 'draft', sha256: null, bundles: [], created_at: now(), updated_at: now(),
+        history: [{ from: null, to: 'draft', at: now(), by: 'knowledge-service' }] }
+      manifest.docs.push(record); saveManifest(projectRoot, manifest)
+    }
+    return { document: record, markdown: readFileSync(uploads.resolve(data.project, pack.uri), 'utf8'), parsed_uri: pack.uri, parsed_sha256: parsedHash, ...pack }
   }
 
   function validateNodeSources(node, value, manifest) {
@@ -301,13 +372,13 @@ export function createKnowledgeServer({
     )
       fail('Every node must cite registered shared sources')
     for (const source of sources) {
-      const rec = getDoc(source)
+      const rec = getDoc(source, value.project)
       if (rec.project !== value.project) fail('Cross-project source reference')
       if (!['frozen', 'active'].includes(rec.state))
         fail('Source must be frozen before extraction/submission', 409)
       if (
-        hashFile(resolveShared(source, roots)) !== rec.sha256 ||
-        hashFile(resolveShared(rec.original_uri, roots)) !== rec.original_sha256
+        hashFile(uploads.resolve(rec.project, source)) !== rec.sha256 ||
+        hashFile(uploads.resolve(rec.project, rec.original_uri)) !== rec.original_sha256
       )
         fail('Source or original document has changed', 409)
     }
@@ -397,31 +468,38 @@ export function createKnowledgeServer({
   }
 
   async function submittedBundle(data) {
+    requestStep('bundle.read')
     const value = readContractJson(resolveShared(data.uri, roots))
     identifier(value.bundle_id, bundlePattern)
     identifier(value.project)
+    requestFields({ project: value.project, bundle_id: value.bundle_id })
+    requestStep('bundle.schema')
     requireProjectConfiguration(value.project)
     if (!Array.isArray(value.nodes) || !value.nodes.length)
       fail('A versioned bundle with nodes is required')
+    requestFields({ node_count: value.nodes.length })
+    const diagnostics = schemaDiagnostics('submissionBundle', value)
+    if (diagnostics.length) throw Object.assign(new Error('Bundle schema validation failed'), { status: 422, code: 'BUNDLE_SCHEMA_INVALID', diagnostics })
     const effective = defaults.store.effective(value.project)
     const manifest = docs()
     for (const node of value.nodes) {
-      const checked = await naming.requireIdentity(value.project, node.document_id, { ...node, template_id: templateFor(effective.definition, node).id, node_id: node.id, document: '# ' + node.title + '\n\n' + node.content })
+      requestFields({ document_id: node.document_id })
+      requestStep('bundle.identity')
+      const checked = await naming.requireIdentity(value.project, node.document_id, { ...node, template_id: templateFor(effective.definition, node).id, node_id: node.id })
       if (checked.identity) node.naming_digest = checked.digest
-      const diagnostics = checkDocument(
-        templateFor(effective.definition, node),
-        '# ' + node.title + '\n\n' + node.content,
-        { terms: effective.definition.terms, phase: 'review' },
-      )
-      if (diagnostics.some((e) => e.severity === 'error'))
-        fail('Document contract failed: ' + JSON.stringify(diagnostics))
+      requestStep('bundle.source_score_risk')
       prepareSubmittedNode(node, value, manifest)
     }
+    requestFields({ document_id: null })
     const errors = schemaErrors('bundle', value)
     if (errors.length) fail(`Bundle contract failed: ${errors.join('; ')}`)
     const path = bundlePath(value.bundle_id)
     if (existsSync(path))
       fail('Bundle ID is already submitted; use a new ID for revisions', 409)
+    await compileBundle(value, {
+      ...projectOptions(value.project), preview: true,
+      onCandidate: candidate => assertValidWiki({ ...options, wikiRoot: candidate, project: value.project, phase: 'submit' }),
+    })
     const needsReview =
       !autoPublish ||
       value.nodes.some((n) => {
@@ -448,11 +526,13 @@ export function createKnowledgeServer({
     const sources = value.nodes.flatMap((node) =>
       Array.isArray(node.source) ? node.source : [node.source],
     )
+    requestStep('bundle.artifact_quality')
     const documentArtifacts = await quality.bindings(
       value.project,
       sources,
       data.artifact_ids,
     )
+    await quality.gate(value.project, documentArtifacts)
     const record = {
       ...(documentArtifacts.length
         ? { document_artifacts: documentArtifacts }
@@ -465,12 +545,16 @@ export function createKnowledgeServer({
       state: needsReview ? 'pending' : 'auto',
       submitted_at: now(),
     }
+    requestStep('bundle.persist')
     writeJson(path, record)
+    requestStep('bundle.persisted')
     return record
   }
 
   function changeSourceState(data) {
-    const rec = getDoc(data.source)
+    requestStep('source.state')
+    const rec = getDoc(data.source, data.project, data.parsed_source_id)
+    requestFields({ project: rec.project, source_doc_id: rec.doc_id })
     if (!['freeze', 'unfreeze'].includes(data.action))
       fail(
         'Only freeze and unfreeze are supported; activation requires compilation',
@@ -479,7 +563,7 @@ export function createKnowledgeServer({
       fail('Published sources are immutable; register a new version', 409)
     if (
       data.action === 'freeze' &&
-      hashFile(resolveShared(rec.original_uri, roots)) !== rec.original_sha256
+      hashFile(uploads.resolve(rec.project, rec.original_uri)) !== rec.original_sha256
     )
       fail('Original document has changed', 409)
     // transition resolves shared URIs with the same explicit root configuration.
@@ -499,6 +583,7 @@ export function createKnowledgeServer({
   }
 
   function reviewSubmittedBundle(data, reviewerIdentity) {
+    requestStep('bundle.review')
     if (!reviewerIdentity)
       fail('Human review requires an independent reviewer credential', 403)
     if (data.reviewer !== undefined && data.reviewer !== reviewerIdentity)
@@ -517,6 +602,7 @@ export function createKnowledgeServer({
     }
     record.state = data.decision === 'approve' ? 'approved' : 'rejected'
     writeJson(bundlePath(data.bundle_id), record)
+    requestStep('bundle.review.persisted')
     return record
   }
 
@@ -535,12 +621,6 @@ export function createKnowledgeServer({
   }
 
   function checkedPublicationBundle(record) {
-    const effective = defaults.store.effective(record.bundle.project)
-    if (record.document_defaults_digest !== effective.digest)
-      fail(
-        'Document contract changed after submission; submit a new bundle',
-        409,
-      )
     const bundle = structuredClone(record.bundle)
     const reviewer =
       record.review?.reviewer ||
@@ -553,16 +633,6 @@ export function createKnowledgeServer({
         node.content = node.content.replace(
           /^(\|\s*审核者\s*\|)[^\n|]*(\|)\s*$/m,
           (_, start, end) => start + ' ' + reviewer + ' ' + end,
-        )
-      const diagnostics = checkDocument(
-        templateFor(effective.definition, node),
-        '# ' + node.title + '\n\n' + node.content,
-        { terms: effective.definition.terms, phase: 'publish', reviewer },
-      )
-      if (diagnostics.some((e) => e.severity === 'error'))
-        fail(
-          'Document publication contract failed: ' +
-            JSON.stringify(diagnostics),
         )
     }
     return bundle
@@ -578,6 +648,7 @@ export function createKnowledgeServer({
   }
 
   async function compileSubmittedBundle(data) {
+    requestStep('bundle.compile')
     validateCompileOptions(data)
     const record = getBundle(data.bundle_id)
     if (!['auto', 'approved', 'published'].includes(record.state))
@@ -593,10 +664,9 @@ export function createKnowledgeServer({
     }
     verifyPublishedBaseline(record)
     const bundle = checkedPublicationBundle(record)
-    for (const node of bundle.nodes) await naming.requireIdentity(bundle.project, node.document_id, { ...node, template_id: templateFor(defaults.store.effective(bundle.project).definition, node).id, node_id: node.id, document: '# ' + node.title + '\n\n' + node.content })
     if (record.review?.decision === 'approve')
       for (const node of bundle.nodes) node.reviewer = record.review.reviewer
-    const result = await compileQualityBundle(
+    const result = await compileAcceptedBundle(
       bundle,
       record,
       data.preview === true,
@@ -611,79 +681,30 @@ export function createKnowledgeServer({
     return result
   }
 
-  async function compileQualityBundle(bundle, record, preview, site = false) {
+  async function compileAcceptedBundle(bundle, record, preview, site = false) {
     if (site && !buildRuntime) fail('Wiki build service is not enabled', 503)
-    if (!record.document_artifacts?.length)
-      await quality.bindings(
-        bundle.project,
-        bundle.nodes.flatMap((n) =>
-          Array.isArray(n.source) ? n.source : [n.source],
-        ),
-        [],
-      )
-    if (record.document_artifacts?.length && !quality.enabled)
-      fail('Document ledger is required for this quality-linked bundle', 503)
-    await quality.gate(bundle.project, record.document_artifacts)
-    const publicationKey = `bundle-${bundle.bundle_id}-${randomUUID()}`
-    const publications = preview
-      ? []
-      : await quality.gate(
-          bundle.project,
-          record.document_artifacts,
-          'start',
-          publicationKey,
-        )
-    let result
-    try {
-      const hooks = buildHooks(bundle, record, preview, site)
-      result = await compileBundle(bundle, {
-        ...projectOptions(bundle.project),
-        preview: preview === true,
-        ...hooks,
-      })
-    } catch (error) {
-      if (publications.length)
-        await quality.finish(
-          bundle.project,
-          publications,
-          'failed',
-          publicationKey,
-        )
-      throw error
-    }
-    if (publications.length) {
-      record.publication_pending = {
-        publications,
-        key: publicationKey,
-        result,
-        files: result.written.map((path) => ({
-          path,
-          sha256: hashFile(publishedPath(path)),
-        })),
-      }
-      writeJson(bundlePath(bundle.bundle_id), record)
-      await quality.finish(
-        bundle.project,
-        publications,
-        'published',
-        publicationKey,
-      )
-      delete record.publication_pending
-    }
-    return result
+    // The accepted bundle contains its content and submission evidence. Wiki
+    // compilation does not publish the separately managed document artifacts.
+    return compileBundle(bundle, {
+      ...projectOptions(bundle.project),
+      preview: preview === true,
+      ...buildHooks(bundle, record, preview, site),
+    })
   }
 
   function buildHooks(bundle, record, preview, site) {
     const hooks = { onCandidate: async (candidate, result) => {
-      await naming.prepareBuild(bundle.project)
-      naming.validateTree(bundle.project, join(candidate, bundle.project))
       if (site) result.site_build = buildRuntime.preview(bundle.project, bundle.bundle_id, candidate)
     } }
     if (!buildRuntime) return hooks
     if (!preview) {
       record.site_build_intent = buildRuntime.begin(record)
       writeJson(bundlePath(bundle.bundle_id), record)
-      hooks.afterPublish = async () => { await naming.prepareBuild(bundle.project); buildRuntime.captureFormal(record.site_build_intent) }
+      hooks.afterPublish = async result => {
+        let importError
+        try { await syncReviewedSources(bundle.project) } catch (error) { importError = error }
+        return buildRuntime.captureFormal(record.site_build_intent, result, importError)
+      }
     }
     return hooks
   }
@@ -700,7 +721,6 @@ export function createKnowledgeServer({
           409,
         )
     }
-    await quality.gate(record.bundle.project, record.document_artifacts)
     await quality.finish(
       record.bundle.project,
       pending.publications,
@@ -720,13 +740,17 @@ export function createKnowledgeServer({
       projectDirectory(requireProjectConfiguration(identifier(url.searchParams.get('project')))),
     '/context': url => discovery.discover(identifier(url.searchParams.get('project'))),
     '/document': (url) => {
-      const rec = getDoc(url.searchParams.get('source'))
+      const rec = getDoc(url.searchParams.get('source'), url.searchParams.get('project'), url.searchParams.get('id'))
+      requestFields({ project: rec.project, source_doc_id: rec.doc_id })
       return {
         document: rec,
-        markdown: readFileSync(resolveShared(rec.path, roots), 'utf8'),
+        markdown: readFileSync(uploads.resolve(rec.project, rec.path), 'utf8'),
       }
     },
-    '/bundle': (url) => getBundle(url.searchParams.get('id')),
+    '/bundle': (url) => {
+      requestFields({ bundle_id: url.searchParams.get('id') })
+      return getBundle(url.searchParams.get('id'))
+    },
   }
   const postRoutes = {
     '/initialize': (data) => {
@@ -739,12 +763,6 @@ export function createKnowledgeServer({
       if (projectWikis?.kind(data.project) === 'repository_docs') fail('Documentation repositories do not accept node initialization', 409)
       if (projectWikis) projectWikis.initialize(data.project)
       return defaults.initialize(data)
-    },
-    '/check-document': async data => {
-      const result = defaults.check(data)
-      const checked = await naming.check(identifier(data.project), data.document_id, data)
-      result.errors.push(...checked.errors)
-      return result
     },
     '/render-document': (data) => defaults.render(data),
     '/convert': (data) => register(data, true),
@@ -779,6 +797,7 @@ export function createKnowledgeServer({
       'ingest-runs',
       'source-observations',
       'artifacts',
+      'document-drafts', 'document-submit', 'document-freeze', 'document-review-requests',
       'document-evaluations',
       'document-review-decisions',
     ]
@@ -808,19 +827,14 @@ export function createKnowledgeServer({
       }
     }
     if (req.method === 'POST' && writes.includes(path.slice(1))) {
-      if (['/ingest-runs', '/source-observations'].includes(path))
-        await discovery.projectInfo(identifier(data.project))
-      else requireProjectConfiguration(data.project)
+      await discovery.projectInfo(identifier(data.project))
       if (path === '/document-review-decisions' && !reviewerIdentity)
         fail('Independent human reviewer authentication required', 403)
-      return {
-        data: await quality.mutate(
-          path.slice(1),
-          data,
-          req.headers['idempotency-key'],
-          reviewerIdentity ? req.headers.authorization.slice(7) : undefined,
-        ),
-      }
+      const event = await quality.mutate(
+        path.slice(1), data, req.headers['idempotency-key'],
+        reviewerIdentity ? req.headers.authorization.slice(7) : undefined,
+      )
+      return { data: event }
     }
     if (req.method === 'POST' && path === '/publish-document') {
       requireProjectConfiguration(data.project)
@@ -830,8 +844,33 @@ export function createKnowledgeServer({
     }
   }
 
+  const projectQueries = createProjectQueries({ discovery, defaults, quality, projectWikis })
+  function projectQuery(url) {
+    const match = url.pathname.slice(PREFIX.length).match(/^\/projects\/([^/]+)(\/templates)?$/)
+    if (!match) return undefined
+    let project
+    try { project = identifier(decodeURIComponent(match[1])) } catch { fail('Invalid identifier') }
+    requestFields({ project })
+    if (!match[2]) return projectQueries.project(project)
+    const templateID = url.searchParams.has('template_id') ? identifier(url.searchParams.get('template_id')) : undefined
+    return projectQueries.templates(project, templateID)
+  }
+
   async function route(req, url, data, reviewerIdentity) {
+    if (req.method === 'POST' && url.pathname === PREFIX + '/document-packages') {
+      await discovery.projectInfo(identifier(data.project))
+      return uploads.seal(data.project, data)
+    }
+    if (req.method === 'GET' && url.pathname === PREFIX + '/document-packages') {
+      const project = identifier(url.searchParams.get('project'))
+      await discovery.projectInfo(project)
+      return uploads.getPackage(project, url.searchParams.get('uri'))
+    }
     const path = url.pathname.slice(PREFIX.length)
+    if (req.method === 'GET') {
+      const result = projectQuery(url)
+      if (result !== undefined) return result
+    }
     if (path === '/document-identities/reserve' && req.method === 'POST') {
       await discovery.projectInfo(identifier(data.project))
       return { data: await naming.reserve(data, req.headers['idempotency-key']) }
@@ -883,6 +922,7 @@ export function createKnowledgeServer({
         const info = await discovery.projectInfo(project)
         return defaults.store.bind(project, info.modules, current?.overrides || {}, data.version, true, true, actor)
       },
+      'POST /bind-templates': () => projectQueries.bindTemplates({ ...data, project: identifier(data.project) }, actor),
       'POST /bind': () => {
         if (projectWikis?.kind(data.project) === 'repository_docs') fail('Documentation repositories do not accept node initialization', 409)
         if (projectWikis && data.wiki_source_directory) projectWikis.configure(data.project, { sourceDirectory: data.wiki_source_directory })
@@ -928,7 +968,11 @@ export function createKnowledgeServer({
     if (req.method === 'GET' && !action) return { data: buildRuntime.list(project) }
     const data = await body(req)
     if (req.method !== 'POST') fail('Operation not found', 404)
-    if (action === '/build') return mutate(async () => { await naming.prepareBuild(project); return { data: buildRuntime.buildCurrent(project) } })
+    if (action === '/build') return mutate(async () => {
+      try { await syncReviewedSources(project) }
+      catch (error) { return { data: buildRuntime.blockedImport(project, error) } }
+      return { data: buildRuntime.buildCurrent(project) }
+    })
     if (action === '/preview') {
       const record = getBundle(data.bundle_id)
       if (record.bundle.project !== project) fail('Bundle belongs to another project', 404)
@@ -945,14 +989,44 @@ export function createKnowledgeServer({
     if (!projectWikis) fail('Project Wiki storage is not configured', 503)
     const project = identifier(url.searchParams.get('project'))
     const action = url.pathname.slice('/internal/project-wiki'.length)
-    if (req.method === 'GET' && action === '') return { data: projectWikis.status(project) }
+    if (req.method === 'GET' && action === '') return { data: { ...projectWikis.status(project), documentSources: wikiSources.status(project) } }
     if (req.method !== 'POST') fail('Operation not found', 404)
     const data = await body(req)
-    return mutate(() => {
+    return mutate(async () => {
       if (action === '/configure') return { data: projectWikis.configure(project, data) }
       if (action === '/initialize') return { data: projectWikis.initialize(project) }
       fail('Operation not found', 404)
     })
+  }
+
+  async function internalRoute(req, url) {
+    if (url.pathname === '/internal/document-result-preview' || url.pathname === '/internal/document-result-original') {
+      if (req.method !== 'GET') fail('Operation not found', 404)
+      return { data: await quality.preview(identifier(url.searchParams.get('project')), url.searchParams.get('id'), url.pathname.endsWith('-original')) }
+    }
+    if (url.pathname === '/internal/source-documents') return internalSourceDocuments(req, url)
+    if (url.pathname.startsWith('/internal/project-wiki')) return internalProjectWiki(req, url)
+    if (url.pathname.startsWith('/internal/wiki-builds')) return internalBuilds(req, url)
+    if (url.pathname.startsWith('/internal/document-defaults')) return internalSettings(req, url)
+    fail('Endpoint not found', 404)
+  }
+
+  function internalSourceDocuments(req, url) {
+    if (req.method !== 'GET') fail('Operation not found', 404)
+    const project = identifier(url.searchParams.get('project'))
+    const documents = docs().docs.filter(record => record.project === project).map(record => ({
+      doc_id: record.doc_id,
+      path: record.path,
+      original_uri: record.original_uri,
+      type: record.category,
+      state: record.state,
+      sha256: record.parsed_sha256,
+      ingested_at: record.created_at,
+      updated_at: record.updated_at,
+      bundles: record.bundles || [],
+      history: record.history || [],
+    }))
+    return { documents }
   }
 
   function authenticateInternal(req) {
@@ -977,7 +1051,35 @@ export function createKnowledgeServer({
     return reviewerIdentity
   }
 
-  return createServer(async (req, res) => {
+  async function resourceResponse(req, res, url, internal) {
+    if (internal) {
+        if (url.pathname === '/internal/document-result-resource' && req.method === 'GET') {
+          const file = await quality.resource(identifier(url.searchParams.get('project')), url.searchParams.get('id'), url.searchParams.get('scope'), url.searchParams.get('path'))
+          res.writeHead(200, { 'Content-Type': file.media_type, 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(file.filename), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' })
+          res.end(readFileSync(file.path)); return true
+        }
+      return false
+    }
+      if (url.pathname === PREFIX + '/upload' && req.method === 'POST') {
+        const project = identifier(url.searchParams.get('project'))
+        await discovery.projectInfo(project)
+        const result = await uploads.upload(project, url.searchParams.get('filename'), req)
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(result))
+        return true
+      }
+      if (url.pathname === PREFIX + '/uploads/content' && req.method === 'GET') {
+        const project = identifier(url.searchParams.get('project'))
+        await discovery.projectInfo(project)
+        const file = uploads.file(project, url.searchParams.get('uri'))
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(file.filename), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' })
+        res.end(readFileSync(file.path))
+        return true
+      }
+    return false
+  }
+
+  const logRequest = createRequestLogs(logWriter)
+  return createServer((req, res) => logRequest(req, res, async () => {
     const send = (status, value) => {
       res.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -991,36 +1093,35 @@ export function createKnowledgeServer({
         send(200, { status: 'ok' })
         return
       }
-      if (url.pathname.startsWith('/internal/project-wiki')) {
+      if (url.pathname.startsWith('/internal/')) {
         authenticateInternal(req)
-        send(200, await internalProjectWiki(req, url))
-        return
-      }
-      if (url.pathname.startsWith('/internal/wiki-builds')) {
-        authenticateInternal(req)
-        send(200, await internalBuilds(req, url))
-        return
-      }
-      if (url.pathname.startsWith('/internal/document-defaults')) {
-        authenticateInternal(req)
-        send(200, await internalSettings(req, url))
+        if (await resourceResponse(req, res, url, true)) return
+        requestFields(Object.fromEntries(url.searchParams))
+        send(200, await internalRoute(req, url))
         return
       }
       const reviewerIdentity = authenticateAgent(req, url)
       if (!url.pathname.startsWith(PREFIX + '/'))
         fail('Endpoint not found', 404)
+      if (await resourceResponse(req, res, url, false)) return
       const data = req.method === 'POST' ? await body(req) : null
+      requestFields(data || Object.fromEntries(url.searchParams))
+      requestStep('request.execute')
       if (req.method === 'POST') {
         send(200, await mutate(() => route(req, url, data, reviewerIdentity)))
       } else send(200, await route(req, url))
     } catch (e) {
-      send(e.status || (e instanceof SyntaxError ? 400 : 422), {
+      const status = responseStatus(e)
+      requestFailure(e, status)
+      send(status, {
         error: e.message,
+        request_id: requestID(),
         ...(e.code ? { code: e.code } : {}),
+        ...(e.diagnostics ? { diagnostics: e.diagnostics } : {}),
         ...(e.existing ? { existing: e.existing } : {}),
       })
     }
-  })
+  }))
 }
 
 if (
@@ -1036,7 +1137,7 @@ if (
   server.listen(
     Number(process.env.KNOWLEDGE_PORT || 8090),
     process.env.KNOWLEDGE_HOST || '127.0.0.1',
-    () => console.log('Knowledge service ready'),
+    () => console.log(JSON.stringify({ '@timestamp': new Date().toISOString(), 'ecs.version': '8.11.0', service: { name: 'cim-wiki-knowledge' }, log: { level: 'info' }, event: { action: 'service.started' } })),
   )
 }
 
@@ -1049,8 +1150,4 @@ function projectStorage(options, projectWikis) {
 
 function resolveProjectWikis(value, { projectRoot, wikiRoot }) {
   return value === undefined ? createProjectWiki({ projectRoot, legacyRoot: wikiRoot }) : value
-}
-
-function connectNamingToBuild(runtime, naming) {
-  if (runtime) runtime.setNamingProvider(project => naming.buildManifest(project))
 }

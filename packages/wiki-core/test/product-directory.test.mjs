@@ -27,16 +27,31 @@ test('navigation uses Project directories without generated configuration or cat
   assert.equal(JSON.stringify(directorySidebar('demo', f.wikiRoot, f.projectRoot)), tree)
 })
 
-test('navigation follows explicit Project overrides and rejects missing bindings', t => {
+test('navigation uses configured labels and supports unbound Markdown without applying authoring rules', t => {
   const f = fixture(t), store = createDefaultsStore(f.projectRoot)
   const directories = store.effective('demo').definition.directories.map(d => d.path === 'doc/40-requirements' ? { ...d, title: 'Project requirements' } : d)
   store.bind('demo', [], { directories }, undefined, true)
   assert.match(JSON.stringify(directorySidebar('demo', f.wikiRoot, f.projectRoot)), /Project requirements/)
-  assert.throws(() => directorySidebar('unbound', f.wikiRoot, f.projectRoot), /must bind/)
+  assert.deepEqual(directorySidebar('unbound', f.wikiRoot, f.projectRoot), [])
+  mkdirSync(join(f.wikiRoot, 'unbound/doc/50-designs'), { recursive: true })
+  writeFileSync(join(f.wikiRoot, 'unbound/doc/50-designs/design.md'), '# Existing design\n\nRenderable content.')
+  const navigation = JSON.stringify(directorySidebar('unbound', f.wikiRoot, f.projectRoot))
+  assert.match(navigation, /Existing design/)
+  assert.match(navigation, /unbound\/doc\/50-designs\/design/)
 })
 
 test('navigation refuses symbolic links in content', t => {
   const f = fixture(t)
   symlinkSync(f.projectRoot, join(f.wikiRoot, 'demo/doc/linked'))
   assert.throws(() => directorySidebar('demo', f.wikiRoot, f.projectRoot), /Symbolic/)
+})
+
+test('bound projects include generic Markdown in its physical configured directory', t => {
+  const f = fixture(t)
+  mkdirSync(join(f.wikiRoot, 'demo/doc/40-requirements'), { recursive: true })
+  writeFileSync(join(f.wikiRoot, 'demo/doc/40-requirements/functions.md'), '# SPC functions\n\nReviewed list.')
+  const tree = JSON.stringify(directorySidebar('demo', f.wikiRoot, f.projectRoot))
+  assert.match(tree, /SPC functions/)
+  assert.match(tree, /demo\/doc\/40-requirements\/functions/)
+  assert.equal((tree.match(/demo\/doc\/40-requirements\/functions/g) || []).length, 1)
 })

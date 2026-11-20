@@ -4,23 +4,39 @@ const markdown = new MarkdownIt({ html: true })
 const fixedSections = ['文档信息', '参考文档', '修订记录']
 export const DOCUMENT_FORMAT = 'markdown-v1'
 export const DOCUMENT_FIELDS = [
-  '文档 ID', '文档名称', '文档版本', '所属产品', '状态',
-  '编写者', '审核者', '创建时间', '修订时间', '适用范围',
+  '文档 ID',
+  '文档名称',
+  '文档版本',
+  '所属产品',
+  '状态',
+  '编写者',
+  '审核者',
+  '创建时间',
+  '修订时间',
+  '适用范围',
 ]
 export const FORMAT_TABLES = [
   { section: '文档信息', columns: ['项目', '内容'], min_rows: 10, repeat: false },
   { section: '参考文档', columns: ['文档名称或链接', '参考用途'], min_rows: 0, repeat: false },
-  { section: '修订记录', columns: ['版本', '时间', '变更说明', '编写者'], min_rows: 1, repeat: false },
+  {
+    section: '修订记录',
+    columns: ['版本', '时间', '变更说明', '编写者'],
+    min_rows: 1,
+    repeat: false,
+  },
 ]
 
 export const unnumberedTitle = (title) => title.replace(/^\d+(?:\.\d+)*(?:\.\s*|\s+)/, '').trim()
 
 function numberedHeadings(text) {
-  const lines = text.split('\n'), tokens = markdown.parse(text, {})
-  const counters = [], mapping = new Map()
+  const lines = text.split('\n'),
+    tokens = markdown.parse(text, {})
+  const counters = [],
+    mapping = new Map()
   tokens.forEach((token, i) => {
     if (token.type !== 'heading_open' || token.tag === 'h1') return
-    const title = tokens[i + 1].content, level = Number(token.tag.slice(1))
+    const title = tokens[i + 1].content,
+      level = Number(token.tag.slice(1))
     if (level === 2 && fixedSections.includes(title)) return
     counters.length = level - 1
     counters[level - 2] = (counters[level - 2] || 0) + 1
@@ -33,7 +49,8 @@ function numberedHeadings(text) {
 }
 
 function referenceTable(text) {
-  const start = text.indexOf('## 参考文档\n'), end = text.indexOf('## 修订记录\n', start)
+  const start = text.indexOf('## 参考文档\n'),
+    end = text.indexOf('## 修订记录\n', start)
   const body = text.slice(start, end < 0 ? text.length : end)
   if (body.includes('| 文档名称或链接 | 参考用途 |')) return text
   const insertion = '\n| 文档名称或链接 | 参考用途 |\n| --- | --- |\n\n'
@@ -45,11 +62,17 @@ function referenceTable(text) {
 export function formatTemplate(template) {
   const result = structuredClone(template)
   const prepare = (text) => {
-    const body = markdown.parse(text, {}).some((token, i, tokens) =>
-      token.type === 'heading_open' && token.tag === 'h2' &&
-      !fixedSections.includes(tokens[i + 1].content),
-    )
-    return body ? text : text.replace('## 参考文档', '## 正文说明\n\n说明本类文档的实际内容。\n\n## 参考文档')
+    const body = markdown
+      .parse(text, {})
+      .some(
+        (token, i, tokens) =>
+          token.type === 'heading_open' &&
+          token.tag === 'h2' &&
+          !fixedSections.includes(tokens[i + 1].content),
+      )
+    return body
+      ? text
+      : text.replace('## 参考文档', '## 正文说明\n\n说明本类文档的实际内容。\n\n## 参考文档')
   }
   const example = numberedHeadings(prepare(result.example))
   result.example = referenceTable(example.text)
@@ -58,7 +81,10 @@ export function formatTemplate(template) {
   result.contract.sections = result.contract.sections.map(rename)
   if (!result.contract.sections.some((title) => !fixedSections.includes(title)))
     result.contract.sections.splice(1, 0, '1. 正文说明')
-  result.contract.tables = result.contract.tables.map((rule) => ({ ...rule, section: rename(rule.section) }))
+  result.contract.tables = result.contract.tables.map((rule) => ({
+    ...rule,
+    section: rename(rule.section),
+  }))
   for (const rule of FORMAT_TABLES) {
     const i = result.contract.tables.findIndex((table) => table.section === rule.section)
     if (i < 0) result.contract.tables.push(structuredClone(rule))
@@ -76,10 +102,17 @@ export function checkFormatContract(contract, add) {
   if (contract.format !== DOCUMENT_FORMAT)
     add('document_format_contract', 'The common markdown-v1 document format is required')
   for (const rule of FORMAT_TABLES)
-    if (!contract.tables.some((table) =>
-      table.section === rule.section && JSON.stringify(table.columns) === JSON.stringify(rule.columns) &&
-      table.min_rows >= rule.min_rows && table.repeat === false && !table.optional_columns?.length,
-    )) add('document_format_contract', 'Required common table contract: ' + rule.section)
+    if (
+      !contract.tables.some(
+        (table) =>
+          table.section === rule.section &&
+          JSON.stringify(table.columns) === JSON.stringify(rule.columns) &&
+          table.min_rows >= rule.min_rows &&
+          table.repeat === false &&
+          !table.optional_columns?.length,
+      )
+    )
+      add('document_format_contract', 'Required common table contract: ' + rule.section)
 }
 
 function checkNumbering(headings, add) {
@@ -101,29 +134,51 @@ function checkNumbering(headings, add) {
 export function checkDocumentFormat(sections, values, add, tablesOf) {
   const title = sections.find((section) => section.level === 1)
   if (sections[0] !== title || title?.title !== values.get('文档名称'))
-    add('document_name', 'Document title must precede all sections and match the document name', title)
+    add(
+      'document_name',
+      'Document title must precede all sections and match the document name',
+      title,
+    )
   const main = sections.filter((section) => section.level === 2)
   const names = main.map((section) => section.title)
   if (names[0] !== '文档信息' || names.at(-2) !== '参考文档' || names.at(-1) !== '修订记录')
-    add('document_layout', 'Required order: document information, body, references, revision history')
+    add(
+      'document_layout',
+      'Required order: document information, body, references, revision history',
+    )
   if (main.filter((section) => !fixedSections.includes(section.title)).length === 0)
     add('document_body', 'At least one numbered body chapter is required')
   for (const name of fixedSections)
     if (sections.filter((section) => section.level === 2 && section.title === name).length !== 1)
       add('document_layout', 'Exactly one unnumbered common section is required: ' + name)
   const info = main.find((section) => section.title === '文档信息')
-  const keys = (info ? tablesOf(info.tokens) : []).flatMap((table) => table.rows.map((row) => row[0]))
+  const keys = (info ? tablesOf(info.tokens) : []).flatMap((table) =>
+    table.rows.map((row) => row[0]),
+  )
   if (JSON.stringify(keys) !== JSON.stringify(DOCUMENT_FIELDS))
     add('document_field_order', 'Document information fields must follow the common order', info)
   checkNumbering(sections, add)
-  for (const section of sections)
-    checkFormatContent(section, add, tablesOf)
+  for (const section of sections) checkFormatContent(section, add, tablesOf)
+}
+
+function missingApplicabilityReason(content) {
+  const text = content.trim()
+  if (!text.startsWith('不涉及')) return false
+  let end = text.length
+  while (end > 3 && (text[end - 1] === '。' || text[end - 1].trim() === '')) end--
+  let reason = text.slice(3, end)
+  if (reason.startsWith(':') || reason.startsWith('：')) reason = reason.slice(1).trimStart()
+  return ['', 'TODO', '待补', '—'].includes(reason)
 }
 
 function checkFormatContent(section, add, tablesOf) {
-  for (const token of section.tokens)
-    if (token.type === 'inline' && /^不涉及(?:[：:]\s*)?(?:TODO|待补|—)?[。\s]*$/.test(token.content.trim()))
-      add('not_applicable_reason', 'Explain why this section does not apply', section)
+  for (const token of section.tokens) {
+    if (token.type === 'inline') {
+      if (missingApplicabilityReason(token.content)) {
+        add('not_applicable_reason', 'Explain why this section does not apply', section)
+      }
+    }
+  }
   if (section.title !== '修订记录') return
   for (const row of tablesOf(section.tokens).flatMap((table) => table.rows)) {
     const date = new Date(row[1])

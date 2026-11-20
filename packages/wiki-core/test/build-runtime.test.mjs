@@ -1,6 +1,7 @@
+import { createWikiSource } from '../../wiki-service/wiki-source.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, openSync, closeSync, fstatSync, readSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -12,6 +13,7 @@ import { createSitePublisher } from '../../wiki-service/build-publication.mjs'
 import { runBuildWorker } from '../../wiki-worker/server.mjs'
 import { treeDigest } from '../build-snapshot.mjs'
 import { atomicJson } from '../build-job-store.mjs'
+import { validateWiki } from '../validate.mjs'
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
 function fixture(t) {
@@ -27,30 +29,24 @@ function fixture(t) {
   return { root, projectRoot, wikiRoot, buildsRoot, git }
 }
 
-test('snapshot freezes sources and dependencies, rejects tampering and dirty Git input', t => {
-  const f = fixture(t)
-  const captures = join(f.buildsRoot, 'snapshots')
-  chmodSync(join(f.projectRoot, 'data/raw/ci-source.md'), 0o600)
+test('snapshot freezes only build files and does not resolve registered original or package sources', t => {
+  const f = fixture(t), captures = join(f.buildsRoot, 'snapshots')
+  const manifestPath = join(f.projectRoot, 'data/documents/manifest.json')
+  const manifest = JSON.parse(readFileSync(manifestPath))
+  manifest.docs.push({ project: 'ci', path: 'document-package://93854a5cfecde2a2f1e23a6a45ad9dfe3579edf3afc099bbf98a7389b3aa6a33', state: 'draft' })
+  writeFileSync(manifestPath, JSON.stringify(manifest))
+  rmSync(join(f.projectRoot, 'data/raw/ci-source.md'))
   const snapshot = captureSnapshot({ ...f, roots: {}, buildsRoot: captures })
   const context = snapshotContext(captures, snapshot.snapshot, snapshot.digest)
-  const source = join(f.projectRoot, 'data/raw/ci-source.md')
-  const snapshotFile = openSync(join(context.projectRoot, 'data/raw/ci-source.md'), 'r+')
-  try {
-    assert.equal(fstatSync(snapshotFile).mode & 0o777, 0o640)
-    const snapshotText = readFileSync(snapshotFile, 'utf8')
-    const fd = openSync(source, 'r+')
-    try {
-      assert.equal(fstatSync(fd).mode & 0o777, 0o600)
-      writeFileSync(fd, 'changed source')
-      const changed = Buffer.alloc(fstatSync(fd).size)
-      assert.equal(readSync(fd, changed, 0, changed.length, 0), changed.length)
-      assert.notEqual(changed.toString('utf8'), snapshotText)
-    } finally { closeSync(fd) }
-    assert.equal(snapshotContext(captures, snapshot.snapshot, snapshot.digest).wikiRoot, context.wikiRoot)
-    writeFileSync(snapshotFile, 'tampered snapshot')
-    assert.throws(() => snapshotContext(captures, snapshot.snapshot, snapshot.digest), /integrity/)
-  } finally { closeSync(snapshotFile) }
-  writeFileSync(join(f.wikiRoot, 'untracked.md'), 'unreviewed')
+  assert.equal(existsSync(join(context.projectRoot, 'data/documents/manifest.json')), false)
+  assert.equal(existsSync(join(context.projectRoot, 'data/raw/ci-source.md')), false)
+  const page = join(context.wikiRoot, 'ci/doc/requirements/req-ci-001.md')
+  const before = readFileSync(page, 'utf8')
+  writeFileSync(join(f.wikiRoot, 'ci/doc/requirements/req-ci-001.md'), 'changed live page')
+  assert.equal(readFileSync(page, 'utf8'), before)
+  assert.equal(snapshotContext(captures, snapshot.snapshot, snapshot.digest).wikiRoot, context.wikiRoot)
+  writeFileSync(page, 'tampered snapshot')
+  assert.throws(() => snapshotContext(captures, snapshot.snapshot, snapshot.digest), /integrity/)
   assert.throws(() => gitIdentity(f.wikiRoot), /uncommitted/)
 })
 
@@ -74,18 +70,22 @@ test('manual first build works without a Bundle and does not change Git or publi
 test('manual build persists blocked diagnostics for dirty Git and invalid Wiki rather than disappearing', t => {
   const f = fixture(t), runtime = createBuildRuntime({ ...f, roots: {} })
   t.after(() => runtime.close())
-  writeFileSync(join(f.wikiRoot, 'untracked.md'), '# Unreviewed')
+  writeFileSync(join(f.wikiRoot, 'untracked.md'), '<script>alert(1)</script>')
   const before = f.git(['status', '--porcelain'])
   const job = runtime.buildCurrent('ci')
   assert.equal(job.state, 'blocked')
   assert.ok(job.diagnostics.some(d => d.code === 'git_baseline'))
-  assert.ok(job.diagnostics.some(d => d.code === 'wiki_validation'))
   assert.equal(runtime.coordinator.claim('worker'), null)
   assert.equal(runtime.list('ci')[0].id, job.id)
   assert.deepEqual(runtime.list('other'), [])
   runtime.reconcile()
   assert.equal(runtime.list('ci')[0].state, 'blocked')
   assert.equal(f.git(['status', '--porcelain']), before)
+  f.git(['add', '.']); f.git(['commit', '-m', 'Unsafe document must be blocked at capture'])
+  const unsafe = runtime.buildCurrent('ci')
+  assert.equal(unsafe.state, 'blocked')
+  assert.ok(unsafe.diagnostics.some(d => d.code === 'wiki_validation' && d.issues.some(issue => issue.code === 'active_content')))
+  assert.equal(runtime.coordinator.claim('worker'), null)
 })
 
 test('manual build refuses unsettled publication even when source Wiki validates', t => {
@@ -141,10 +141,19 @@ test('interrupted site replacement restores the previous site or finalizes the m
   assert.equal(existsSync(join(root, '.maintenance')), false)
 })
 
-test('independent socket worker builds real VitePress formal and isolated preview sites', async t => {
+test('independent socket worker builds renderable pages despite authoring contract errors', async t => {
   const f = fixture(t), runtime = createBuildRuntime({ ...f, roots: {}, socketPath: join(f.root, 'worker.sock') })
-  const snapshot = captureSnapshot({ ...f, roots: {}, buildsRoot: join(f.buildsRoot, 'snapshots') })
-  const job = runtime.coordinator.enqueue({ ...snapshot, project: 'ci', mode: 'formal' })
+  const pagePath = join(f.wikiRoot, 'ci/doc/requirements/req-ci-001.md')
+  writeFileSync(pagePath, readFileSync(pagePath, 'utf8').replace('## 1. 背景与目标', '## Existing content') + '\n\n[Unavailable reference](missing-reference.md)\n\n<<< /etc/passwd\n')
+  assert.ok(validateWiki(f).errors.some(error => error.code === 'section_required'))
+  f.git(['add', '.']); f.git(['commit', '-m', 'Existing document under older template'])
+  const sources = createWikiSource({ projectRoot: f.projectRoot, sourceFor: () => f.wikiRoot, prefixFor: () => 'ci' })
+  sources.materialize('ci', { id: '3', version: 1, content_sha256: 'a'.repeat(64) }, { id: '5' }, [{ path: 'doc/40-requirements/functions.md', bytes: Buffer.from('# Function list\n\nApproved functions.') }])
+  const baseCommit = f.git(['rev-parse', 'HEAD'])
+  const job = runtime.buildCurrent('ci')
+  assert.equal(job.state, 'queued', JSON.stringify(job))
+  assert.equal(f.git(['rev-parse', 'HEAD']), baseCommit)
+  assert.notEqual(job.gitCommit, baseCommit)
   const controller = new AbortController()
   let worker
   try {
@@ -163,9 +172,14 @@ test('independent socket worker builds real VitePress formal and isolated previe
     }
     const result = await finished(job.id)
     assert.equal(result.state, 'succeeded', result.error)
+    assert.equal(f.git(['rev-parse', 'HEAD']), job.gitCommit)
+    assert.equal(f.git(['status', '--porcelain']), '')
+    assert.match(readFileSync(join(f.projectRoot, 'data/wiki-site/html/ci/doc/40-requirements/functions.html'), 'utf8'), /Approved functions/)
     const page = join(f.projectRoot, 'data/wiki-site/html/ci/doc/requirements/req-ci-001.html')
     assert.ok(existsSync(page))
     assert.match(readFileSync(page, 'utf8'), new RegExp(job.gitCommit))
+    assert.match(readFileSync(page, 'utf8'), /Unavailable reference/)
+    assert.doesNotMatch(readFileSync(page, 'utf8'), /root:x:0:0/)
     const preview = runtime.preview('ci', 'CR-PREVIEW', f.wikiRoot)
     const built = await finished(preview.id)
     assert.equal(built.state, 'succeeded', built.error)

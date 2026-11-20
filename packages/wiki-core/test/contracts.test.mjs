@@ -19,7 +19,8 @@ import { stringify } from 'yaml'
 import { validateWiki } from '../validate.mjs'
 import { compileBundle } from '../compile.mjs'
 import { PROJECT_ROOT } from '../contracts.mjs'
-import { commitWiki } from '../wiki-gitops.mjs'
+import { commitWiki, ensureRepo } from '../wiki-gitops.mjs'
+import { captureSnapshot } from '../build-snapshot.mjs'
 
 function fixture(t) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'wiki-core-test-'))
@@ -237,13 +238,13 @@ const bundle = () => ({
   ],
 })
 
-test('compilation validates the entire candidate tree before any published data changes', async (t) => {
+test('compilation rejects unsafe renderable content before any published data changes', async (t) => {
   const f = fixture(t)
   const dest = page(f)
   const before = readFileSync(dest, 'utf8')
   const b = bundle()
-  b.nodes[0].content = '[[doc/requirements/missing.md]]'
-  await assert.rejects(compileBundle(b, f), /broken_link/)
+  b.nodes[0].content = '<script>alert(1)</script>'
+  await assert.rejects(compileBundle(b, f), /active_content/)
   assert.equal(readFileSync(dest, 'utf8'), before)
   assert.equal(
     existsSync(join(f.projectRoot, 'data/documents/api-registry.json')),
@@ -308,7 +309,7 @@ test('preview validates but changes no pages or registries', async (t) => {
   assert.equal(existsSync(join(f.projectRoot, 'data/documents')), false)
 })
 
-test('unrelated invalid existing documents also block a new publication', async (t) => {
+test('existing document contract drift is reported separately from compilation', async (t) => {
   const f = fixture(t)
   page(
     f,
@@ -316,11 +317,12 @@ test('unrelated invalid existing documents also block a new publication', async 
     '# Test\n\nText.',
     'b/doc/requirements/req-test-001.md',
   )
-  await assert.rejects(compileBundle(bundle(), f), /schema_error/)
-  assert.equal(existsSync(join(f.wikiRoot, 'a/doc')), false)
+  await compileBundle(bundle(), f)
+  assert.ok(validateWiki(f).errors.some(error => error.code === 'schema_error'))
+  assert.equal(existsSync(join(f.wikiRoot, 'a/doc')), true)
 })
 
-test('draft, expert nodes with automatic reviewers and source drift cannot publish', async (t) => {
+test('publication requires approval while source drift remains an explicit submission diagnostic', async (t) => {
   const f = fixture(t)
   for (const change of [
     { status: 'draft' },
@@ -352,9 +354,8 @@ test('draft, expert nodes with automatic reviewers and source drift cannot publi
   writeFileSync(path, 'Drifted source')
   const b = bundle()
   b.nodes[0].source = 'data/raw/source.md'
-  await assert.rejects(compileBundle(b, f), /doc_drift/)
   assert.equal(JSON.parse(readFileSync(manifestPath)).docs[0].state, 'frozen')
-  writeFileSync(path, 'Original source')
+  assert.ok(validateWiki(f).errors.some(error => error.code === 'doc_drift'))
   await compileBundle(b, f)
   assert.equal(JSON.parse(readFileSync(manifestPath)).docs[0].state, 'active')
 })
@@ -405,17 +406,12 @@ test('a second publisher is rejected while publication and its hooks hold the lo
   )
 })
 
-test('GitOps refuses invalid content before invoking git or staging changes', (t) => {
+test('GitOps only records files; snapshot capture rejects executable content before dispatch', (t) => {
   const f = fixture(t)
-  page(f, { ...metadata(), confidence: 2 })
-  assert.throws(
-    () =>
-      commitWiki(f.wikiRoot, 'Should never commit', {
-        projectRoot: f.projectRoot,
-      }),
-    /schema_error/,
-  )
-  assert.equal(existsSync(join(f.wikiRoot, '.git')), false)
+  page(f, metadata(), '# Unsafe\n\n<script>alert(1)</script>')
+  ensureRepo(f.wikiRoot)
+  assert.equal(commitWiki(f.wikiRoot, 'Record input for validation').committed, true)
+  assert.throws(() => captureSnapshot({ ...f, buildsRoot: join(f.projectRoot, 'snapshots') }), /active_content/)
 })
 
 test('legacy CLI delegates to strict core and returns machine-readable failures', (t) => {

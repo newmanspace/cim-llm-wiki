@@ -8,43 +8,98 @@ import { parseDocument } from 'yaml'
 export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 export const CONTRACT_ROOT = join(PROJECT_ROOT, 'contracts/wiki/v1')
 export const SCHEMA_VERSION = '1.0'
-const read = name => JSON.parse(readFileSync(join(CONTRACT_ROOT, name), 'utf8'))
+const read = (name) => JSON.parse(readFileSync(join(CONTRACT_ROOT, name), 'utf8'))
 const nodeTypes = read('node-types.json')
 export const NODE_TYPES = nodeTypes.types
-if (JSON.stringify([...nodeTypes.enum].sort()) !== JSON.stringify(Object.keys(NODE_TYPES).sort())) {
+if (
+  JSON.stringify([...nodeTypes.enum].sort((a, b) => a.localeCompare(b))) !==
+  JSON.stringify(Object.keys(NODE_TYPES).sort((a, b) => a.localeCompare(b)))
+) {
   throw new Error('Node type enumeration and routing definitions disagree')
 }
 const ajv = new Ajv({ allErrors: true, strict: false })
 addFormats(ajv)
 ajv.addSchema(nodeTypes)
-ajv.addSchema(read('node.schema.json'), 'node')
+const nodeSchema = read('node.schema.json')
+ajv.addSchema(nodeSchema, 'node')
+const submissionNode = {
+  ...nodeSchema,
+  $id: 'https://cim-wiki.local/schemas/v1/submission-node',
+  required: nodeSchema.required.filter(
+    (field) =>
+      !['schema_version', 'confidence', 'reviewer', 'status', 'created_at', 'updated_at'].includes(
+        field,
+      ),
+  ),
+}
+ajv.addSchema(submissionNode)
+const submissionBundle = read('bundle.schema.json')
+submissionBundle.$id = 'https://cim-wiki.local/schemas/v1/submission-bundle'
+submissionBundle.properties.nodes.items.allOf[0].$ref = submissionNode.$id
 ajv.addSchema(read('template.schema.json'), 'template')
 const validators = {
   node: ajv.getSchema('node'),
   bundle: ajv.compile(read('bundle.schema.json')),
+  submissionBundle: ajv.compile(submissionBundle),
   template: ajv.getSchema('template'),
   documentSet: ajv.compile(read('document-set.schema.json')),
 }
 
-export const REFERENCE_TYPES = { applies_to: ['api'], preconditions: ['business_rule'], related_apis: ['api'],
-  related_rules: ['business_rule'], related_designs: ['design'], related_requirements: ['requirement'],
-  related_tests: ['test_case'], related_modules: ['module'], related_code: ['code_index'] }
+export const REFERENCE_TYPES = {
+  applies_to: ['api'],
+  preconditions: ['business_rule'],
+  related_apis: ['api'],
+  related_rules: ['business_rule'],
+  related_designs: ['design'],
+  related_requirements: ['requirement'],
+  related_tests: ['test_case'],
+  related_modules: ['module'],
+  related_code: ['code_index'],
+}
 
 export function readContractJson(path) {
   const text = readFileSync(path, 'utf8')
   const value = JSON.parse(text)
   const doc = parseDocument(text, { uniqueKeys: true })
-  if (doc.errors.length) throw new Error(doc.errors.map(e => e.message).join('; '))
+  if (doc.errors.length) throw new Error(doc.errors.map((e) => e.message).join('; '))
   return value
 }
 
 export function schemaErrors(kind, value) {
   const check = validators[kind]
   if (check(value)) return []
-  return check.errors.map(e => `${e.instancePath || '/'} ${e.message}${e.params.additionalProperty ? ` (${e.params.additionalProperty})` : ''}`)
+  return check.errors.map(
+    (e) =>
+      `${e.instancePath || '/'} ${e.message}${e.params.additionalProperty ? ` (${e.params.additionalProperty})` : ''}`,
+  )
 }
 
-export const slugify = id => String(id).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+// JSON Pointer paths identify missing or extra properties, including their node index.
+export function schemaDiagnostics(kind, value) {
+  const check = validators[kind]
+  if (check(value)) return []
+  return check.errors
+    .filter((error) => error.keyword !== 'if')
+    .map((error) => {
+      const property = error.params.missingProperty ?? error.params.additionalProperty
+      const suffix =
+        property === undefined
+          ? ''
+          : '/' + String(property).replaceAll('~', '~0').replaceAll('/', '~1')
+      return {
+        path: error.instancePath + suffix || '/',
+        keyword: error.keyword,
+        message: error.message,
+      }
+    })
+}
+
+export const slugify = (id) =>
+  String(id)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
 
 export function nodeLocation(node) {
   const entry = NODE_TYPES[node.type]
@@ -55,12 +110,15 @@ export function nodeLocation(node) {
 }
 
 export function loadTemplateContracts(wikiRoot) {
-  const rejectLegacy = dir => {
-    if (existsSync(join(dir,'manifest.json')))throw new Error('Legacy template manifests are not supported; use published global document template definitions')
+  const rejectLegacy = (dir) => {
+    if (existsSync(join(dir, 'manifest.json')))
+      throw new Error(
+        'Legacy template manifests are not supported; use published global document template definitions',
+      )
   }
-  rejectLegacy(join(wikiRoot,'templates'))
-  return project=>{
-    if(project)rejectLegacy(join(wikiRoot,project,'templates'))
+  rejectLegacy(join(wikiRoot, 'templates'))
+  return (project) => {
+    if (project) rejectLegacy(join(wikiRoot, project, 'templates'))
     return NODE_TYPES
   }
 }

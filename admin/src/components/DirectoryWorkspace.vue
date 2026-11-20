@@ -155,15 +155,7 @@
             </tbody>
           </table>
         </div>
-        <div v-if="children.length > pageSize" class="pagination">
-          <button :disabled="page === 1" @click="page--">上一页</button
-          ><span
-            >{{ page }} / {{ pageCount }} · 共
-            {{ children.length }} 个子目录</span
-          ><button :disabled="page === pageCount" @click="page++">
-            下一页
-          </button>
-        </div>
+        <ListPagination v-model:page="page" v-model:page-size="pageSize" :total="children.length" />
         <div v-if="!children.length && !busy" class="empty">
           <h4>{{ childSearch ? '没有匹配的子目录' : '暂无子目录' }}</h4>
           <p>当前仅展示直接子目录。文档内容请在“文档结果”中查看。</p>
@@ -396,7 +388,9 @@
   </section>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import ListPagination from '@/components/ListPagination.vue'
+import { usePagination } from '@/composables/usePagination'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { Dialog as TDialog, Drawer as TDrawer } from 'tdesign-vue-next'
 import DirectoryScoring from './DirectoryScoring.vue'
@@ -447,17 +441,6 @@ const parentOptions = computed(() =>
         .includes(parentSearch.value.toLocaleLowerCase()),
   ),
 )
-const page = ref(1),
-  pageSize = 20
-const pageCount = computed(() =>
-  Math.max(1, Math.ceil(children.value.length / pageSize)),
-)
-const pagedChildren = computed(() =>
-  children.value.slice((page.value - 1) * pageSize, page.value * pageSize),
-)
-watch(childSearch, () => {
-  page.value = 1
-})
 const collapsed = ref(new Set<string>())
 const context = ref<{
   row: DirectoryRow
@@ -501,6 +484,7 @@ const children = computed(() =>
         .includes(childSearch.value.toLocaleLowerCase()),
   ),
 )
+const { page, pageSize, paged: pagedChildren } = usePagination(children, [childSearch, selected])
 const breadcrumbs = computed(() =>
   selected.value
     .split('/')
@@ -828,7 +812,7 @@ onBeforeUnmount(() => {
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-stroke);
   border-radius: 10px;
-  min-height: 640px;
+  min-height: 0;
   overflow: hidden;
 }
 .tree-panel {
@@ -887,7 +871,7 @@ tr.highlight {
   color: var(--td-brand-color);
 }
 main {
-  padding: 24px;
+  padding: 12px 16px;
   min-width: 0;
 }
 .breadcrumbs {
@@ -909,7 +893,7 @@ main {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  padding-bottom: 20px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--td-component-stroke);
 }
 h3 {
@@ -934,7 +918,7 @@ p {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin: 20px 0;
+  margin: 8px 0;
 }
 .list-heading small {
   color: var(--td-text-color-secondary);
@@ -953,6 +937,7 @@ p {
 }
 .table-wrap {
   overflow: auto;
+  max-height: 60vh;
 }
 table {
   width: 100%;
@@ -960,12 +945,15 @@ table {
 }
 th,
 td {
-  padding: 12px;
+  padding: 4px 12px;
   text-align: left;
   border-bottom: 1px solid var(--td-component-stroke);
   white-space: nowrap;
 }
 th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: var(--td-bg-color-page);
   font-size: 12px;
   color: var(--td-text-color-secondary);
@@ -990,7 +978,7 @@ th {
 }
 button {
   font: inherit;
-  padding: 6px 12px;
+  padding: 3px 8px;
   border: 1px solid var(--td-component-stroke);
   border-radius: 5px;
   background: var(--td-bg-color-container);
@@ -1014,11 +1002,11 @@ button:disabled {
 }
 .primary {
   background: var(--td-brand-color);
-  color: white;
+  color: var(--cim-brand-on-color);
 }
 .danger {
   background: var(--td-error-color);
-  color: white;
+  color: var(--td-text-color-anti);
 }
 .link {
   color: var(--td-brand-color);

@@ -48,9 +48,12 @@ export async function revokeToken(id: string, token: string): Promise<void> {
   await client.delete(`/admin/projects/${id}/token`, { data: { token } })
 }
 
-export async function getSyncLogs(id: string, limit = 20): Promise<SyncLog[]> {
-  const res = await client.get(`/admin/projects/${id}/sync-logs`, { params: { limit } })
-  return res.data.logs || []
+export async function getSyncLogs(id: string, limit = 20, offset = 0): Promise<{ logs: SyncLog[]; total: number }> {
+  const res = await client.get(`/admin/projects/${encodeURIComponent(id)}/sync-logs`, { params: { limit, offset } })
+  if (!Array.isArray(res.data?.logs) || !Number.isInteger(res.data?.total) || res.data.total < 0) {
+    throw new Error('同步历史分页响应无效')
+  }
+  return { logs: res.data.logs, total: res.data.total }
 }
 
 export async function getWikiNodes(id: string): Promise<WikiNodeEntry[]> {

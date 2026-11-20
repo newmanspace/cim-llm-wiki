@@ -31,7 +31,7 @@ test('frozen registry validates document content and refuses unregistered busine
  assert.throws(()=>validateNamedTree(root,manifest),/DOCUMENT_IDENTITY_REQUIRED/)
 })
 
-test('repository builds require and freeze a naming registry rather than reading live state during replay',t=>{
+test('repository builds depend on committed documents without a naming registry',t=>{
  const root=mkdtempSync(join(tmpdir(),'naming-snapshot-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
  const source=join(root,'repo'),buildsRoot=join(root,'snapshots'),definition=builtinDefaults()
  definition.naming={format:'project-type-module-topic-sequence-v1',types:[{code:'sdd',template_ids:['sdd']}]}
@@ -43,9 +43,7 @@ test('repository builds require and freeze a naming registry rather than reading
  const git=args=>execFileSync('git',['-C',source,...args],{stdio:'pipe'})
  git(['init']);git(['config','user.name','Test']);git(['config','user.email','test@example.test']);git(['add','.']);git(['commit','-m','fixture'])
  const options={projectRoot:root,wikiRoot:source,gitRoot:source,roots:{},buildsRoot,project:'demo',contentKind:'repository_docs'}
- assert.throws(()=>captureSnapshot(options),/NAMING_SNAPSHOT_REQUIRED/)
- const manifest={project:'demo',policy:{digest:'digest',types:[{code:'sdd',template_ids:['sdd']}]},identities:[identity]}
- const snapshot=captureSnapshot({...options,namingManifest:manifest})
- manifest.identities[0].filename='changed-live.md'
+ const snapshot=captureSnapshot(options)
+ store.bind('demo',['different-module'],{},undefined,true)
  assert.equal(snapshotContext(buildsRoot,snapshot.snapshot,snapshot.digest).contentKind,'repository_docs')
 })

@@ -1,5 +1,7 @@
 # 7 维质量评分规范（Stage 3）
 
+文档工作流中评分可选，不阻断 submit、freeze 或人工审核申请。未评分保存为未知，不生成默认分数。以下维度用于显式选择的语义评估，不再要求 Skill 构造 Wiki 节点 Bundle。
+
 > 迁移自 `internal/pipeline/evaluator/evaluator.go`。权重为 POC 初始值，后续须用 Golden Dataset 校准。
 
 ## 总分公式

@@ -1,25 +1,36 @@
 # 服务调用契约
 
-服务地址为 `CIM_WIKI_URL`，自动化令牌为 `CIM_WIKI_TOKEN`，人工 review 命令另使用 `CIM_WIKI_REVIEW_TOKEN`，请求使用 `Authorization: Bearer ...`。统一前缀 `/api/v2/knowledge`。不要调用已停用的旧 ingest/审核写入接口，也不直接调用解析引擎。
+服务地址为 `CIM_WIKI_URL`，自动化令牌为 `CIM_WIKI_TOKEN`，review 只申请审核，独立审核人在管理界面裁决，请求使用 `Authorization: Bearer ...`。统一前缀 `/api/v2/knowledge`。本地 ingest 调用解析基础能力，不直接调用解析引擎；Wiki 构建发布不属于 Skill 命令。
 
 | client 命令 | 方法与端点 | 输入 |
 |---|---|---|
+| project | GET /projects/{project} | --project；项目资料，不含模板正文 |
+| templates | GET /projects/{project}/templates | --project，可选 --template-id；当前引用模板 |
 | initialize | POST /initialize | --json-file，project/name/product_version/modules |
 | render-document | POST /render-document | --json-file，project/template_id/values |
-| check-document | POST /check-document | --json-file，project/template_id/document/phase，可选 target_path |
 | directories | GET /directories?project=ID | --project |
 | context | GET /context?project=ID | --project |
 | document | GET /document?source=URI | --source |
-| bundle | GET /bundle?id=ID | --id |
-| convert | POST /convert | --json-file |
+| upload | POST /upload?project=ID&filename=NAME | --project、--file；二进制上传 |
+| upload-package | POST /document-packages | --project、--package-root、--entry；完整文件清单 |
+| download-package | GET /document-packages，GET /uploads/content | --project、--source、--download-dir；逐文件核验哈希 |
+| convert | POST /convert | --json-file、--file、--download-dir；自动上传原件并下载解析包 |
 | register | POST /register | --json-file |
 | state | POST /state | --json-file |
-| submit | POST /bundles | --json-file |
-| review | POST /review | --json-file |
-| compile | POST /compile | --json-file |
-| validate | POST /validate | 无需请求文件 |
+| save-draft | POST /document-drafts | --json-file；草稿保存 |
+| submit | POST /document-submit | --json-file；完整候选、来源及本地报告 |
+| freeze | POST /document-freeze | --json-file；project/artifact_id/expected_revision |
+| review | POST /document-review-requests | --json-file；project/artifact_id，申请人工审核 |
 
-所有写操作请求为 JSON；`--json-file -` 从 stdin 读取。客户端显示服务响应，HTTP 失败或完整校验发现 errors 时以非零状态退出，不自动重复写入请求。
+客户端通用选项：`--output FILE` 以 0600 权限保存完整 JSON 响应（成功和 HTTP 错误均保存），stdout 改为文件回执；已有文件在请求前拒绝，避免覆盖。`context --summary` 仅输出配置、能力、诊断和模板标识摘要，可与 --output 同用；其他命令不接受 --summary。
+
+文档提交字段见[文档结果处理](document-quality.md)。本地 ingest 校验错误时非零退出；HTTP 错误保留完整响应与 request_id。不构造 Wiki 节点 Bundle。
+
+除 upload 为二进制请求体外，写操作请求为 JSON；`--json-file -` 从 stdin 读取。客户端显示服务响应，HTTP 失败或完整校验发现 errors 时以非零状态退出，不自动重复写入请求。
+
+## 登记与页面可见性
+
+register/convert 成功即保存服务端来源记录，项目管理的“源文档”与项目配置中的 docs 直接查询该记录，无需 submit、review 或 compile。列表显示转换文件路径、原始来源 URI、当前状态与状态历史；freeze/unfreeze 后重新查询即反映最新状态。来源记录与归档产物、Wiki 节点不同，登记不代表产物已归档或 Wiki 已发布。
 
 ## 服务地址与路由排查
 
@@ -39,7 +50,7 @@ Go 启动日志只列出 admin 路由是正常现象，不能据此判断知识�
 
 ## 项目上下文响应
 
-`context --project ID` 用于发现已有配置，不执行写入或自动修复。返回 `configuration_status`、`diagnostics`、`capabilities`；操作前根据能力标志判断配置是否就绪，不能只判断 HTTP 200。`collect`、`check_document`、`submit`、`compile`、`publish_document` 仍受对应操作的实际来源、契约、质量及审核校验约束。
+`context --project ID` 用于发现已有配置，不执行写入或自动修复。返回 `configuration_status`、`diagnostics`、`capabilities`；操作前根据能力标志判断配置是否就绪，不能只判断 HTTP 200。`collect` 描述来源采集配置；`submit`、`compile`、`publish_document` 描述服务器独立节点/发布链路，不作为文档 submit 的前置。`check_document=false` 表示服务不再提供正文检查；本地 ingest 按读取的完整规则检查。
 
 完整项的状态为 ready；缺项及失败状态包括 missing、invalid、disabled、unavailable、not_applicable。关联字段在不可读或不适用时为 null；成功读到的列表可为 []。`template_binding` 表示持久化绑定，`document_defaults` 仅在有效定义可读取时有值。缺少模板时目录项 `node_types` 为 null，不能推测类型。模块配置与绑定清单不同时返回 MODULE_INVENTORY_MISMATCH 诊断，不自动同步。
 
@@ -67,6 +78,16 @@ Go 启动日志只列出 admin 路由是正常现象，不能据此判断知识�
 
 独立 `list-data-sources --project ID` 和 `list-source-revisions --project ID` 也不依赖交付契约。无配置权限时报告诊断，不通过临时参数或默认最新版绕过配置。认证不匹配返回 401；独立权限拒绝返回 403；项目不存在返回 404；项目注册表不可用返回 503；非法项目参数返回 400。项目令牌与知识服务令牌的认证契约仍分别处理。
 
+## 独立项目与模板查询
+
+project 返回 schema_version、project、content_kind、project_info、repos、modules、data_sources。未启用台账时 data_sources=null，空数组表示确实没有来源；来源读取失败返回 PROJECT_SOURCES_UNAVAILABLE，不伪装为空集合。
+
+templates 返回 schema_version、project、binding（version/digest/at）、templates（包含 body/contract/example/invalid_example）、terms、directories、template_variables、document_defaults_schema。只返回已引用版本，不附全局升级目标。两种 Wiki 模式行为一致；不依赖文档源可用性，也不允许 Agent 发起模板绑定。
+
+错误：项目不存在 404 / PROJECT_NOT_FOUND，项目读取失败 503 / PROJECT_UNAVAILABLE，未引用 409 / TEMPLATE_SOURCE_UNBOUND，未知模板 404 / TEMPLATE_NOT_FOUND，模板损坏 422 / TEMPLATE_SOURCE_INVALID，存储不可读 503 / TEMPLATE_SOURCE_UNAVAILABLE。认证沿用 Agent Bearer token，错误不触发登录或 Cookie 降级。
+
+context 保留现有运行时聚合视图。repository_docs 的运行时模板标记为 not_applicable，不代表独立 templates 接口不可用。文档编写及 QA 以独立接口的实际结果为依据；完整响应可用 --output 保存，不能只读摘要。
+
 ## 受控枚举与机器契约
 
 绑定项目后调用 `context --project <project-id>`，读取 `vocabulary`、节点 Schema 和模板契约。结构化字段使用当次服务允许的值：
@@ -87,31 +108,21 @@ Go 启动日志只列出 admin 路由是正常现象，不能据此判断知识�
 
 initialize 复用现有 project 命名空间，只接受 project、name、product_version、modules，采用系统已发布的模板、文档契约及默认目录。不接受旧 version/delivery_contract 参数或自动化配置覆盖。系统模板需先由管理员登录后台“系统设置 · 文档模板”检查并发布。directories 返回 Project 当前有效绑定的 version、digest、directories（每项含 node_types）。目录规则通过管理员 Project 配置维护，无独立目录配置写入接口。目录只映射已有知识节点；不替代摄取、审核和必交文档校验。context 的 document_defaults 返回项目绑定版本、有效模板及契约摘要，document_defaults_schema 返回定义的机器结构。context 在未绑定有效版本时返回明确的缺项或无效诊断；依赖绑定的操作仍拒绝，必须由管理员明确绑定，不根据已有页面生成标准。
 
-生成前读取 document_defaults.definition.templates，按模板正文和 contract 填充；check-document 可提前检查，服务提交与发布仍独立重验。术语全称从有效 definition.terms 读取，受控节点枚举仍来自 vocabulary。归类产物登记须指定 template_id，document_contract_digest 由服务计算。
+生成前读取 document_defaults.definition.templates，按模板正文和 contract 填充；正文由本地 ingest 提前检查，服务仅核验入库边界。术语全称从有效 definition.terms 读取，受控节点枚举仍来自 vocabulary。归类产物登记须指定 template_id，document_contract_digest 由服务计算。
 
 ## 转换与已有稿件登记
 
-convert 和 register 使用相同字段。convert 调服务生成 parsed；register 直接读取已存在的 parsed。二者均保留原件位置及哈希，不复制原件。
+convert 接受 project、system、version、category、source（uploaded URI 或受支持的原稿包）、可选 engine；自动分配解析输出。register 接受相同元数据及 Markdown 原稿包，无须解析。二者返回来源记录、markdown、parsed_uri、parsed_sha256、package_sha256、entry 和 files；通过鉴权下载 API 落地全部解析附件。
 
-```json
-{
-  "project": "example-project",
-  "system": "CIM",
-  "version": "V2.8",
-  "category": "design",
-  "source": "shared://team/example-project/sources/project-glossary-v1.xlsx",
-  "parsed": "shared://team/example-project/parsed/v1/project-glossary.md",
-  "ingest_path": "/mnt/knowledge/example-project/sources/project-glossary-v1.xlsx"
-}
-```
-
-`ingest_path` 可选，保留 Agent 当时看到的原件路径。可选 `engine` 为 mineru/docling/markitdown。原件及输出必须在服务端配置的共享根内；解析输出不得覆盖已有文件。重新登记使用新路径，避免覆盖历史原件或已审稿件。
+客户端快捷命令、包清单和来源关联见[本地文件与附件包](document-packages.md)。已有 shared 请求仍用于历史服务能力，新 Skill 不要求 source/parsed 共享路径；不得把本机绝对路径发给服务端读取。
 
 ## 定稿与重新开放
 
 ```json
 {
-  "source": "shared://team/example-project/parsed/v1/project-glossary.md",
+  "project": "example-project",
+  "source": "document-package://登记解析包实际摘要",
+  "parsed_source_id": "来源登记 doc_id",
   "action": "freeze",
   "by": "local-agent",
   "note": "已核对工作表和表头"
@@ -120,68 +131,8 @@ convert 和 register 使用相同字段。convert 调服务生成 parsed；regis
 
 action 仅支持 freeze/unfreeze。定稿是稿件状态记录，不等同于人工发布审核。已发布稿件不开放修改，应登记新版本。
 
-## Bundle 与本地评分
+## 文档提交、冻结与审核
 
-Bundle 须符合 context 返回的节点 Schema。字段和完整正文由本地 LLM 生成，provenance 由服务端根据已登记来源填充，不手工编造。qscore 示例：
+submit 对应 POST /api/v2/knowledge/document-submit，不再提交节点 Bundle。文档请求字段和草稿保存见 [文档结果处理](document-quality.md)。提交成功即进入文档结果列表，可在未冻结、未评分时预览。freeze 对应 document-freeze，review 对应 document-review-requests（申请，不是批准）。
 
-```json
-{
-  "auth": 1.0, "comp": 1.0, "rel": 1.0, "fresh": 0.8,
-  "struct": 0.9, "reuse": 0.7, "risk": 0.1, "total": 0.92
-}
-```
-
-以上分数应使用 L1_expert 或更严格的审核等级。位置证据示例：`"source_location": {"sheet":"术语", "cells":"A2:D5"}`。PDF 可用 pages，Markdown 可用 section/lines；只填写实际可确认的值。
-
-提交请求引用共享 Bundle 文件：
-
-```json
-{"uri":"shared://team/example-project/work/CR-20261105-0001/nodes.json"}
-```
-
-默认由独立人工审核批准后发布。只有服务器管理员显式设置 CIM_WIKI_AUTO_PUBLISH=true 才允许合格的 L0 新页面自动放行，Agent 的评分和请求字段不能开启该权限。返回 state=pending 时必须先人工审核。服务端保存提交快照及 digest，后续修改共享 nodes.json 不会悄悄替换已提交版本；修订使用新的 Bundle ID。已有页面即使评分达到 L0 也需要审核。
-
-## 审核与编译
-
-仅在用户明确裁决后，由人工审核端发送。服务端通过 `CIM_WIKI_REVIEW_TOKENS` 配置身份→独立随机令牌映射（至少32字符，不能与 Agent 令牌相同）。人工端设置 CIM_WIKI_REVIEW_TOKEN；不得把此令牌注入 Agent 运行环境。自动化令牌调用 review 返回403。审核人由凭证绑定，不能从任意请求字符串认领身份：
-
-```json
-{"bundle_id":"CR-20261105-0001","decision":"approve","note":"实际批准说明"}
-```
-
-拒绝时 decision=reject。reviewer 由服务端凭证绑定；如请求包含 reviewer，必须与认证身份一致。未配置人工凭证时，人工审核端点拒绝批准。审核凭证不能调用 compile 等自动化写入接口。审核记录绑定提交内容 digest。
-
-预览：
-
-```json
-{"bundle_id":"CR-20261105-0001","preview":true}
-```
-
-正式编译使用同样的请求，将 preview 改为 false。服务端执行全库门禁后写入页面，保留原始文档 URI、摄取时的路径、版本、哈希及节点内位置。validate 返回 errors、warnings、scanned；errors 非空时不能交付为校验通过。
-
-## 失败处理
-
-- 401：服务令牌缺失或不匹配，不打印令牌。
-- 409：文档状态不符、路径已登记、批次待审/被拒绝或存在并发操作；按状态处理，不重试绕过。
-- 400/422：请求、评分、来源、解析或编译契约有误，依据返回信息修正；不得假定本地降级可解决。
-
-无共享目录访问权限时，先建立双方可见的挂载与路径映射，不要求把业务文件复制进服务端代码目录。
-
-## 按 Project 模板编写文档
-
-新编或修订文档见 [document-authoring.md](document-authoring.md)。读取指定 Project 的模板，撰写或修改实际正文，不修改模板定义、契约或项目绑定。
-
-render-document 使用已绑定模板的正文骨架和显式 values 填充元数据，返回 document 和 errors。请求为 project、template_id、values；允许变量从 context.template_variables 读取。它不会自动撰写业务正文，Agent 仍须依据项目资料填充各章节，不能原样交付格式样例。已有文档修订时以原文为基础，不重新渲染后覆盖已有内容。
-
-正文完成后调用 check-document，请求为 project、template_id、document（含唯一一级标题的完整 Markdown）、phase=draft。检查的是该文档实例；用户指定了完整模板定义快照时可用 definition 检查该快照下的实例，但不能为了通过而改模板或降低约束。没有完整契约或项目绑定时，保留文档草案并说明未完成的在线检查，不伪造全局定义。
-
-读取返回 errors 中的 severity，error 必须处理，warning 如实列出。当前 check-document 和 render-document 命令输出诊断时可能仍以零退出，不能只依赖退出码认定通过。缺失值、未知变量或非法 UTC 时间会拒绝渲染，不把模板样例中的产品、人员或日期当成真实项目信息。渲染、检查和本地编写均不自动登记、审核或发布。
-
-
-## 文档类型与目标目录检查
-
-路径路由规则见 [document-routing.md](document-routing.md)。check-document 传入 target_path 时检查该路径是否允许所选模板的 node_type；省略时只检查正文，不能声称目录已验证。类型映射唯一来源是 Project 绑定的 document_defaults.definition.directories，context.document_directories 的 node_types 是按路径派生的展示值。
-
-artifacts 登记、复核及 publish-document 始终检查路由，不能省略。非法路径返回 document_target_invalid，无适用规则返回 document_directory_unmapped，类型不匹配返回 document_directory_mismatch，诊断包含模板、类型、目标路径、命中目录和允许目录。服务导出保留 artifact.target_path 的平面前缀，不根据正文重新选目录。
-
-采集可以从零份文档开始：collect 仅依赖可读取的项目登记、来源台账及至少一个启用源，不依赖模板绑定、交付契约、文档目录或已交付数量。ingest-runs 与 source-observations 保留认证、项目归属、源配置/版本及证据校验；后续文档登记和发布仍执行各自的契约门禁。
+正文、模板、目录适配和保真检查由本地 ingest 完成，不再提供 Skill 使用的 check-document。服务保留路径安全、身份、项目、版本、哈希与状态检查。Wiki compile、构建、发布由服务器独立负责，不属于 Skill 命令。

@@ -33,5 +33,15 @@ func (h *DocumentQualityHandler) projectContext(c *gin.Context) {
 	if p.Modules == nil {
 		p.Modules = []string{}
 	}
-	c.JSON(200, gin.H{"data": gin.H{"id": p.ID, "name": p.Name, "product": p.Product, "version": p.Version, "docs": p.Docs, "repos": p.Repos, "modules": p.Modules}})
+	c.JSON(200, gin.H{
+		"data": gin.H{
+			"id":      p.ID,
+			"name":    p.Name,
+			"product": p.Product,
+			"version": p.Version,
+			"docs":    p.Docs,
+			"repos":   p.Repos,
+			"modules": p.Modules,
+		},
+	})
 }

@@ -20,7 +20,14 @@
 // 环境变量：
 //   CIM_WIKI_ROOT   知识仓根目录（默认 <项目根>/data/wiki）
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs'
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  copyFileSync,
+  readdirSync,
+} from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadTemplateContracts, NODE_TYPES } from '../wiki-core/contracts.mjs'
@@ -29,7 +36,9 @@ import { parsePage, structureErrors } from '../wiki-core/markdown.mjs'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(process.env.CIM_WIKI_WORKSPACE || resolve(__dirname, '..', '..'))
 const BUILTIN_DIR = resolve(__dirname, '../../.agents/skills/cim-wiki/assets')
-const WIKI_ROOT = resolve(process.env.CIM_WIKI_ROOT || process.env.WIKI_ROOT || join(PROJECT_ROOT, 'data', 'wiki'))
+const WIKI_ROOT = resolve(
+  process.env.CIM_WIKI_ROOT || process.env.WIKI_ROOT || join(PROJECT_ROOT, 'data', 'wiki'),
+)
 
 // 检索目录（不含内置）：[项目级?, 全局级]
 function customDirs(project) {
@@ -42,8 +51,12 @@ function customDirs(project) {
 function loadManifestAt(dir) {
   const mp = join(dir, 'manifest.json')
   if (!existsSync(mp)) return { version: 1, templates: {} }
-  try { return JSON.parse(readFileSync(mp, 'utf-8')) }
-  catch (e) { console.error(`manifest 解析失败 ${mp}: ${e.message}`); process.exit(1) }
+  try {
+    return JSON.parse(readFileSync(mp, 'utf-8'))
+  } catch (e) {
+    console.error(`manifest 解析失败 ${mp}: ${e.message}`)
+    process.exit(1)
+  }
 }
 function saveManifestAt(dir, m) {
   mkdirSync(dir, { recursive: true })
@@ -54,9 +67,13 @@ function saveManifestAt(dir, m) {
 function mergeManifest(project) {
   const contracts = loadTemplateContracts(WIKI_ROOT)(project)
   const globalM = loadManifestAt(join(WIKI_ROOT, 'templates'))
-  const templates = Object.fromEntries(Object.entries(NODE_TYPES).filter(([, e]) => e.template).map(([type, e]) =>
-    [type, { file: e.template, plane: e.plane, dir: `${e.plane}/${e.dir}` }]))
-  for (const [type, entry] of Object.entries(globalM.templates || {})) templates[type] = { ...(templates[type] || {}), ...entry }
+  const templates = Object.fromEntries(
+    Object.entries(NODE_TYPES)
+      .filter(([, e]) => e.template)
+      .map(([type, e]) => [type, { file: e.template, plane: e.plane, dir: `${e.plane}/${e.dir}` }]),
+  )
+  for (const [type, entry] of Object.entries(globalM.templates || {}))
+    templates[type] = { ...(templates[type] || {}), ...entry }
   if (project) {
     const projM = loadManifestAt(join(WIKI_ROOT, project, 'templates'))
     for (const [type, entry] of Object.entries(projM.templates || {})) {
@@ -80,12 +97,31 @@ function resolveTemplate(type, project) {
   if (entry?.file) candidates.push(entry.file)
   candidates.push(`${type}-template.md`, `${type}.md`)
   for (const { dir, source } of customDirs(project)) {
-    for (const f of candidates) { const p = join(dir, f); if (existsSync(p)) return { type, entry, source, path: p, fileName: f } }
+    for (const f of candidates) {
+      const p = join(dir, f)
+      if (existsSync(p)) return { type, entry, source, path: p, fileName: f }
+    }
   }
-  for (const f of candidates) { const p = join(BUILTIN_DIR, f); if (existsSync(p)) return { type, entry, source: 'builtin', path: p, fileName: f } }
-  const hit = safeReaddir(BUILTIN_DIR).find((f) => f.endsWith('.md') && f.replace(/-template\.md$/, '').replace(/\.md$/, '').includes(type))
+  for (const f of candidates) {
+    const p = join(BUILTIN_DIR, f)
+    if (existsSync(p)) return { type, entry, source: 'builtin', path: p, fileName: f }
+  }
+  const hit = safeReaddir(BUILTIN_DIR).find(
+    (f) =>
+      f.endsWith('.md') &&
+      f
+        .replace(/-template\.md$/, '')
+        .replace(/\.md$/, '')
+        .includes(type),
+  )
   if (hit) return { type, entry, source: 'builtin', path: join(BUILTIN_DIR, hit), fileName: hit }
-  return { type, entry, source: 'missing', path: join(join(WIKI_ROOT, 'templates'), `${type}-template.md`), fileName: `${type}-template.md` }
+  return {
+    type,
+    entry,
+    source: 'missing',
+    path: join(join(WIKI_ROOT, 'templates'), `${type}-template.md`),
+    fileName: `${type}-template.md`,
+  }
 }
 
 function typesInManifest(project) {
@@ -93,10 +129,18 @@ function typesInManifest(project) {
   const keys = Object.keys(merged.templates)
   const usedFiles = new Set(keys.map((t) => merged.templates[t].file))
   // 内置 assets 里未被 manifest 登记的模板文件也纳入展示（按文件名派生类型）
-  const extra = Object.entries(NODE_TYPES).filter(([, e]) => e.template && !usedFiles.has(e.template)).map(([type]) => type)
-  return [...new Set([...keys, ...extra])].sort()
+  const extra = Object.entries(NODE_TYPES)
+    .filter(([, e]) => e.template && !usedFiles.has(e.template))
+    .map(([type]) => type)
+  return [...new Set([...keys, ...extra])].sort((a, b) => a.localeCompare(b))
 }
-function safeReaddir(d) { try { return readdirSync(d) } catch { return [] } }
+function safeReaddir(d) {
+  try {
+    return readdirSync(d)
+  } catch {
+    return []
+  }
+}
 
 function cmdList(project) {
   const rows = typesInManifest(project).map((t) => {
@@ -105,46 +149,79 @@ function cmdList(project) {
     return { type: t, source: r.source, file: r.fileName, reqN }
   })
   console.log(`知识仓根:   ${WIKI_ROOT}${project ? `   (project=${project})` : ''}`)
-  console.log(`检索顺序:   ${customDirs(project).map((d) => d.dir).join('  >  ')}  >  ${BUILTIN_DIR} (builtin)\n`)
+  console.log(
+    `检索顺序:   ${customDirs(project)
+      .map((d) => d.dir)
+      .join('  >  ')}  >  ${BUILTIN_DIR} (builtin)\n`,
+  )
   console.log(pad('TYPE', 14) + pad('SOURCE', 9) + pad('FILE', 30) + 'REQUIRED')
-  for (const x of rows) console.log(pad(x.type, 14) + pad(x.source, 9) + pad(x.file, 30) + (x.reqN ? `${x.reqN} slot(s)` : '-'))
+  for (const x of rows)
+    console.log(
+      pad(x.type, 14) + pad(x.source, 9) + pad(x.file, 30) + (x.reqN ? `${x.reqN} slot(s)` : '-'),
+    )
 }
 
 function cmdGet(type, project) {
   const r = resolveTemplate(type, project)
-  if (r.source === 'missing') { console.error(`未找到类型「${type}」的模板（${r.fileName} 不在项目/全局/内置目录）`); process.exit(1) }
+  if (r.source === 'missing') {
+    console.error(`未找到类型「${type}」的模板（${r.fileName} 不在项目/全局/内置目录）`)
+    process.exit(1)
+  }
   process.stderr.write(`# source=${r.source} path=${r.path}\n`)
   process.stdout.write(readFileSync(r.path, 'utf-8'))
 }
 
 function cmdPath(type, project) {
   const r = resolveTemplate(type, project)
-  if (r.source === 'missing') { console.error(`missing: ${type}`); process.exit(1) }
+  if (r.source === 'missing') {
+    console.error(`missing: ${type}`)
+    process.exit(1)
+  }
   console.log(r.path)
 }
 
 function cmdInit(type, opts) {
   const { project, scope, copyFrom } = opts
   const contract = NODE_TYPES[type]
-  if (!contract) throw new Error(`Unregistered node type: ${type}; register it in contracts/wiki/v1 first`)
+  if (!contract)
+    throw new Error(`Unregistered node type: ${type}; register it in contracts/wiki/v1 first`)
   const src = resolveTemplate(copyFrom || type, project)
-  if (src.source === 'missing') { console.error(`无可复制来源：类型「${copyFrom || type}」在项目/全局/内置目录均不存在`); process.exit(1) }
+  if (src.source === 'missing') {
+    console.error(`无可复制来源：类型「${copyFrom || type}」在项目/全局/内置目录均不存在`)
+    process.exit(1)
+  }
   // 写入目标：scope=project 且给了 project → 项目级；否则全局级
-  const targetDir = (scope === 'project' && project) ? join(WIKI_ROOT, project, 'templates') : join(WIKI_ROOT, 'templates')
+  const targetDir =
+    scope === 'project' && project
+      ? join(WIKI_ROOT, project, 'templates')
+      : join(WIKI_ROOT, 'templates')
   const m = loadManifestAt(targetDir)
   // 目标文件名：该目录 manifest 已登记则沿用其 file，否则 `<type>-template.md`
   const fileName = m.templates?.[type]?.file || `${type}-template.md`
   const dest = join(targetDir, fileName)
   mkdirSync(targetDir, { recursive: true })
-  if (existsSync(dest)) { console.error(`已存在，不覆盖：${dest}`); process.exit(1) }
+  if (existsSync(dest)) {
+    console.error(`已存在，不覆盖：${dest}`)
+    process.exit(1)
+  }
   copyFileSync(src.path, dest)
   m.templates = m.templates || {}
-  if (!m.templates[type]) m.templates[type] = { file: fileName, plane: contract.plane, dir: `${contract.plane}/${contract.dir}`, requiredSections: contract.requiredSections }
+  if (!m.templates[type])
+    m.templates[type] = {
+      file: fileName,
+      plane: contract.plane,
+      dir: `${contract.plane}/${contract.dir}`,
+      requiredSections: contract.requiredSections,
+    }
   saveManifestAt(targetDir, m)
   console.log(`已生成可编辑模板：${dest}`)
-  console.log(`作用域：${targetDir === join(WIKI_ROOT, 'templates') ? 'global' : `project(${project})`}`)
+  console.log(
+    `作用域：${targetDir === join(WIKI_ROOT, 'templates') ? 'global' : `project(${project})`}`,
+  )
   console.log(`来源：${src.source} (${src.path})`)
-  console.log(`下一步：直接编辑该文件；如需结构回归校验，在其 manifest 的 "${type}".requiredSections 填入必填槽位标题。`)
+  console.log(
+    `下一步：直接编辑该文件；如需结构回归校验，在其 manifest 的 "${type}".requiredSections 填入必填槽位标题。`,
+  )
 }
 
 function cmdCheck(project) {
@@ -152,18 +229,34 @@ function cmdCheck(project) {
   let bad = 0
   for (const [type, entry] of Object.entries(merged.templates)) {
     const r = resolveTemplate(type, project)
-    if (r.source === 'missing') { console.error(`ERR ${type}: 模板文件不存在 ${r.fileName}`); bad++; continue }
-    if (!entry.requiredSections) { console.error(`WARN ${type}: manifest 缺 requiredSections 字段（视为不校验）`) }
+    if (r.source === 'missing') {
+      console.error(`ERR ${type}: 模板文件不存在 ${r.fileName}`)
+      bad++
+      continue
+    }
+    if (!entry.requiredSections) {
+      console.error(`WARN ${type}: manifest 缺 requiredSections 字段（视为不校验）`)
+    }
     const text = readFileSync(r.path, 'utf-8')
     const tokens = parsePage(`---\ntype: ${type}\n---\n${text}`).tokens
-    const miss = structureErrors(tokens, entry, { type }).filter(e => ['section_missing', 'section_duplicate', 'heading_level', 'table_columns'].includes(e.code))
-    if (miss.length) { console.error(`ERR ${type}: ${miss.map(e => e.message).join('; ')}`); bad++ }
-    else console.log(`OK  ${type}: ${r.fileName} (${r.source}) — ${entry.requiredSections?.length || 0} 必填槽位齐备`)
+    const miss = structureErrors(tokens, entry, { type }).filter((e) =>
+      ['section_missing', 'section_duplicate', 'heading_level', 'table_columns'].includes(e.code),
+    )
+    if (miss.length) {
+      console.error(`ERR ${type}: ${miss.map((e) => e.message).join('; ')}`)
+      bad++
+    } else
+      console.log(
+        `OK  ${type}: ${r.fileName} (${r.source}) — ${entry.requiredSections?.length || 0} 必填槽位齐备`,
+      )
   }
   process.exit(bad ? 1 : 0)
 }
 
-function pad(s, n) { s = String(s); return s.length >= n ? s + ' ' : s + ' '.repeat(n - s.length) }
+function pad(s, n) {
+  s = String(s)
+  return s.length >= n ? s + ' ' : s + ' '.repeat(n - s.length)
+}
 
 function parseFlags(argv) {
   const flags = {}
@@ -177,22 +270,57 @@ function parseFlags(argv) {
 
 const [cmd, ...rest] = process.argv.slice(2)
 switch (cmd) {
-  case 'list': cmdList(parseFlags(rest).project); break
-  case 'get': { const f = parseFlags(rest); const t = firstPositional(rest); if (!t) { console.error('用法: get <type> [--project <id>]'); process.exit(1) } cmdGet(t, f.project); break }
-  case 'path': { const f = parseFlags(rest); const t = firstPositional(rest); if (!t) { console.error('用法: path <type> [--project <id>]'); process.exit(1) } cmdPath(t, f.project); break }
+  case 'list':
+    cmdList(parseFlags(rest).project)
+    break
+  case 'get': {
+    const f = parseFlags(rest)
+    const t = firstPositional(rest)
+    if (!t) {
+      console.error('用法: get <type> [--project <id>]')
+      process.exit(1)
+    }
+    cmdGet(t, f.project)
+    break
+  }
+  case 'path': {
+    const f = parseFlags(rest)
+    const t = firstPositional(rest)
+    if (!t) {
+      console.error('用法: path <type> [--project <id>]')
+      process.exit(1)
+    }
+    cmdPath(t, f.project)
+    break
+  }
   case 'init': {
     const f = parseFlags(rest)
     const t = firstPositional(rest)
-    if (!t) { console.error('用法: init <type> [--project <id>] [--scope global|project] [--copy-from <type>]'); process.exit(1) }
-    cmdInit(t, { project: f.project, scope: f.scope || (f.project ? 'project' : 'global'), copyFrom: f.copyFrom }); break
+    if (!t) {
+      console.error(
+        '用法: init <type> [--project <id>] [--scope global|project] [--copy-from <type>]',
+      )
+      process.exit(1)
+    }
+    cmdInit(t, {
+      project: f.project,
+      scope: f.scope || (f.project ? 'project' : 'global'),
+      copyFrom: f.copyFrom,
+    })
+    break
   }
-  case 'check': cmdCheck(parseFlags(rest).project); break
+  case 'check':
+    cmdCheck(parseFlags(rest).project)
+    break
   default:
-    console.log('用法: node templates.mjs <list|get|path|init|check> [type] [--project <id>] [--scope global|project] [--copy-from <type>]')
+    console.log(
+      '用法: node templates.mjs <list|get|path|init|check> [type] [--project <id>] [--scope global|project] [--copy-from <type>]',
+    )
 }
 
 function firstPositional(argv) {
   const flagVals = new Set()
-  for (let i = 0; i < argv.length; i++) if (['--project', '--scope', '--copy-from'].includes(argv[i])) flagVals.add(argv[i + 1])
+  for (let i = 0; i < argv.length; i++)
+    if (['--project', '--scope', '--copy-from'].includes(argv[i])) flagVals.add(argv[i + 1])
   return argv.find((a) => !a.startsWith('--') && !flagVals.has(a))
 }

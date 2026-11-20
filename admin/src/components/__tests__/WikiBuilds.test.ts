@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { Select } from 'tdesign-vue-next'
 import WikiBuilds from '../../views/admin/WikiBuilds.vue'
 
 const mock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), projects: vi.fn(), replace: vi.fn(), route: { query: {} as Record<string, string> } }))
@@ -25,16 +26,16 @@ it('loads project-scoped tasks, previews approved bundles, retries failures and 
   expect(mock.get).toHaveBeenCalledWith('/admin/projects/demo/wiki-builds')
   expect(wrapper.find('a').attributes('href')).toBe('/wiki-preview/preview/')
   expect(wrapper.text()).toContain('Snapshot invalid')
-  await wrapper.find('input').setValue('CR-1'); await wrapper.find('form').trigger('submit'); await flushPromises()
+  await wrapper.find('#preview-bundle input').setValue('CR-1'); await wrapper.find('form').trigger('submit'); await flushPromises()
   expect(mock.post).toHaveBeenLastCalledWith('/admin/projects/demo/wiki-builds/preview', { bundle_id: 'CR-1' })
   await click('重试原 Git 输入'); expect(mock.post).toHaveBeenLastCalledWith('/admin/projects/demo/wiki-builds/retry', { id: 'failed' })
   await click('撤销预览'); expect(mock.post).toHaveBeenLastCalledWith('/admin/projects/demo/wiki-builds/revoke', { id: 'preview' })
   await vi.advanceTimersByTimeAsync(5000); expect(mock.get.mock.calls.length).toBeGreaterThan(3)
-  await wrapper.find('select').setValue('other'); await flushPromises()
+  wrapper.findComponent(Select).vm.$emit('update:modelValue', 'other'); await flushPromises()
   expect(mock.replace).toHaveBeenCalledWith({ query: { project: 'other' } })
-  expect(wrapper.find('input').element.value).toBe('')
+  expect(wrapper.find('#preview-bundle input').element.value).toBe('')
   expect(mock.get).toHaveBeenLastCalledWith('/admin/projects/other/wiki-builds')
-  await wrapper.find('select').setValue(''); await flushPromises(); expect(wrapper.find('table').exists()).toBe(false)
+  wrapper.findComponent(Select).vm.$emit('update:modelValue', ''); await flushPromises(); expect(wrapper.find('table').exists()).toBe(false)
 })
 
 it('keeps operation and fetch failures visible and allows an explicit refresh', async () => {
@@ -52,7 +53,7 @@ it('does not publish stale responses after a project switch or retain polling af
   mock.get.mockReturnValueOnce(new Promise(done => { resolve = done }))
   wrapper = mount(WikiBuilds); await flushPromises()
   mock.get.mockResolvedValue({ data: { data: [] } })
-  await wrapper.find('select').setValue('other'); await flushPromises()
+  wrapper.findComponent(Select).vm.$emit('update:modelValue', 'other'); await flushPromises()
   resolve({ data: { data: jobs } }); await flushPromises()
   expect(wrapper.find('table').exists()).toBe(false)
   wrapper.unmount(); wrapper = undefined
@@ -81,8 +82,22 @@ it('offers a first build and keeps preflight failures visible with expandable di
   await click('构建当前 Wiki')
   expect(mock.post).toHaveBeenLastCalledWith('/admin/projects/demo/wiki-builds/build', {})
   expect(wrapper.text()).toContain('构建受阻')
-  expect(wrapper.find('details').text()).toContain('缺少审核身份')
-  expect(wrapper.find('details').text()).toContain('demo/doc/test.md')
+  expect(wrapper.find('td details').text()).toContain('缺少审核身份')
+  expect(wrapper.find('td details').text()).toContain('demo/doc/test.md')
   expect(wrapper.text()).not.toContain('暂无构建任务')
   expect(wrapper.findAll('button').some(button => button.text() === '重试原 Git 输入')).toBe(false)
+})
+
+it('paginates tasks without losing the current page on polling, and resets on project changes', async () => {
+  const many = Array.from({ length: 51 }, (_, index) => ({ ...jobs[0], id: 'task-' + index }))
+  mock.get.mockResolvedValue({ data: { data: many } })
+  wrapper = mount(WikiBuilds); await flushPromises()
+  const pager = wrapper.findComponent({ name: 'ListPagination' })
+  expect(wrapper.findAll('tbody tr')).toHaveLength(20)
+  pager.vm.$emit('update:page', 3); await flushPromises()
+  expect(wrapper.find('tbody').text()).toContain('task-40')
+  await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+  expect(wrapper.find('tbody').text()).toContain('task-40')
+  wrapper.findComponent(Select).vm.$emit('update:modelValue', 'other'); await flushPromises()
+  expect(pager.props('page')).toBe(1)
 })

@@ -78,7 +78,8 @@ func saveNamingSettings(tx Tx, r Record) (Record, error) {
 		return nil, err
 	}
 	if len(identities) > 0 {
-		return nil, namingProblem(409, "DOCUMENT_RENAME_REQUIRES_MIGRATION", "Project already has immutable document names; use an explicit migration", nil)
+		msg := "Project already has immutable document names; use an explicit migration"
+		return nil, namingProblem(409, "DOCUMENT_RENAME_REQUIRES_MIGRATION", msg, nil)
 	}
 	return tx.Update("naming_settings", id(current), revision(current), Record{"short_code": code})
 }
@@ -136,13 +137,18 @@ func validateNamingModule(tx Tx, module string) error {
 }
 
 func validateDocumentReservation(tx Tx, r Record) error {
-	if err := namingFields(r, "doc_type", "module", "topic", "short_code", "settings_revision", "policy_digest"); err != nil {
+	fields := []string{"doc_type", "module", "topic", "short_code", "settings_revision", "policy_digest"}
+	if err := namingFields(r, fields...); err != nil {
 		return err
 	}
 	if len(Text(r, "policy_digest")) != 64 {
 		return namingProblem(409, "NAMING_POLICY_UNBOUND", "An effective naming policy is required", nil)
 	}
-	if _, err := DocumentFilename(Text(r, "short_code"), Text(r, "doc_type"), Text(r, "module"), Text(r, "topic"), 1); err != nil {
+	shortCode := Text(r, "short_code")
+	docType := Text(r, "doc_type")
+	module := Text(r, "module")
+	topic := Text(r, "topic")
+	if _, err := DocumentFilename(shortCode, docType, module, topic, 1); err != nil {
 		return err
 	}
 	settings, err := tx.List("naming_settings")
@@ -152,7 +158,9 @@ func validateDocumentReservation(tx Tx, r Record) error {
 	if len(settings) == 0 {
 		return namingProblem(409, "PROJECT_SHORT_CODE_MISSING", "Project short code is not configured", nil)
 	}
-	if Text(settings[0], "short_code") != Text(r, "short_code") || float64(revision(settings[0])) != number(r, "settings_revision") {
+	sameShortCode := Text(settings[0], "short_code") == Text(r, "short_code")
+	sameRevision := float64(revision(settings[0])) == number(r, "settings_revision")
+	if !sameShortCode || !sameRevision {
 		return problem(409, "Project naming settings changed; read context again")
 	}
 	if err := validateNamingModule(tx, Text(r, "module")); err != nil {
@@ -160,18 +168,24 @@ func validateDocumentReservation(tx Tx, r Record) error {
 	}
 	return nil
 }
+
 func rejectExistingDocument(tx Tx, r Record) error {
 	rows, err := tx.List("document_identities")
 	if err != nil {
 		return err
 	}
 	for _, existing := range rows {
-		if Text(existing, "doc_type") == Text(r, "doc_type") && Text(existing, "module") == Text(r, "module") && Text(existing, "topic") == Text(r, "topic") {
-			return namingProblem(409, "DOCUMENT_IDENTITY_EXISTS", "The document already exists; explicitly revise the existing identity", existing)
+		matchType := Text(existing, "doc_type") == Text(r, "doc_type")
+		matchModule := Text(existing, "module") == Text(r, "module")
+		matchTopic := Text(existing, "topic") == Text(r, "topic")
+		if matchType && matchModule && matchTopic {
+			msg := "The document already exists; explicitly revise the existing identity"
+			return namingProblem(409, "DOCUMENT_IDENTITY_EXISTS", msg, existing)
 		}
 	}
 	return nil
 }
+
 func reserveDocumentIdentity(tx Tx, r Record) (Record, error) {
 	if err := validateDocumentReservation(tx, r); err != nil {
 		return nil, err
@@ -183,7 +197,9 @@ func reserveDocumentIdentity(tx Tx, r Record) (Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	filename, err := DocumentFilename(Text(r, "short_code"), Text(r, "doc_type"), Text(r, "module"), Text(r, "topic"), sequence)
+	filename, err := DocumentFilename(
+		Text(r, "short_code"), Text(r, "doc_type"), Text(r, "module"), Text(r, "topic"), sequence,
+	)
 	if err != nil {
 		return nil, err
 	}

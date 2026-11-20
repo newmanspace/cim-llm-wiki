@@ -30,7 +30,7 @@ test('real nginx protects preview pages and search resources and hides serving i
   writeFileSync(join(root, 'wiki-previews', id, 'index.html'), 'candidate')
   writeFileSync(join(root, 'wiki-previews', id, 'assets/search.js'), 'preview search')
   let site = readFileSync(join(repo, 'deploy/wiki/nginx.conf'), 'utf8').replace('listen 5174', `listen 127.0.0.1:${sitePort}`).replaceAll('/data/wiki-', root + '/wiki-').replaceAll('/data/projects', root + '/projects')
-  const gateway = readFileSync(join(repo, 'deploy/gateway/nginx.conf'), 'utf8').replace('listen 80', `listen 127.0.0.1:${gatewayPort}`).replaceAll('http://server:8080', `http://127.0.0.1:${apiPort}`).replaceAll('http://knowledge:8090', `http://127.0.0.1:${apiPort}`).replaceAll('http://admin:80', `http://127.0.0.1:${apiPort}`).replaceAll('http://cim-wiki-runtime:5174', `http://127.0.0.1:${sitePort}`)
+  const gateway = readFileSync(join(repo, 'deploy/gateway/nginx.conf'), 'utf8').replace('listen 80', `listen 127.0.0.1:${gatewayPort}`).replaceAll('http://server:8080', `http://127.0.0.1:${apiPort}`).replaceAll('http://knowledge:8090', `http://127.0.0.1:${apiPort}`).replaceAll('http://admin:80', `http://127.0.0.1:${apiPort}`).replaceAll('http://cim-wiki-runtime:5174', `http://127.0.0.1:${sitePort}`).replaceAll('/dev/stdout', root + '/access.log')
   site = site.replace('server_name _;', 'server_name wiki-test;')
   const config = join(root, 'nginx.conf')
   writeFileSync(config, `${process.getuid() === 0 ? 'user root;' : ''}\npid ${root}/nginx.pid;\nerror_log ${root}/error.log;\nevents {}\nhttp { access_log off; ${site}\n${gateway}\n}`)

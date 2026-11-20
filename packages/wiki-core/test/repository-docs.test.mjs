@@ -70,12 +70,18 @@ test('template wiki placeholders stay literal while real local Markdown links re
   assert.match(html, /href="missing.md"/)
   assert.doesNotMatch(html, /href="http:\/\/localhost/)
 })
-test('fresh strict-node repositories require document initialization before building', t => {
+test('fresh strict-node repositories can build an empty site without authoring rule initialization', t => {
   const f = fixture(t)
   f.projects.initialize('empty')
   const runtime = createBuildRuntime({ projectRoot: f.projectRoot, wikiRoot: join(f.projectRoot, 'data/wiki'), roots: {}, projectWikis: f.projects })
   t.after(() => runtime.close())
   const result = runtime.buildCurrent('empty')
-  assert.equal(result.state, 'blocked')
-  assert.ok(result.diagnostics.some(item => item.issues?.some(issue => issue.code === 'document_contract_error')))
+  assert.equal(result.state, 'queued', JSON.stringify(result))
+})
+
+test('repository snapshots reject VitePress file includes before registering a job', t => {
+  const f = fixture(t)
+  writeFileSync(join(f.source, 'README.md'), '# Home\n\n```md\n<!--@include: ../outside.md-->\n```')
+  f.git(['add', '.']); f.git(['commit', '-m', 'Unsafe include directive'])
+  assert.throws(() => captureSnapshot({ projectRoot: f.projectRoot, wikiRoot: f.source, gitRoot: f.source, contentKind: repositoryKind, project: 'demo', buildsRoot: join(f.projectRoot, 'snapshots') }), /external_include/)
 })

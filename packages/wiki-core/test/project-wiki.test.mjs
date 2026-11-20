@@ -11,6 +11,7 @@ import { createKnowledgeServer } from '../../wiki-service/server.mjs'
 import { createBuildRuntime } from '../../wiki-service/build-runtime.mjs'
 import { snapshotContext } from '../build-snapshot.mjs'
 import { validateWiki } from '../validate.mjs'
+import { assertBuildInput } from '../build-validation.mjs'
 import { compileBundle } from '../compile.mjs'
 import { parsePage } from '../markdown.mjs'
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
@@ -69,8 +70,8 @@ test('project snapshots isolate validation and dependencies from unrelated proje
   const context = snapshotContext(join(f.projectRoot, 'data/wiki-builds/snapshots'), input.snapshot, input.digest)
   assert.equal(context.project, 'ci')
   assert.equal(existsSync(join(context.wikiRoot, 'broken')), false)
-  assert.equal(JSON.parse(readFileSync(join(context.projectRoot, 'data/documents/manifest.json'))).docs.length, 1)
-  assert.deepEqual(validateWiki(context).errors, [])
+  assert.equal(existsSync(join(context.projectRoot, 'data/documents/manifest.json')), false)
+  assert.deepEqual(assertBuildInput(context).errors, [])
 })
 
 test('isolated compiler writes approved nodes to the configured checkout and keeps unrelated Wiki unchanged', async t => {

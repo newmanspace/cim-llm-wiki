@@ -9,7 +9,7 @@
 | 文档 | `context --project <project-id>` 返回的 `data_sources` | 已启用源的 `id`、`config_id`、`type`、`url`、`subpath`、`revision_selector` |
 | 代码 | 项目配置接口返回的 `repos`，见[代码源读取](code-sources.md) | 已启用源的类型、地址、子路径、版本选择和模块映射 |
 
-新建项目或用户要求更换文档源时，先收集缺少的地址、子路径及版本选择，按授权通过项目设置保存，再读取 context 核对；无配置权限时报告具体缺项，等待管理员补齐。项目未绑定、配置缺失或目标源停用时，不以临时地址、分支和路径继续采集。项目配置与用户本次任务范围不一致时，先说明差异，不静默覆盖配置。共享目录挂载是运行环境信息，不是仓库采集范围。
+新建项目或用户要求更换文档源时，先收集缺少的地址、子路径及版本选择，按授权通过项目设置保存，再读取 context 核对；无配置权限时报告具体缺项，等待管理员补齐。项目未绑定、配置缺失或目标源停用时，不以临时地址、分支和路径继续采集。项目配置与用户本次任务范围不一致时，先说明差异，不静默覆盖配置。远程流程不需要共享目录挂载。
 
 ## 认证交互
 
@@ -25,17 +25,19 @@
 
 SVN 数据源支持 HTTP 和 HTTPS URL；地址不得包含用户名、密码、查询参数或片段，认证使用执行采集的机器上的 SVN 缓存。
 
-先取得项目 context，确认交付契约可读且 `document_quality.enabled` 为 true。按已配置源的 `type` 调用对应采集器；`source-id` 必须取自该项目返回值：
+先取得项目 context，确认 `capabilities.collect` 为 true 且 `document_quality.enabled` 为 true。按已配置源的 `type` 调用对应采集器；`source-id` 必须取自该项目返回值：
 
 ```bash
-node "$SKILL/scripts/git-source.mjs" --project <project-id> --source-id <source-id> --shared-root <agent-visible-shared-root> --mount <server-shared-mount-name>
-node "$SKILL/scripts/svn-source.mjs" --project <project-id> --source-id <source-id> --shared-root <agent-visible-shared-root> --mount <server-shared-mount-name>
+node "$SKILL/scripts/git-source.mjs" --project <project-id> --source-id <source-id> --output-root <本地可写目录>
+node "$SKILL/scripts/svn-source.mjs" --project <project-id> --source-id <source-id> --output-root <本地可写目录>
 ```
 
 只运行与选中源类型对应的一条命令。脚本使用 `CIM_WIKI_URL`、`CIM_WIKI_TOKEN` 读取配置及登记结果，命令不接收仓库地址、分支、子路径或账密覆盖参数。安装端需要 Node.js 和对应 Git/SVN 客户端。
 
-采集器将项目配置中的版本选择解析为固定 Git commit 或 SVN revision，保存原件快照、哈希与版本证据并登记来源。Git 从对象读取文件，SVN 按固定 operative/peg revision 导出；文档快照不需要工作区 checkout。代码工作区 checkout 同样以项目配置为依据。执行前说明实际采用 export／对象快照还是 checkout；完成后列出远端临时位置（若有）、本地原件、解析稿和附件的实际路径及共享 URI，保留仓库相对路径与本地文件的对应关系，不把抽样导出称为完整 checkout。
+采集器将项目配置中的版本选择解析为固定 Git commit 或 SVN revision，保存原件快照、哈希与版本证据并登记来源。Git 从对象读取文件，SVN 按固定 operative/peg revision 导出；文档快照不需要工作区 checkout。代码工作区 checkout 同样以项目配置为依据。执行前说明实际采用 export／对象快照还是 checkout；完成后列出远端临时位置（若有）、本地原件、解析稿和附件的实际路径及上传 URI，保留仓库相对路径与本地文件的对应关系，不把抽样导出称为完整 checkout。
 
-现有文档采集器每批最多 500 文件、100MiB，按文档格式白名单读取；Git 拒绝子模块、符号链接和 LFS 指针，不执行 hooks 或过滤器。不要放宽采集器限制或把文档导出冒称完整代码快照。
+现有文档采集器每批最多 500 文件、100MiB，按文档及常见附件格式白名单读取（含 PNG/JPEG/GIF/WebP/SVG/CSV/ZIP），包依赖超出白名单时明确报告缺失，不静默丢弃；Git 拒绝子模块、符号链接和 LFS 指针，不执行 hooks 或过滤器。不要放宽采集器限制或把文档导出冒称完整代码快照。
 
-保留输出的 `run_id`、`source_version_id`、`source_uri` 和版本证据用于后续处理；原件放在共享目录，不放在 Skill 安装目录。同版本复用时以服务返回的 `original_uri` 为准；产物登记返回已有版本时，后续使用其 `parsed_uri`。结束时通过 `ingest-runs` 将批次标记为实际的 completed/partial/failed/cancelled，未完成转换不能记录为 completed。失败批次保留记录，不覆盖历史。具体转换、归类、评分、审核及恢复见[文档结果处理](document-quality.md)。
+保留输出的 `run_id`、`source_version_id`、`source_uri` 和版本证据用于后续处理；原件保存在本地业务目录，脚本自动通过 API 上传原件及 Git/SVN 证据，不放在 Skill 安装目录。同版本复用时以服务返回的 `original_uri` 为准；产物登记返回已有版本时，后续使用其 `parsed_uri`。结束时通过 `ingest-runs` 将批次标记为实际的 completed/partial/failed/cancelled，未完成转换不能记录为 completed。失败批次保留记录，不覆盖历史。具体转换、归类、评分、审核及恢复见[文档结果处理](document-quality.md)。
+
+已有 Markdown 使用采集返回的 source_package_uri 和 package_source_links；完整命令和没有仓库配置时的 local_file 来源规则见[文档包](document-packages.md)。

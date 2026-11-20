@@ -60,7 +60,7 @@
 
         <!-- Docs -->
         <t-tab-panel :value="'docs'" :label="`${t('detail.docs')} (${project.docs?.length || 0})`">
-          <t-table :data="project.docs || []" :columns="docColumns" row-key="doc_id" bordered>
+          <t-table :data="pagedDocs" size="small" :columns="docColumns" row-key="path" bordered>
             <template #bundles="{ row }">
               <template v-if="row.bundles?.length">
                 <t-tag v-for="b in row.bundles" :key="b" size="small" variant="light" class="tag-gap">{{ b }}</t-tag>
@@ -71,6 +71,7 @@
               <t-empty :description="t('detail.docsEmpty')" />
             </template>
           </t-table>
+          <ListPagination v-model:page="docsPage" v-model:page-size="docsPageSize" :total="docItems.length" />
         </t-tab-panel>
 
         <!-- Repos -->
@@ -104,7 +105,7 @@
 
         <!-- Sync logs -->
         <t-tab-panel :value="'sync'" :label="t('detail.syncLogs')">
-          <t-table :data="syncLogs" :columns="syncColumns" :loading="logsLoading" row-key="synced_at" bordered>
+          <t-table :data="syncLogs" size="small" :columns="syncColumns" :loading="logsLoading" row-key="id" bordered>
             <template #affected="{ row }">
               <template v-if="row.affected_modules?.length">
                 <t-tag v-for="m in row.affected_modules" :key="m" size="small" variant="light" class="tag-gap">{{ m }}</t-tag>
@@ -120,6 +121,7 @@
               <t-empty :description="t('detail.syncEmpty')" />
             </template>
           </t-table>
+          <ListPagination v-model:page="logsPage" v-model:page-size="logsPageSize" :total="logsTotal" :disabled="logsLoading" />
         </t-tab-panel>
 
         <!-- Wiki nodes -->
@@ -128,7 +130,7 @@
             {{ t('detail.wikiDocCount', { count: wikiDocCount }) }} ·
             {{ t('detail.wikiCodeCount', { count: wikiCodeCount }) }}
           </p>
-          <t-table :data="wikiNodes" :columns="wikiColumns" :loading="wikiLoading" row-key="node_id" bordered>
+          <t-table :data="pagedWikiNodes" size="small" :columns="wikiColumns" :loading="wikiLoading" row-key="node_id" bordered>
             <template #plane="{ row }">
               <t-tag size="small" :theme="row.plane === 'doc' ? 'success' : 'warning'" variant="light">
                 {{ row.plane }}
@@ -144,6 +146,7 @@
               <t-empty :description="t('detail.wikiEmpty')" />
             </template>
           </t-table>
+          <ListPagination v-model:page="wikiPage" v-model:page-size="wikiPageSize" :total="wikiNodes.length" />
         </t-tab-panel>
         <t-tab-panel value="document-quality" label="文档数据源">
           <DocumentQualityPanel v-if="activeTab === 'document-quality'" :project-id="project.id" mode="sources" />
@@ -234,6 +237,8 @@
 </template>
 
 <script setup lang="ts">
+import ListPagination from '@/components/ListPagination.vue'
+import { usePagination } from '@/composables/usePagination'
 import DocumentQualityPanel from '@/components/DocumentQualityPanel.vue'
 import CodeSourceSettings from '@/components/CodeSourceSettings.vue'
 import { ref, computed, watch } from 'vue'
@@ -284,8 +289,14 @@ function showError(e: any, fallback: string) {
 }
 
 const syncLogs = ref<SyncLog[]>([])
+const logsPage = ref(1), logsPageSize = ref(20), logsTotal = ref(0)
+let logsGeneration = 0
+const docItems = computed(() => project.value?.docs || [])
+const { page: docsPage, pageSize: docsPageSize, paged: pagedDocs } = usePagination(docItems, [projectId])
+
 const logsLoading = ref(false)
 const wikiNodes = ref<WikiNodeEntry[]>([])
+const { page: wikiPage, pageSize: wikiPageSize, paged: pagedWikiNodes } = usePagination(wikiNodes, [projectId])
 const wikiLoading = ref(false)
 
 const tokenDialogVisible = ref(false)
@@ -330,7 +341,8 @@ const docColumns = computed<PrimaryTableCol[]>(() => [
   { colKey: 'doc_id', title: t('detail.docId'), ellipsis: true },
   { colKey: 'type', title: t('detail.docType'), width: 130 },
   { colKey: 'path', title: t('detail.docPath'), ellipsis: true },
-  { colKey: 'submodule', title: t('detail.docSubmodule'), ellipsis: true },
+  { colKey: 'original_uri', title: '原始来源', ellipsis: true },
+  { colKey: 'state', title: '当前状态', width: 110 },
   { colKey: 'ingested_at', title: t('detail.docIngestedAt'), width: 170, cell: (_h, { row }) => formatDate(row.ingested_at) },
   { colKey: 'bundles', title: t('detail.docBundles'), cell: 'bundles' },
 ])
@@ -390,16 +402,23 @@ async function loadProject() {
   }
 }
 
+watch([logsPage, logsPageSize], () => { void loadLogs() })
 async function loadLogs() {
   const id = projectId.value
+  const generation = ++logsGeneration
   logsLoading.value = true
   try {
-    const result = await getSyncLogs(id, 50)
-    if (id === projectId.value) syncLogs.value = result
+    const result = await getSyncLogs(id, logsPageSize.value, (logsPage.value - 1) * logsPageSize.value)
+    if (id === projectId.value && generation === logsGeneration) {
+      syncLogs.value = result.logs
+      logsTotal.value = result.total
+      const last = Math.max(1, Math.ceil(result.total / logsPageSize.value))
+      if (logsPage.value > last) logsPage.value = last
+    }
   } catch (e: any) {
-    if (id === projectId.value) showError(e, t('common.error'))
+    if (id === projectId.value && generation === logsGeneration) showError(e, t('common.error'))
   } finally {
-    if (id === projectId.value) logsLoading.value = false
+    if (id === projectId.value && generation === logsGeneration) logsLoading.value = false
   }
 }
 
@@ -470,6 +489,9 @@ async function handleRevokeToken() {
 
 watch(projectId, () => {
   project.value = null
+  logsGeneration++
+  logsPage.value = 1
+  logsTotal.value = 0
   syncLogs.value = []
   wikiNodes.value = []
   tokenDialogVisible.value = false

@@ -1,10 +1,9 @@
-import { assertRepositoryDocs, repositoryKind } from '../wiki-core/repository-docs.mjs'
+import { repositoryKind } from '../wiki-core/repository-docs.mjs'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { copySafe, snapshotContext } from '../wiki-core/build-snapshot.mjs'
-import { assertValidWiki } from '../wiki-core/validate.mjs'
 import { toolchainIdentity } from '../wiki-core/build-toolchain.mjs'
 
 async function command(file, args, { cwd, env, signal, log }) {
@@ -54,9 +53,6 @@ export async function buildSite({ job, buildsRoot, sourceRoot, signal, stage = (
   copySafe(frozen, input)
   const metadata = JSON.parse(readFileSync(join(frozen, 'snapshot.json'), 'utf8'))
   const context = { project: metadata.project, projectRoot: join(input, 'state'), wikiRoot: join(input, 'state/data/wiki'), roots: Object.fromEntries(metadata.rootIds.map(key => [key, join(input, 'shared', key)])) }
-  stage('validate')
-  if (metadata.contentKind === repositoryKind) assertRepositoryDocs(join(context.wikiRoot, metadata.project))
-  else assertValidWiki(context)
   toolchain(sourceRoot, tools)
   const wiki = join(tools, 'wiki'), dist = join(attempt, 'dist')
   const env = { PATH: process.env.PATH, NODE_ENV: 'production', CIM_WIKI_WORKSPACE: context.projectRoot, CIM_WIKI_SHARED_ROOTS: JSON.stringify(context.roots), WIKI_ROOT: context.wikiRoot, WIKI_PROJECT: metadata.project || '', WIKI_CONTENT_KIND: metadata.contentKind || 'strict_nodes', WIKI_SIDEBAR_OUT: join(wiki, '.vitepress/sidebar-data.mjs'), WIKI_OUT_DIR: dist, WIKI_BASE: job.mode === 'preview' ? `/wiki-preview/${job.id}/` : metadata.project ? `/wiki/${job.project}/` : '/wiki/', WIKI_GIT_COMMIT: job.gitCommit, WIKI_PREVIEW_ID: job.mode === 'preview' ? job.id : '', WIKI_PREVIEW_EXPIRES: job.expiresAt ? new Date(job.expiresAt).toISOString() : '' }

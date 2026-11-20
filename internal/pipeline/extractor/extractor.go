@@ -40,7 +40,11 @@ func New(cfg *config.LLMConfig) *Extractor {
 // Extract decomposes doc into KnowledgeNodes for the given module.
 // Each call to the LLM is bounded to ~8k chars of content to stay within
 // context limits; large documents are split into chunks internally.
-func (e *Extractor) Extract(ctx context.Context, doc *types.ParsedDocument, module string) ([]types.KnowledgeNode, error) {
+func (e *Extractor) Extract(
+	ctx context.Context,
+	doc *types.ParsedDocument,
+	module string,
+) ([]types.KnowledgeNode, error) {
 	if doc.Content == "" {
 		return nil, fmt.Errorf("extractor: document %q has no content", doc.Source)
 	}
@@ -107,13 +111,26 @@ func (s section) node(module string, index int) *types.KnowledgeNode {
 	}
 	id := s.id
 	if id == "" {
-		prefix := map[types.ObjectType]string{types.ObjBusinessRule: "BR", types.ObjAPI: "API", types.ObjRequirement: "REQ", types.ObjScenario: "SC"}[s.kind]
+		prefixMap := map[types.ObjectType]string{
+			types.ObjBusinessRule: "BR",
+			types.ObjAPI:          "API",
+			types.ObjRequirement:  "REQ",
+			types.ObjScenario:     "SC",
+		}
+		prefix := prefixMap[s.kind]
 		if prefix == "" {
 			prefix = "DES"
 		}
 		id = fmt.Sprintf("%s-%s-%03d", prefix, strings.ToUpper(module), index)
 	}
-	return &types.KnowledgeNode{ID: id, Type: s.kind, Title: s.title, Content: body, Domain: "manufacturing-execution", Module: module}
+	return &types.KnowledgeNode{
+		ID:      id,
+		Type:    s.kind,
+		Title:   s.title,
+		Content: body,
+		Domain:  "manufacturing-execution",
+		Module:  module,
+	}
 }
 
 func classifyTitle(title string) types.ObjectType {
@@ -163,7 +180,14 @@ func fallbackExtract(doc *types.ParsedDocument, module, content string) []types.
 	}
 	flush()
 	if len(nodes) == 0 && strings.TrimSpace(content) != "" {
-		nodes = append(nodes, types.KnowledgeNode{ID: fmt.Sprintf("DOC-%s-001", strings.ToUpper(module)), Type: types.ObjDesign, Title: "Document Section", Content: strings.TrimSpace(content), Domain: "manufacturing-execution", Module: module})
+		nodes = append(nodes, types.KnowledgeNode{
+			ID:      fmt.Sprintf("DOC-%s-001", strings.ToUpper(module)),
+			Type:    types.ObjDesign,
+			Title:   "Document Section",
+			Content: strings.TrimSpace(content),
+			Domain:  "manufacturing-execution",
+			Module:  module,
+		})
 	}
 	return nodes
 }
@@ -259,7 +283,8 @@ func (e *Extractor) callLLM(ctx context.Context, prompt string) ([]types.Knowled
 	if err := json.Unmarshal([]byte(content), &wrapper); err == nil {
 		return wrapper.Nodes, nil
 	}
-	return nil, fmt.Errorf("extractor: cannot parse LLM output as KnowledgeNode array:\n%s", content[:min(200, len(content))])
+	sample := content[:minInt(200, len(content))]
+	return nil, fmt.Errorf("extractor: cannot parse LLM output as KnowledgeNode array:\n%s", sample)
 }
 
 // ─── Prompt construction ─────────────────────────────────────────────────────
@@ -309,7 +334,7 @@ func chunkContent(content string, size, overlap int) []string {
 	return chunks
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

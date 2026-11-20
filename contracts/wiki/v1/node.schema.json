@@ -464,7 +464,10 @@
           "type": {
             "const": "business_rule"
           }
-        }
+        },
+        "required": [
+          "type"
+        ]
       },
       "then": {
         "required": [
@@ -478,7 +481,10 @@
           "type": {
             "const": "api"
           }
-        }
+        },
+        "required": [
+          "type"
+        ]
       },
       "then": {
         "required": [
@@ -492,7 +498,10 @@
           "type": {
             "const": "frd"
           }
-        }
+        },
+        "required": [
+          "type"
+        ]
       },
       "then": {
         "required": [

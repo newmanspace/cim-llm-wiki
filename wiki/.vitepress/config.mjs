@@ -1,11 +1,11 @@
-import { assertRepositoryDocs, repositoryKind, repositoryMarkdown } from '../../packages/wiki-core/repository-docs.mjs'
+import { assertNoFileIncludes } from '../../packages/wiki-core/markdown.mjs'
+import { repositoryKind, repositoryMarkdown } from '../../packages/wiki-core/repository-docs.mjs'
 import { defineConfig } from 'vitepress'
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
-import { join, dirname, resolve } from 'node:path'
+import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sidebar, nav } from './sidebar-data.mjs'
-import { assertValidWiki } from '../../packages/wiki-core/validate.mjs'
 import { mermaidMarkdown } from './mermaid-markdown.mjs'
 
 const require = createRequire(import.meta.url)
@@ -13,8 +13,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const srcDir = process.env.WIKI_ROOT || (existsSync(join(__dirname, '../../data/wiki')) ? '../data/wiki' : existsSync('/data/wiki') ? '/data/wiki' : 'data/wiki')
 
 const isRepository = process.env.WIKI_CONTENT_KIND === repositoryKind
-if (isRepository) assertRepositoryDocs(join(srcDir, process.env.WIKI_PROJECT))
-else assertValidWiki({ wikiRoot: resolve(__dirname, '..', srcDir), project: process.env.WIKI_PROJECT || undefined })
 
 export default defineConfig({
   lang: 'zh-CN',
@@ -29,12 +27,17 @@ export default defineConfig({
   ...(process.env.WIKI_OUT_DIR ? { outDir: process.env.WIKI_OUT_DIR } : {}),
   head: process.env.WIKI_PREVIEW_ID ? [['meta', { name: 'robots', content: 'noindex,nofollow' }]] : [],
   cleanUrls: true,
-  ignoreDeadLinks: false,
+  // Broken document references are submission diagnostics, not compiler errors.
+  ignoreDeadLinks: true,
   lastUpdated: false,
   markdown: {
-    config: md => { mermaidMarkdown(md); if (isRepository) repositoryMarkdown(md, { root: process.env.WIKI_SITE_ROOT || join(srcDir, process.env.WIKI_PROJECT) }) }
+    config: md => { md.block.ruler.disable('snippet'); mermaidMarkdown(md); if (isRepository) repositoryMarkdown(md, { root: process.env.WIKI_SITE_ROOT || join(srcDir, process.env.WIKI_PROJECT) }) }
   },
   vite: {
+    // Guard the actual compiler input too, including direct VitePress invocations.
+    plugins: [{ name: 'wiki-static-input', enforce: 'pre', transform(text, id) {
+      if (id.endsWith('.md')) assertNoFileIncludes(text)
+    } }],
     // Vue's server compiler consumes entities from CommonJS. Bundle it during
     // SSR so Node never receives a synthetic default import from its ESM entry.
     ssr: { noExternal: ['entities'] },

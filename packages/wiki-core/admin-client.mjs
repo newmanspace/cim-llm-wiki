@@ -7,7 +7,13 @@
 //
 // 设计原则：admin 不可达时仅告警、绝不阻断流水线；离线模式零外部依赖。
 
-const ADMIN_URL = (process.env.ADMIN_URL || '').replace(/\/+$/, '')
+function stripTrailingSlashes(url) {
+  let end = url.length
+  while (end > 0 && url.charCodeAt(end - 1) === 47) end--
+  return url.slice(0, end)
+}
+
+const ADMIN_URL = stripTrailingSlashes(process.env.ADMIN_URL || '')
 const TOKEN = process.env.ADMIN_PROJECT_TOKEN || ''
 
 export function adminEnabled() {
@@ -29,7 +35,11 @@ async function adminFetch(path, { method = 'GET', body, useToken = false } = {})
   const text = await res.text()
   let data = null
   if (text) {
-    try { data = JSON.parse(text) } catch { data = { raw: text } }
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = { raw: text }
+    }
   }
   if (!res.ok) {
     const err = new Error(data?.error || `HTTP ${res.status}`)

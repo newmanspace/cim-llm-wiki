@@ -1,9 +1,12 @@
+import { resolve, dirname, relative, sep } from 'node:path'
+import { collectLocalPackage } from './dist/local-ingest.mjs'
+import { transferClient } from './file-transfer.mjs'
 import { randomUUID } from 'node:crypto'
 function parseOptions(args) {
   const options = {}
   for (let i = 0; i < args.length; i += 2) {
     if (
-      !['--project', '--source-id', '--shared-root', '--mount'].includes(
+      !['--project', '--source-id', '--output-root', '--shared-root', '--mount'].includes(
         args[i],
       ) ||
       !args[i + 1]
@@ -35,6 +38,16 @@ function serviceConnection(options) {
     throw new Error('Invalid service origin')
   return { project, origin, token }
 }
+async function uploadCollected(transfers, project, localRoot, collected, type) {
+  const evidenceKey = type === 'git' ? 'git_info_uri' : 'svn_info_uri'
+  const evidencePath = resolve(localRoot, collected[evidenceKey].replace(/^shared:\/\/[^/]+\//, ''))
+  collected.snapshot_root = dirname(evidencePath)
+  collected[evidenceKey] = (await transfers.upload(project, evidencePath)).uri
+  for (const file of collected.files) file.source_uri = (await transfers.upload(project, file.local_path)).uri
+}
+function collectionDirectory(options) {
+  return options['--output-root'] || options['--shared-root']
+}
 export async function runSourceCLI(collect, type) {
   const options = parseOptions(process.argv.slice(2))
   const { project, origin, token } = serviceConnection(options)
@@ -55,6 +68,8 @@ export async function runSourceCLI(collect, type) {
       throw new Error(`Knowledge service HTTP ${response.status}`)
     return value.data || value
   }
+  const transfers = transferClient(origin, token)
+  const localRoot = collectionDirectory(options)
   const context = await call('context?project=' + encodeURIComponent(project))
   if (context.capabilities?.collect !== true) {
     const reasons = (context.diagnostics || [])
@@ -72,8 +87,8 @@ export async function runSourceCLI(collect, type) {
     collected = await collect({
       source,
       project,
-      sharedRoot: options['--shared-root'],
-      mount: options['--mount'],
+      sharedRoot: localRoot,
+      mount: 'local',
     })
   } catch (error) {
     await call(
@@ -90,6 +105,8 @@ export async function runSourceCLI(collect, type) {
     )
     throw error
   }
+  if (!localRoot) throw new Error('--output-root LOCAL-DIRECTORY is required')
+  await uploadCollected(transfers, project, localRoot, collected, type)
   const prefix = randomUUID(),
     run = await call(
       'ingest-runs',
@@ -131,5 +148,19 @@ export async function runSourceCLI(collect, type) {
     file.source_version_id = record.id
     file.source_uri = record.original_uri
   }
+  await uploadSourcePackages(transfers, project, collected)
   console.log(JSON.stringify({ ...collected, run_id: run.id }, null, 2))
+}
+
+async function uploadSourcePackages(transfers, project, collected) {
+  for (const file of collected.files.filter(item => item.local_path.endsWith('.md'))) {
+    const entry = relative(collected.snapshot_root, file.local_path).split(sep).join('/')
+    const local = collectLocalPackage(collected.snapshot_root, entry)
+    file.source_package_uri = (await transfers.uploadPackage(project, collected.snapshot_root, entry)).uri
+    file.package_source_links = local.files.map(resource => {
+      const observed = collected.files.find(item => resolve(item.local_path) === resolve(collected.snapshot_root, resource.path))
+      if (!observed) throw new Error('Markdown attachment has no source observation')
+      return { source_version_id: observed.source_version_id }
+    })
+  }
 }

@@ -6,12 +6,14 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -20,12 +22,13 @@ import (
 	"cim-llm-wiki/internal/config"
 	"cim-llm-wiki/internal/handler"
 	"cim-llm-wiki/internal/hitl"
+	"cim-llm-wiki/internal/observability"
 	"cim-llm-wiki/internal/pipeline/compiler"
 	"cim-llm-wiki/internal/store"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	slog.SetDefault(observability.NewLogger(os.Stdout, "cim-wiki-server"))
 
 	cfg := config.Load()
 
@@ -72,7 +75,7 @@ func buildHandler(cfg *config.Config) (http.Handler, func(), error) {
 	}
 
 	// ── Open HITL queue (SQLite) ─────────────────────────────────────────────
-	slog.Info("opening HITL queue", "dsn", cfg.Storage.DSN)
+	slog.Info("opening HITL queue")
 	hitlQ, err := hitl.Open(cfg.Storage.DSN)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open review queue: %w", err)
@@ -96,8 +99,7 @@ func buildHandler(cfg *config.Config) (http.Handler, func(), error) {
 	// ── HTTP router ───────────────────────────────────────────────────────────
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Recovery())
-	r.Use(requestLogger())
+	r.Use(requestLogger(), requestRecovery())
 
 	// Health check
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
@@ -219,15 +221,52 @@ func openAdminStore(cfg *config.Config) (*store.Store, error) {
 	return adminStore, nil
 }
 
+// Keep panic output structured and avoid Gin's default request/stack dump.
+func requestRecovery() gin.HandlerFunc {
+	return gin.CustomRecoveryWithWriter(nil, func(c *gin.Context, _ any) {
+		observability.ReportFailure(c.Request.Context(), "request.recover", "INTERNAL_PANIC", "Request panic recovered")
+		c.AbortWithStatus(http.StatusInternalServerError)
+	})
+}
+
+var requestIDPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
+
+const headerRequestID = "X-Request-ID"
+
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+		id := c.GetHeader(headerRequestID)
+		if !requestIDPattern.MatchString(id) {
+			var bytes [16]byte
+			if _, err := rand.Read(bytes[:]); err != nil {
+				observability.ReportFailure(
+					c.Request.Context(), "request.identify",
+					"REQUEST_ID_GENERATION_FAILED", "Request ID generation failed",
+				)
+				c.AbortWithStatus(http.StatusInternalServerError)
+				return
+			}
+			id = fmt.Sprintf("%x", bytes)
+		}
+		c.Request.Header.Set(headerRequestID, id)
+		c.Header(headerRequestID, id)
+		logger := slog.Default().With(
+			"http.request.id", id,
+			"http.request.method", c.Request.Method,
+			"url.path", c.Request.URL.EscapedPath(),
+		)
+		c.Request = c.Request.WithContext(observability.WithLogger(c.Request.Context(), logger))
 		c.Next()
-		slog.Info("http",
-			"method", c.Request.Method,
-			"path", fmt.Sprintf("%q", c.Request.URL.Path),
-			"status", c.Writer.Status(),
-			"latency_ms", time.Since(start).Milliseconds(),
+		status := c.Writer.Status()
+		outcome := "success"
+		if status >= 400 {
+			outcome = "failure"
+		}
+		observability.Logger(c.Request.Context()).LogAttrs(
+			c.Request.Context(), observability.HTTPLevel(status), "HTTP request completed",
+			slog.String("event.action", "request.completed"), slog.String("event.outcome", outcome),
+			slog.Int64("event.duration", time.Since(start).Nanoseconds()), slog.Int("http.response.status_code", status),
 		)
 	}
 }

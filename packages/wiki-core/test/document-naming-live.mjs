@@ -1,3 +1,4 @@
+import { identityErrors } from '../document-naming.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createKnowledgeServer } from '../../wiki-service/server.mjs'
@@ -49,10 +50,10 @@ test('real PostgreSQL numbering, uniqueness, retries, module registry, and Node 
   const template=definition.templates.find(t=>t.id==='sdd'),identity=first.value.data
   const document=template.example.replace(/^(\|\s*文档 ID\s*\|)[^|]+\|/m,`$1 ${identity.node_id} |`)
   const valid=await api('check-document',{project:'demo',document_id:identity.id,template_id:'sdd',document,phase:'draft',target_path:'doc/50-designs/'+identity.filename})
-  assert.equal(valid.status,200);assert.deepEqual(valid.value.errors,[])
+  assert.equal(valid.status,404);assert.deepEqual(identityErrors(identity,{document,template_id:'sdd',target_path:'doc/50-designs/'+identity.filename},definition.naming),[])
   const invalid=await api('check-document',{project:'demo',document_id:identity.id,template_id:'sdd',document,phase:'draft',target_path:'doc/50-designs/wrong.md'})
-  assert.ok(invalid.value.errors.some(error=>error.rule_id==='document_identity_mismatch'))
-  assert.equal((await api('check-document',{project:'demo',template_id:'sdd',document,phase:'draft'})).status,422)
+  assert.equal(invalid.status,404);assert.ok(identityErrors(identity,{document,template_id:'sdd',target_path:'doc/50-designs/wrong.md'},definition.naming).some(error=>error.rule_id==='document_identity_mismatch'))
+  assert.equal((await api('check-document',{project:'demo',template_id:'sdd',document,phase:'draft'})).status,404)
   const context=await api('context?project=demo');assert.equal(context.value.document_naming.ready,true)
   assert.equal(context.value.configuration_status.delivery_contract,'ready')
   const adminDenied=await fetch(ledgerURL+'/internal/v1/projects/demo/document-quality/naming-settings',{method:'POST',headers:{Authorization:'Bearer '+ledgerToken,'Content-Type':'application/json'},body:JSON.stringify({short_code:'hijack'})})
