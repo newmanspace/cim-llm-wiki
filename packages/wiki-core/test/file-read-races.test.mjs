@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assertBuildInput } from '../build-validation.mjs'
 import { collectLocalPackage } from '../local-package.mjs'
+import { collectLocalPackage as collectStandalonePackage } from '../../../.agents/skills/cim-wiki/scripts/dist/local-ingest.mjs'
 import { createDocumentUploads } from '../../wiki-service/document-uploads.mjs'
 
 function fixture(t) {
@@ -45,17 +46,22 @@ test('build validation rejects a file replaced by a symlink after inspection', (
   assert.throws(() => assertBuildInput({ wikiRoot }), /ELOOP/)
 })
 
-test('local collection rejects a file replaced after its final path inspection', (t) => {
-  const root = fixture(t),
-    packageRoot = join(root, 'package')
-  fs.mkdirSync(packageRoot)
-  const page = join(packageRoot, 'document.md'),
-    outside = join(root, 'outside.md')
-  fs.writeFileSync(page, '# Accepted')
-  fs.writeFileSync(outside, '# Outside')
-  replaceAfterStat(t, page, outside, 2)
-  assert.throws(() => collectLocalPackage(packageRoot, 'document.md'), /ELOOP/)
-})
+for (const [name, collect] of [
+  ['local', collectLocalPackage],
+  ['standalone', collectStandalonePackage],
+]) {
+  test(name + ' collection rejects a file replaced after its final path inspection', (t) => {
+    const root = fixture(t),
+      packageRoot = join(root, 'package')
+    fs.mkdirSync(packageRoot)
+    const page = join(packageRoot, 'document.md'),
+      outside = join(root, 'outside.md')
+    fs.writeFileSync(page, '# Accepted')
+    fs.writeFileSync(outside, '# Outside')
+    replaceAfterStat(t, page, outside, 2)
+    assert.throws(() => collect(packageRoot, 'document.md'), /ELOOP/)
+  })
+}
 
 test('upload reads reject symbolic metadata and content without changing their targets', (t) => {
   const root = fixture(t),
