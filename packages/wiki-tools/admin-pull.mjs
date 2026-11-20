@@ -62,7 +62,10 @@ async function main() {
 }
 
 function ADMIN_HINT() {
-  return (process.env.ADMIN_URL || '').replace(/\/+$/, '')
+  const url = process.env.ADMIN_URL || ''
+  let end = url.length
+  while (end > 0 && url.charCodeAt(end - 1) === 47) end--
+  return url.slice(0, end)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })

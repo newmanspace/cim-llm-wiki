@@ -120,10 +120,24 @@ export function checkDocumentFormat(sections, values, add, tablesOf) {
     checkFormatContent(section, add, tablesOf)
 }
 
+function missingApplicabilityReason(content) {
+  const text = content.trim()
+  if (!text.startsWith('不涉及')) return false
+  let end = text.length
+  while (end > 3 && (text[end - 1] === '。' || text[end - 1].trim() === '')) end--
+  let reason = text.slice(3, end)
+  if (reason.startsWith(':') || reason.startsWith('：')) reason = reason.slice(1).trimStart()
+  return ['', 'TODO', '待补', '—'].includes(reason)
+}
+
 function checkFormatContent(section, add, tablesOf) {
-  for (const token of section.tokens)
-    if (token.type === 'inline' && /^不涉及(?:[：:]\s*)?(?:TODO|待补|—)?[。\s]*$/.test(token.content.trim()))
-      add('not_applicable_reason', 'Explain why this section does not apply', section)
+  for (const token of section.tokens) {
+    if (token.type === 'inline') {
+      if (missingApplicabilityReason(token.content)) {
+        add('not_applicable_reason', 'Explain why this section does not apply', section)
+      }
+    }
+  }
   if (section.title !== '修订记录') return
   for (const row of tablesOf(section.tokens).flatMap((table) => table.rows)) {
     const date = new Date(row[1])

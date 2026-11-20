@@ -15,6 +15,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	opProjectTemplates       = "project.templates"
+	errTemplateServiceUnconf = "Document template service is not configured"
+)
+
 // DocumentDefaultsHandler forwards authenticated administrative requests to the
 // document rules service. Service credentials never reach the browser.
 type DocumentDefaultsHandler struct {
@@ -25,7 +30,12 @@ type DocumentDefaultsHandler struct {
 }
 
 func NewDocumentDefaultsHandler(repository *store.Store) *DocumentDefaultsHandler {
-	return &DocumentDefaultsHandler{Store: repository, URL: strings.TrimRight(os.Getenv("CIM_WIKI_KNOWLEDGE_URL"), "/"), Token: os.Getenv("CIM_WIKI_LEDGER_TOKEN"), Client: &http.Client{Timeout: 30 * time.Second}}
+	return &DocumentDefaultsHandler{
+		Store:  repository,
+		URL:    strings.TrimRight(os.Getenv("CIM_WIKI_KNOWLEDGE_URL"), "/"),
+		Token:  os.Getenv("CIM_WIKI_LEDGER_TOKEN"),
+		Client: &http.Client{Timeout: 30 * time.Second},
+	}
 }
 
 func (h *DocumentDefaultsHandler) request(c *gin.Context, action string, payload []byte) ([]byte, int, error) {
@@ -66,12 +76,19 @@ func (h *DocumentDefaultsHandler) requestTo(c *gin.Context, path string, payload
 
 func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 	if h.URL == "" || len(h.Token) < 32 {
-		observability.ReportFailure(c.Request.Context(), "project.templates", "TEMPLATE_SERVICE_UNCONFIGURED", "Document template service is not configured")
-		c.JSON(503, gin.H{"error": "Document template service is not configured"})
+		observability.ReportFailure(
+			c.Request.Context(), opProjectTemplates,
+			"TEMPLATE_SERVICE_UNCONFIGURED", errTemplateServiceUnconf,
+		)
+		c.JSON(503, gin.H{"error": errTemplateServiceUnconf})
 		return
 	}
 	action := c.Param("action")
-	allowed := map[string]bool{"": true, "save": true, "publish": true, "check": true, "render": true, "preview": true, "bind": true, "bind-naming": true, "bind-templates": true, "project": true}
+	allowed := map[string]bool{
+		"": true, "save": true, "publish": true, "check": true,
+		"render": true, "preview": true, "bind": true,
+		"bind-naming": true, "bind-templates": true, "project": true,
+	}
 	if !allowed[action] {
 		c.JSON(404, gin.H{"error": "Unknown template operation"})
 		return
@@ -99,7 +116,10 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 	}
 	data, status, err := h.request(c, action, payload)
 	if err != nil {
-		observability.ReportFailure(c.Request.Context(), "project.templates", "TEMPLATE_SERVICE_UNAVAILABLE", "Document template service unavailable")
+		observability.ReportFailure(
+			c.Request.Context(), opProjectTemplates,
+			"TEMPLATE_SERVICE_UNAVAILABLE", "Document template service unavailable",
+		)
 		c.JSON(503, gin.H{"error": "Document template service unavailable"})
 		return
 	}
@@ -110,9 +130,11 @@ func (h *DocumentDefaultsHandler) Handle(c *gin.Context) {
 }
 
 // InitializeProject binds new projects to the published system contract.
-func (h *DocumentDefaultsHandler) InitializeProject(c *gin.Context, projectID, name, version string, wikiSourceDirectory ...string) ([]map[string]string, error) {
+func (h *DocumentDefaultsHandler) InitializeProject(
+	c *gin.Context, projectID, name, version string, wikiSourceDirectory ...string,
+) ([]map[string]string, error) {
 	if h.URL == "" || len(h.Token) < 32 {
-		return nil, templateError("Document template service is not configured")
+		return nil, templateError(errTemplateServiceUnconf)
 	}
 	input := gin.H{"project": projectID, "name": name, "product_version": version, "modules": []string{}}
 	if len(wikiSourceDirectory) > 0 && wikiSourceDirectory[0] != "" {
@@ -177,12 +199,18 @@ func (h *DocumentDefaultsHandler) finishBinding(c *gin.Context, data []byte, sta
 	}
 	directories, err := bindingDirectories(data)
 	if err != nil {
-		observability.ReportFailure(c.Request.Context(), "project.templates", "TEMPLATE_SERVICE_INVALID_RESPONSE", "Invalid template service response")
+		observability.ReportFailure(
+			c.Request.Context(), opProjectTemplates,
+			"TEMPLATE_SERVICE_INVALID_RESPONSE", "Invalid template service response",
+		)
 		c.JSON(503, gin.H{"error": "Invalid template service response"})
 		return false
 	}
 	if err := h.Store.EnsureDocumentDirectories(c.Request.Context(), project, directories); err != nil {
-		observability.ReportFailure(c.Request.Context(), "project.templates", "PROJECT_DIRECTORY_SYNC_FAILED", "Project directories could not be synchronized; retry the binding")
+		observability.ReportFailure(
+			c.Request.Context(), opProjectTemplates, "PROJECT_DIRECTORY_SYNC_FAILED",
+			"Project directories could not be synchronized; retry the binding",
+		)
 		c.JSON(503, gin.H{"error": "Project directories could not be synchronized; retry the binding"})
 		return false
 	}

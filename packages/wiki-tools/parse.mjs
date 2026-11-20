@@ -34,14 +34,30 @@ function slugify(name) {
   return (
     name
       .replace(/[^a-zA-Z0-9\u4e00-\u9fff-]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .toLowerCase()
-      .replace(/-+/g, '-') || 'doc'
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || 'doc'
   )
 }
 function fail(message) {
   console.error(message)
   process.exit(1)
+}
+
+function stripVersion(name) {
+  const parts = []
+  let cursor = 0
+  for (const match of name.matchAll(/[vV]?\d+(?:[._-]\d+)+/g)) {
+    let start = match.index
+    while (start > cursor && '-_ .'.includes(name[start - 1])) start--
+    parts.push(name.slice(cursor, start))
+    cursor = match.index + match[0].length
+  }
+  parts.push(name.slice(cursor))
+  const result = parts.join('')
+  let end = result.length
+  while (end > 0 && '-_. '.includes(result[end - 1])) end--
+  return result.slice(0, end)
 }
 
 function outputLayout({
@@ -56,8 +72,6 @@ function outputLayout({
 }) {
   // 输出路径：结构化规约 or 旧 module 布局
   const VERSION_IN_NAME = /\b[vV]?\d+([._-]\d+)+\b/
-  const stripVersion = (s) =>
-    s.replace(/[-_ .]*v?\d+([._-]\d+)+/gi, '').replace(/[-_. ]+$/g, '')
   let outDir, stem, docMeta
   if (system && version && category) {
     const segs = [system, version, category, subcategory].filter(Boolean)

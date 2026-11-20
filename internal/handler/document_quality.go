@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,11 @@ import (
 	"cim-llm-wiki/internal/documentquality"
 	"cim-llm-wiki/internal/store"
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	pathPrefixInternal  = "/internal/"
+	errInvalidPageLimit = "Invalid page limit"
 )
 
 type DocumentQualityHandler struct {
@@ -22,7 +28,12 @@ type DocumentQualityHandler struct {
 }
 
 func NewDocumentQualityHandler(s *store.Store) *DocumentQualityHandler {
-	h := &DocumentQualityHandler{store: s, service: documentquality.Service{Repository: s}, token: os.Getenv("CIM_WIKI_LEDGER_TOKEN"), reviewers: map[string]string{}}
+	h := &DocumentQualityHandler{
+		store:     s,
+		service:   documentquality.Service{Repository: s},
+		token:     os.Getenv("CIM_WIKI_LEDGER_TOKEN"),
+		reviewers: map[string]string{},
+	}
 	_ = json.Unmarshal([]byte(os.Getenv("CIM_WIKI_REVIEW_TOKENS")), &h.reviewers)
 	return h
 }
@@ -50,32 +61,51 @@ func qualityReply(c *gin.Context, v any, err error) {
 	}
 	c.JSON(503, gin.H{"error": "Document ledger unavailable"})
 }
+
+func checkOperationPermission(internal bool, op string) error {
+	isConfig := configurationOperation(op)
+	if !internal && !isConfig {
+		return &documentquality.Error{
+			Status: 403,
+			Message: "Administrative sessions may only edit configuration; " +
+				"use the verified knowledge workflow for document mutations",
+		}
+	}
+	if internal && isConfig {
+		return &documentquality.Error{
+			Status:  403,
+			Message: "Configuration requires a human administrator session",
+		}
+	}
+	return nil
+}
+
+func resolveReviewer(c *gin.Context, reviewers map[string]string, ledgerToken string) (string, error) {
+	provided := c.GetHeader("X-Document-Review-Token")
+	for name, secret := range reviewers {
+		if len(secret) >= 32 && secret != ledgerToken && subtle.ConstantTimeCompare([]byte(provided), []byte(secret)) == 1 {
+			return name, nil
+		}
+	}
+	return "", &documentquality.Error{Status: 403, Message: "Independent human reviewer authentication required"}
+}
+
 func (h *DocumentQualityHandler) Command(c *gin.Context) {
 	op := c.Param("operation")
 	actor := c.GetString("quality_actor")
 	if actor == "" {
 		actor = "project-administrator"
 	}
-	internal := strings.HasPrefix(c.FullPath(), "/internal/")
-	if !internal && !configurationOperation(op) {
-		qualityReply(c, nil, &documentquality.Error{Status: 403, Message: "Administrative sessions may only edit configuration; use the verified knowledge workflow for document mutations"})
-		return
-	}
-
-	if internal && configurationOperation(op) {
-		qualityReply(c, nil, &documentquality.Error{Status: 403, Message: "Configuration requires a human administrator session"})
+	internal := strings.HasPrefix(c.FullPath(), pathPrefixInternal)
+	if err := checkOperationPermission(internal, op); err != nil {
+		qualityReply(c, nil, err)
 		return
 	}
 	if op == "document-review-decisions" {
-		actor = ""
-		provided := c.GetHeader("X-Document-Review-Token")
-		for name, secret := range h.reviewers {
-			if len(secret) >= 32 && secret != h.token && subtle.ConstantTimeCompare([]byte(provided), []byte(secret)) == 1 {
-				actor = name
-			}
-		}
-		if actor == "" {
-			qualityReply(c, nil, &documentquality.Error{Status: 403, Message: "Independent human reviewer authentication required"})
+		var err error
+		actor, err = resolveReviewer(c, h.reviewers, h.token)
+		if err != nil {
+			qualityReply(c, nil, err)
 			return
 		}
 	}
@@ -94,28 +124,48 @@ func (h *DocumentQualityHandler) Command(c *gin.Context) {
 	qualityReply(c, v, e)
 }
 
-var qualityResources = map[string]string{"naming-settings": "naming_settings", "document-identities": "document_identities", "directory-events": "directory_events", "document-directories": "directories", "ingest-source-links": "ingest_sources", "ingest-artifact-links": "ingest_artifacts", "data-sources": "data_sources", "source-revisions": "source_revisions", "ingest-runs": "ingest_runs", "source-observations": "source_versions", "document-results": "artifact_versions", "quality-policies": "quality_policies", "document-evaluations": "evaluations", "quality-issues": "quality_issues", "document-review-tasks": "review_tasks", "document-review-events": "review_events", "publications": "publications"}
+var qualityResources = map[string]string{
+	"naming-settings":        "naming_settings",
+	"document-identities":    "document_identities",
+	"directory-events":       "directory_events",
+	"document-directories":   "directories",
+	"ingest-source-links":    "ingest_sources",
+	"ingest-artifact-links":  "ingest_artifacts",
+	"data-sources":           "data_sources",
+	"source-revisions":       "source_revisions",
+	"ingest-runs":            "ingest_runs",
+	"source-observations":    "source_versions",
+	"document-results":       "artifact_versions",
+	"quality-policies":       "quality_policies",
+	"document-evaluations":   "evaluations",
+	"quality-issues":         "quality_issues",
+	"document-review-tasks":  "review_tasks",
+	"document-review-events": "review_events",
+	"publications":           "publications",
+}
 
 func (h *DocumentQualityHandler) List(c *gin.Context) {
-	if (c.Param("resource") == "preview" || c.Param("resource") == "original" || c.Param("resource") == "resource") && !strings.HasPrefix(c.FullPath(), "/internal/") {
+	res := c.Param("resource")
+	isInternal := strings.HasPrefix(c.FullPath(), pathPrefixInternal)
+	if (res == "preview" || res == "original" || res == "resource") && !isInternal {
 		h.Preview(c)
 		return
 	}
-	if c.Param("resource") == "project" && strings.HasPrefix(c.FullPath(), "/internal/") {
+	if res == "project" && isInternal {
 		h.projectContext(c)
 		return
 	}
-	if c.Param("resource") == "directory-catalog" {
+	if res == "directory-catalog" {
 		h.listDirectoryCatalog(c)
 		return
 	}
 
-	if c.Param("resource") == "quality-policy-effective" {
+	if res == "quality-policy-effective" {
 		v, e := h.service.Policy(c.Request.Context(), c.Param("id"), "reader", c.Query("path"))
 		qualityReply(c, v, e)
 		return
 	}
-	resource, ok := qualityResources[c.Param("resource")]
+	resource, ok := qualityResources[res]
 	if !ok {
 		c.JSON(404, gin.H{"error": "Resource not found"})
 		return
@@ -127,7 +177,7 @@ func (h *DocumentQualityHandler) List(c *gin.Context) {
 	}
 	limit, err := qualityPageLimit(c, 50)
 	if err != nil {
-		c.JSON(422, gin.H{"error": "Invalid page limit"})
+		c.JSON(422, gin.H{"error": errInvalidPageLimit})
 		return
 	}
 	filters, e := h.resultFilters(c, resource)
@@ -138,7 +188,9 @@ func (h *DocumentQualityHandler) List(c *gin.Context) {
 	qualityReply(c, qualityRecordPage(c, resource, rows, filters, limit), nil)
 }
 
-func (h *DocumentQualityHandler) resultFilters(c *gin.Context, resource string) (func(documentquality.Record) bool, error) {
+func (h *DocumentQualityHandler) resultFilters(
+	c *gin.Context, resource string,
+) (func(documentquality.Record) bool, error) {
 	sourceID, qualityStatus, reviewStatus := c.Query("source_id"), c.Query("quality_status"), c.Query("review_status")
 	if resource != "artifact_versions" {
 		return nil, nil
@@ -177,7 +229,14 @@ func (h *DocumentQualityHandler) resultFilters(c *gin.Context, resource string) 
 	for _, r := range sources {
 		sourceIDs[documentquality.Text(r, "id")] = documentquality.Text(r, "source_id")
 	}
-	criteria := artifactFilterIndex{sourceID: sourceID, qualityStatus: qualityStatus, reviewStatus: reviewStatus, latest: latest, taskStatus: taskStatus, sourceIDs: sourceIDs}
+	criteria := artifactFilterIndex{
+		sourceID:      sourceID,
+		qualityStatus: qualityStatus,
+		reviewStatus:  reviewStatus,
+		latest:        latest,
+		taskStatus:    taskStatus,
+		sourceIDs:     sourceIDs,
+	}
 	return criteria.matches, nil
 }
 
@@ -194,7 +253,43 @@ func matchesIdentityQuery(c *gin.Context, resource string, r documentquality.Rec
 }
 
 func configurationOperation(op string) bool {
-	return map[string]bool{"naming-settings": true, "data-sources": true, "quality-policies": true, "document-directories": true, "quality-policy-preview": true}[op]
+	configOps := map[string]bool{
+		"naming-settings":        true,
+		"data-sources":           true,
+		"quality-policies":       true,
+		"document-directories":   true,
+		"quality-policy-preview": true,
+	}
+	return configOps[op]
+}
+
+func filterDirectoryCatalogRows(rows []documentquality.Record, query url.Values) []documentquality.Record {
+	items := make([]documentquality.Record, 0, len(rows))
+	q := strings.ToLower(query.Get("q"))
+	for _, row := range rows {
+		if query.Has("parent") && documentquality.Text(row, "parent_path") != query.Get("parent") {
+			continue
+		}
+		if q != "" {
+			name := strings.ToLower(documentquality.Text(row, "path") + documentquality.Text(row, "display_name"))
+			if !strings.Contains(name, q) {
+				continue
+			}
+		}
+		items = append(items, row)
+	}
+	return items
+}
+
+func parseCatalogLimit(c *gin.Context, fallback int) (int, error) {
+	if raw := c.Query("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 200 {
+			return 0, errors.New(errInvalidPageLimit)
+		}
+		return value, nil
+	}
+	return fallback, nil
 }
 
 func (h *DocumentQualityHandler) listDirectoryCatalog(c *gin.Context) {
@@ -203,24 +298,11 @@ func (h *DocumentQualityHandler) listDirectoryCatalog(c *gin.Context) {
 		qualityReply(c, nil, e)
 		return
 	}
-	items := []documentquality.Record{}
-	for _, row := range rows {
-		if c.Request.URL.Query().Has("parent") && documentquality.Text(row, "parent_path") != c.Query("parent") {
-			continue
-		}
-		if q := strings.ToLower(c.Query("q")); q != "" && !strings.Contains(strings.ToLower(documentquality.Text(row, "path")+documentquality.Text(row, "display_name")), q) {
-			continue
-		}
-		items = append(items, row)
-	}
-	limit := 200
-	if raw := c.Query("limit"); raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil || value < 1 || value > 200 {
-			c.JSON(422, gin.H{"error": "Invalid page limit"})
-			return
-		}
-		limit = value
+	items := filterDirectoryCatalogRows(rows, c.Request.URL.Query())
+	limit, err := parseCatalogLimit(c, 200)
+	if err != nil {
+		c.JSON(422, gin.H{"error": errInvalidPageLimit})
+		return
 	}
 	page := []documentquality.Record{}
 	cursor := c.Query("cursor")
@@ -235,10 +317,12 @@ func (h *DocumentQualityHandler) listDirectoryCatalog(c *gin.Context) {
 		page = page[:limit]
 	}
 	qualityReply(c, gin.H{"items": page, "next_cursor": next}, nil)
-	return
 }
 
-func qualityRecordPage(c *gin.Context, resource string, rows []documentquality.Record, filters func(documentquality.Record) bool, limit int) gin.H {
+func qualityRecordPage(
+	c *gin.Context, resource string, rows []documentquality.Record,
+	filters func(documentquality.Record) bool, limit int,
+) gin.H {
 	filtered := []documentquality.Record{}
 	cursor := c.Query("cursor")
 	started := cursor == ""
@@ -264,7 +348,10 @@ func qualityRecordPage(c *gin.Context, resource string, rows []documentquality.R
 	}
 	return gin.H{"items": filtered, "next_cursor": next}
 }
-func matchesQualityRecord(c *gin.Context, resource string, r documentquality.Record, filters func(documentquality.Record) bool) bool {
+func matchesQualityRecord(
+	c *gin.Context, resource string, r documentquality.Record,
+	filters func(documentquality.Record) bool,
+) bool {
 	if !matchesIdentityQuery(c, resource, r) {
 		return false
 	}
@@ -280,7 +367,8 @@ func matchesStatusAndFolder(c *gin.Context, r documentquality.Record) bool {
 	if status := c.Query("status"); status != "" && documentquality.Text(r, "status") != status {
 		return false
 	}
-	if folder := c.Query("folder"); folder != "" && !strings.HasPrefix(documentquality.Text(r, "target_path"), folder+"/") {
+	folder := c.Query("folder")
+	if folder != "" && !strings.HasPrefix(documentquality.Text(r, "target_path"), folder+"/") {
 		return false
 	}
 	return true
@@ -289,7 +377,7 @@ func qualityPageLimit(c *gin.Context, fallback int) (int, error) {
 	if raw := c.Query("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 || n > 200 {
-			return 0, &documentquality.Error{Status: 422, Message: "Invalid page limit"}
+			return 0, &documentquality.Error{Status: 422, Message: errInvalidPageLimit}
 		}
 		return n, nil
 	}
@@ -319,12 +407,15 @@ func (f artifactFilterIndex) matches(r documentquality.Record) bool {
 		return false
 	}
 	status := "qualified"
-	if evaluation == nil || evaluation["total"] == nil {
+	switch {
+	case evaluation == nil || evaluation["total"] == nil:
 		status = "not_assessed"
-	} else if evaluation["blocking"] == true {
+	case evaluation["blocking"] == true:
 		status = "blocked"
-	} else if evaluation["needs_review"] == true {
+	case evaluation["needs_review"] == true:
 		status = "needs_review"
+	default:
+		status = "qualified"
 	}
 	return f.qualityStatus == "" || f.qualityStatus == status
 }

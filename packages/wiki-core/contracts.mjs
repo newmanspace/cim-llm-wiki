@@ -11,7 +11,7 @@ export const SCHEMA_VERSION = '1.0'
 const read = name => JSON.parse(readFileSync(join(CONTRACT_ROOT, name), 'utf8'))
 const nodeTypes = read('node-types.json')
 export const NODE_TYPES = nodeTypes.types
-if (JSON.stringify([...nodeTypes.enum].sort()) !== JSON.stringify(Object.keys(NODE_TYPES).sort())) {
+if (JSON.stringify([...nodeTypes.enum].sort((a, b) => a.localeCompare(b))) !== JSON.stringify(Object.keys(NODE_TYPES).sort((a, b) => a.localeCompare(b)))) {
   throw new Error('Node type enumeration and routing definitions disagree')
 }
 const ajv = new Ajv({ allErrors: true, strict: false })

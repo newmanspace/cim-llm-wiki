@@ -35,7 +35,7 @@ export function treeDigest(root, exclude = []) {
   return hashValue(entries)
 }
 export function gitIdentity(wikiRoot, { allowDirty = false } = {}) {
-  const git = args => execFileSync('git', ['-c', 'safe.directory=' + wikiRoot, '-C', wikiRoot, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  const git = args => execFileSync('/usr/bin/git', ['-c', 'safe.directory=' + wikiRoot, '-C', wikiRoot, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   if (!existsSync(join(wikiRoot, '.git')) || realpathSync(git(['rev-parse', '--show-toplevel'])) !== realpathSync(wikiRoot)) throw new Error('Wiki requires an independent Git checkout')
   if (!allowDirty && git(['status', '--porcelain', '--untracked-files=all'])) throw new Error('Wiki Git checkout has uncommitted changes')
   return git(['rev-parse', 'HEAD'])

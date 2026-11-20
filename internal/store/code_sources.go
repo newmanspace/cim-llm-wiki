@@ -21,7 +21,14 @@ func NormalizeCodeRepository(r *types.RepoBinding) error {
 	if len(r.Name) > 100 || strings.ContainsAny(r.Name, "\r\n\t\x00") {
 		return &documentquality.Error{Status: 422, Message: "Invalid code source name"}
 	}
-	cfg, e := documentquality.NormalizeSourceConfig(documentquality.Record{"name": r.Name, "type": r.Type, "url": r.URL, "subpath": r.Subpath, "revision_selector": r.RevisionSelector})
+	rawConfig := documentquality.Record{
+		"name":              r.Name,
+		"type":              r.Type,
+		"url":               r.URL,
+		"subpath":           r.Subpath,
+		"revision_selector": r.RevisionSelector,
+	}
+	cfg, e := documentquality.NormalizeSourceConfig(rawConfig)
 	if e != nil {
 		return e
 	}
@@ -51,15 +58,26 @@ func (s *Store) SaveCodeSource(ctx context.Context, project string, r types.Repo
 		return qualityError(e)
 	}
 	if expected == 0 {
-		_, e = tx.Exec(ctx, `INSERT INTO project_repos(project_id,name,url,branch,source_type,source_subpath,revision_selector,enabled) VALUES($1,$2,$3,$4,$5,$6,$4,$7)`, project, r.Name, r.URL, r.RevisionSelector, r.Type, r.Subpath, r.Enabled)
+		query := `INSERT INTO project_repos(` +
+			`project_id,name,url,branch,source_type,source_subpath,revision_selector,enabled` +
+			`) VALUES($1,$2,$3,$4,$5,$6,$4,$7)`
+		_, e = tx.Exec(ctx, query, project, r.Name, r.URL, r.RevisionSelector, r.Type, r.Subpath, r.Enabled)
 	} else {
-		tag, err := tx.Exec(ctx, `UPDATE project_repos SET url=$3,branch=$4,source_subpath=$5,revision_selector=$4,enabled=$6,config_revision=config_revision+1,updated_at=now(),
- last_sync_sha=CASE WHEN url<>$3 OR source_subpath<>$5 OR revision_selector<>$4 THEN NULL ELSE last_sync_sha END,
- synced_at=CASE WHEN url<>$3 OR source_subpath<>$5 OR revision_selector<>$4 THEN NULL ELSE synced_at END
- WHERE project_id=$1 AND name=$2 AND config_revision=$7 AND source_type=$8`, project, r.Name, r.URL, r.RevisionSelector, r.Subpath, r.Enabled, expected, r.Type)
+		updateQuery := `UPDATE project_repos SET url=$3,branch=$4,source_subpath=$5,` +
+			`revision_selector=$4,enabled=$6,config_revision=config_revision+1,updated_at=now(), ` +
+			`last_sync_sha=CASE WHEN url<>$3 OR source_subpath<>$5 OR revision_selector<>$4 THEN NULL ELSE last_sync_sha END, ` +
+			`synced_at=CASE WHEN url<>$3 OR source_subpath<>$5 OR revision_selector<>$4 THEN NULL ELSE synced_at END ` +
+			`WHERE project_id=$1 AND name=$2 AND config_revision=$7 AND source_type=$8`
+		tag, err := tx.Exec(
+			ctx, updateQuery,
+			project, r.Name, r.URL, r.RevisionSelector, r.Subpath, r.Enabled, expected, r.Type,
+		)
 		e = err
 		if e == nil && tag.RowsAffected() != 1 {
-			return &documentquality.Error{Status: 409, Message: "Code source changed, or its type/name cannot be changed; reload or create a new source"}
+			return &documentquality.Error{
+				Status:  409,
+				Message: "Code source changed, or its type/name cannot be changed; reload or create a new source",
+			}
 		}
 	}
 	if e != nil {

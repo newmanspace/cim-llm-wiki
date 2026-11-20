@@ -18,7 +18,9 @@ func (s *Store) ApplyMigration(ctx context.Context, name, sql string) error {
 	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(44261726)"); e != nil {
 		return e
 	}
-	if _, e = tx.Exec(ctx, "CREATE TABLE IF NOT EXISTS app_schema_migrations(name TEXT PRIMARY KEY,sha256 TEXT NOT NULL,applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"); e != nil {
+	createMigrationsTable := `CREATE TABLE IF NOT EXISTS app_schema_migrations(` +
+		`name TEXT PRIMARY KEY,sha256 TEXT NOT NULL,applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`
+	if _, e = tx.Exec(ctx, createMigrationsTable); e != nil {
 		return e
 	}
 	sum := sha256.Sum256([]byte(sql))
@@ -36,7 +38,17 @@ func (s *Store) ApplyMigration(ctx context.Context, name, sql string) error {
 	}
 	adopt := false
 	if name == "001_init.sql" {
-		if e = tx.QueryRow(ctx, "SELECT to_regclass('projects') IS NOT NULL AND to_regclass('project_docs') IS NOT NULL AND to_regclass('project_tokens') IS NOT NULL AND to_regclass('project_repos') IS NOT NULL AND to_regclass('doc_bundles') IS NOT NULL AND to_regclass('project_modules') IS NOT NULL AND to_regclass('repo_module_mappings') IS NOT NULL AND to_regclass('sync_logs') IS NOT NULL AND to_regclass('project_wiki_nodes') IS NOT NULL").Scan(&adopt); e != nil {
+		checkTablesQuery := `SELECT ` +
+			`to_regclass('projects') IS NOT NULL AND ` +
+			`to_regclass('project_docs') IS NOT NULL AND ` +
+			`to_regclass('project_tokens') IS NOT NULL AND ` +
+			`to_regclass('project_repos') IS NOT NULL AND ` +
+			`to_regclass('doc_bundles') IS NOT NULL AND ` +
+			`to_regclass('project_modules') IS NOT NULL AND ` +
+			`to_regclass('repo_module_mappings') IS NOT NULL AND ` +
+			`to_regclass('sync_logs') IS NOT NULL AND ` +
+			`to_regclass('project_wiki_nodes') IS NOT NULL`
+		if e = tx.QueryRow(ctx, checkTablesQuery).Scan(&adopt); e != nil {
 			return e
 		}
 	}

@@ -188,6 +188,20 @@ test('maintenance conversion and source lifecycle enforce frozen hashes and comp
   await ok('packages/wiki-tools/doc-state.mjs', [], env)
 })
 
+test('structured parsing removes versions adjacent to document names', async (t) => {
+  const root = workspace(t), env = envFor(root)
+  const input = join(root, 'input.txt')
+  write(input, 'Document content')
+  for (const [name, stem] of [
+    ['Manualv1.2', 'manual'],
+    ['用户手册V2.22.4', '用户手册'],
+    ['Manual _- v1.2 details', 'manual-details'],
+  ]) {
+    await ok('packages/wiki-tools/parse.mjs', [input, '--system', 'MES', '--version', 'V1', '--category', 'design', '--name', name], env)
+    assert.ok(existsSync(join(root, 'data/raw/MES/V1/design', stem + '.md')), name)
+  }
+})
+
 test('conversion CLI delegates Office parsing to HTTP and preserves returned images', async (t) => {
   const root = workspace(t),
     env = envFor(root)

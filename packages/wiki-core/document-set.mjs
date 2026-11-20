@@ -164,7 +164,7 @@ export function validateDocumentSets({
 }) {
   const errors = []
   const add = (code, path, message) => errors.push({ code, path, message })
-  for (const project of [...projects].sort()) {
+  for (const project of [...projects].sort((a, b) => a.localeCompare(b))) {
     const path = `${project}/delivery`
     let contract
     try {

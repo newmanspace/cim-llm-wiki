@@ -14,12 +14,23 @@ var gitSCP = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]*)@([A-Za-z0-9][A-Za
 var gitHost = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 var gitUser = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+func isAllowedGitScheme(scheme string) bool {
+	return scheme == "https" || scheme == "ssh"
+}
+
+func hasGitURLInvalidParts(u *url.URL, raw string) bool {
+	if u.Host == "" || !isAllowedGitScheme(u.Scheme) {
+		return true
+	}
+	return u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(raw, " \t\r\n")
+}
+
 func normalizeGitURL(raw string) (string, error) {
 	if match := gitSCP.FindStringSubmatch(raw); match != nil {
 		raw = "ssh://" + match[1] + "@" + match[2] + "/" + match[3]
 	}
 	u, e := url.Parse(raw)
-	if e != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "ssh") || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(raw, " \t\r\n") {
+	if e != nil || hasGitURLInvalidParts(u, raw) {
 		return "", problem(422, "Git URL must use HTTPS or SSH without a password, query or fragment")
 	}
 	if !gitHost.MatchString(u.Hostname()) && net.ParseIP(u.Hostname()) == nil {
@@ -34,8 +45,15 @@ func normalizeGitURL(raw string) (string, error) {
 	u.Host = strings.ToLower(u.Host)
 	return strings.TrimRight(u.String(), "/"), nil
 }
+func hasGitRefBoundaryIssue(ref string) bool {
+	if strings.Contains(ref, "..") || strings.Contains(ref, "//") {
+		return true
+	}
+	return strings.HasSuffix(ref, "/") || strings.HasSuffix(ref, ".")
+}
+
 func validGitReference(ref string) bool {
-	if !gitReference.MatchString(ref) || strings.Contains(ref, "..") || strings.Contains(ref, "//") || strings.HasSuffix(ref, "/") || strings.HasSuffix(ref, ".") {
+	if !gitReference.MatchString(ref) || hasGitRefBoundaryIssue(ref) {
 		return false
 	}
 	for _, part := range strings.Split(ref, "/") {
@@ -93,8 +111,27 @@ func NormalizeSourceConfig(r Record) (Record, error) {
 		if _, e = strconv.ParseUint(selector, 10, 64); e != nil {
 			return nil, problem(422, "Invalid SVN revision selector")
 		}
+	} else {
+		// Valid HEAD selector for non-git sources
 	}
-	return Record{"name": Text(r, "name"), "type": kind, "url": remote, "auth": auth, "subpath": sub, "revision_selector": selector}, nil
+	return Record{
+		"name":              Text(r, "name"),
+		"type":              kind,
+		"url":               remote,
+		"auth":              auth,
+		"subpath":           sub,
+		"revision_selector": selector,
+	}, nil
+}
+
+func isInvalidSVNURL(u *url.URL) bool {
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return true
+	}
+	if u.Host == "" || u.User != nil {
+		return true
+	}
+	return u.RawQuery != "" || u.Fragment != ""
 }
 
 func normalizeSourceURL(kind, remote string) (string, string, error) {
@@ -105,7 +142,7 @@ func normalizeSourceURL(kind, remote string) (string, string, error) {
 		auth = "git_local"
 	} else {
 		u, err := url.Parse(remote)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		if err != nil || isInvalidSVNURL(u) {
 			return "", "", problem(422, "SVN URL must be HTTP or HTTPS without credentials, query or fragment")
 		}
 	}

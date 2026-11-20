@@ -6,7 +6,7 @@ import { dirname, extname, join, posix, relative } from 'node:path'
 export const repositoryKind = 'repository_docs'
 const supported = new Set(['.md', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf'])
 function git(root, args, options = {}) {
-  return execFileSync('git', ['-c', 'safe.directory=' + root, '-C', root, ...args], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024, ...options })
+  return execFileSync('/usr/bin/git', ['-c', 'safe.directory=' + root, '-C', root, ...args], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024, ...options })
 }
 export function repositoryCommit(root) {
   if (!lstatSync(join(root, '.git'), { throwIfNoEntry: false })?.isDirectory() || realpathSync(git(root, ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()) !== realpathSync(root)) throw new Error('Documentation requires an independent Git checkout')
@@ -39,7 +39,7 @@ export function documentationFiles(root) {
     }
   }
   walk(root)
-  return files.sort()
+  return files.sort((a, b) => a.localeCompare(b))
 }
 export function assertRepositoryDocs(root) {
   const files = documentationFiles(root)
@@ -49,7 +49,7 @@ export function assertRepositoryDocs(root) {
 }
 export function repositoryNavigation(root) {
   const entries = assertRepositoryDocs(root).filter(path => path !== 'index.md')
-  const title = path => readFileSync(join(root, path), 'utf8').match(/^#\s+(.+)$/m)?.[1] || path.split('/').at(-1).replace(/\.md$/i, '')
+  const title = path => readFileSync(join(root, path), 'utf8').match(/^#\s+([^\r\n]+)/m)?.[1]?.trim() || path.split('/').at(-1).replace(/\.md$/i, '')
   function branch(prefix) {
     const dirs = [...new Set(entries.filter(path => path.startsWith(prefix) && path.slice(prefix.length).includes('/')).map(path => path.slice(prefix.length).split('/')[0]))]
     const pages = entries.filter(path => path.startsWith(prefix) && !path.slice(prefix.length).includes('/')).map(path => ({ text: title(path), link: '/' + path.replace(/\.md$/i, '') }))

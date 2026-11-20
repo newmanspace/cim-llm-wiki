@@ -37,6 +37,9 @@ test('numbering ignores fenced examples, rejects skipped numbers and requires ap
   assert.ok(!rules(fenced).includes('heading_number'))
   const noReason = text.replace('## 参考文档', '### 1.1 补充说明\n\n不涉及\n\n## 参考文档')
   assert.ok(rules(noReason).includes('not_applicable_reason'))
+  for (const placeholder of ['不涉及TODO', '不涉及待补', '不涉及—', '不涉及：TODO。。', '不涉及： 待补。 。']) {
+    assert.ok(rules(noReason.replace('不涉及\n', placeholder + '\n')).includes('not_applicable_reason'), placeholder)
+  }
   assert.ok(!rules(noReason.replace('不涉及\n', '不涉及：本术语表没有附加术语。\n')).includes('not_applicable_reason'))
 })
 

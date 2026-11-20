@@ -82,7 +82,7 @@ export function createProjectContext({ defaults, quality, naming, projectWikis, 
     await readLedgerConfiguration(result, read, diagnostic)
     await readNamingConfiguration(result, read, diagnostic)
     const definition = result.document_defaults?.definition
-    if (definition && info.modules && JSON.stringify([...info.modules].sort()) !== JSON.stringify([...result.document_defaults.modules].sort())) {
+    if (definition && info.modules && JSON.stringify([...info.modules].sort((a, b) => a.localeCompare(b))) !== JSON.stringify([...result.document_defaults.modules].sort((a, b) => a.localeCompare(b)))) {
       diagnostic('modules', 'invalid', 'MODULE_INVENTORY_MISMATCH', 'Project modules differ from bound document modules', [])
     }
     result.capabilities = configurationCapabilities(configuration_status, result.data_sources, quality.enabled)

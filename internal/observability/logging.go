@@ -12,15 +12,18 @@ import (
 type loggerKey struct{}
 
 func NewLogger(output io.Writer, service string) *slog.Logger {
-	handler := slog.NewJSONHandler(output, &slog.HandlerOptions{Level: slog.LevelInfo, ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
-		if len(groups) == 0 && attr.Key == slog.TimeKey {
-			attr.Key = "@timestamp"
-		}
-		if len(groups) == 0 && attr.Key == slog.LevelKey {
-			return slog.String("log.level", strings.ToLower(attr.Value.String()))
-		}
-		return attr
-	}})
+	handler := slog.NewJSONHandler(output, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
+			if len(groups) == 0 && attr.Key == slog.TimeKey {
+				attr.Key = "@timestamp"
+			}
+			if len(groups) == 0 && attr.Key == slog.LevelKey {
+				return slog.String("log.level", strings.ToLower(attr.Value.String()))
+			}
+			return attr
+		},
+	})
 	return slog.New(handler).With("service.name", service, "ecs.version", "8.11.0")
 }
 

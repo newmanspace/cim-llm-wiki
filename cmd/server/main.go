@@ -231,22 +231,31 @@ func requestRecovery() gin.HandlerFunc {
 
 var requestIDPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
 
+const headerRequestID = "X-Request-ID"
+
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
-		id := c.GetHeader("X-Request-ID")
+		id := c.GetHeader(headerRequestID)
 		if !requestIDPattern.MatchString(id) {
 			var bytes [16]byte
 			if _, err := rand.Read(bytes[:]); err != nil {
-				observability.ReportFailure(c.Request.Context(), "request.identify", "REQUEST_ID_GENERATION_FAILED", "Request ID generation failed")
+				observability.ReportFailure(
+					c.Request.Context(), "request.identify",
+					"REQUEST_ID_GENERATION_FAILED", "Request ID generation failed",
+				)
 				c.AbortWithStatus(http.StatusInternalServerError)
 				return
 			}
 			id = fmt.Sprintf("%x", bytes)
 		}
-		c.Request.Header.Set("X-Request-ID", id)
-		c.Header("X-Request-ID", id)
-		logger := slog.Default().With("http.request.id", id, "http.request.method", c.Request.Method, "url.path", c.Request.URL.EscapedPath())
+		c.Request.Header.Set(headerRequestID, id)
+		c.Header(headerRequestID, id)
+		logger := slog.Default().With(
+			"http.request.id", id,
+			"http.request.method", c.Request.Method,
+			"url.path", c.Request.URL.EscapedPath(),
+		)
 		c.Request = c.Request.WithContext(observability.WithLogger(c.Request.Context(), logger))
 		c.Next()
 		status := c.Writer.Status()
@@ -254,7 +263,8 @@ func requestLogger() gin.HandlerFunc {
 		if status >= 400 {
 			outcome = "failure"
 		}
-		observability.Logger(c.Request.Context()).LogAttrs(c.Request.Context(), observability.HTTPLevel(status), "HTTP request completed",
+		observability.Logger(c.Request.Context()).LogAttrs(
+			c.Request.Context(), observability.HTTPLevel(status), "HTTP request completed",
 			slog.String("event.action", "request.completed"), slog.String("event.outcome", outcome),
 			slog.Int64("event.duration", time.Since(start).Nanoseconds()), slog.Int("http.response.status_code", status),
 		)

@@ -102,8 +102,10 @@ func (c *Compiler) compileOne(n types.KnowledgeNode) (string, error) {
 func (c *Compiler) CompileVirtualDocument(_ context.Context, moduleID, docType string) (string, error) {
 	// Walk business/ and apis/ to find nodes for this module
 	var sections []string
-	sections = append(sections, fmt.Sprintf("# %s – Virtual %s View\n\n> Auto-generated from atomic wiki nodes. Last rendered: %s\n\n",
-		moduleID, strings.ToUpper(docType), time.Now().Format("2006-01-02 15:04:05")))
+	sections = append(sections, fmt.Sprintf(
+		"# %s – Virtual %s View\n\n> Auto-generated from atomic wiki nodes. Last rendered: %s\n\n",
+		moduleID, strings.ToUpper(docType), time.Now().Format("2006-01-02 15:04:05"),
+	))
 
 	dirs := []string{"modules", "business", "apis", "designs", "requirements"}
 	for _, dir := range dirs {

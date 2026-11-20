@@ -94,3 +94,6 @@ Thumbs.db
 /wiki/playwright-report/
 /.coverage
 /.coverage.*
+
+# SonarQube scanner work directory
+.scannerwork/

@@ -36,7 +36,7 @@ export function identityErrors(identity, values, policy) {
   for (const field of ['module', 'topic', 'doc_type']) if (values[field] !== undefined && values[field] !== identity[field]) add('Document ' + field + ' differs from the reserved identity')
   if (values.template_id && !policy.types.find(type => type.code === identity.doc_type)?.template_ids.includes(values.template_id)) add('Template does not match the document type')
   if (values.document !== undefined) {
-    const match = values.document.match(/^\|\s*文档 ID\s*\|\s*([^|]+)\|/m)
+    const match = values.document.match(/^\|[ \t]*文档 ID[ \t]*\|[ \t]*([^|\r\n]+)\|/m)
     if (!match || match[1].trim() !== identity.node_id) add('Document information ID must match the reserved identity')
   }
   return errors

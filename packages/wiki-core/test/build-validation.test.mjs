@@ -51,6 +51,8 @@ test('VitePress includes cannot introduce unvalidated files, even through fenced
   for (const content of [
     '# Page\n\n<!--@include: ../outside.md-->',
     '# Page\n\n<!-- @include: @/inside.md -->',
+    '# Page\n\n<!-- @include: ../outside>secret.txt -->',
+    '# Example\n\n```md\n<!-- @include: ../outside>secret.txt -->\n```',
     '# Example\n\n```md\n<!--@include: ../outside.md-->\n```',
   ]) {
     writeFileSync(join(f.wikiRoot, 'index.md'), content)

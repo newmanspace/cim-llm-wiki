@@ -24,7 +24,7 @@ export function gitopsEnabled() {
 
 
 function runGit(args, cwd) {
-  const r = spawnSync('git', ['-c', 'safe.directory=' + cwd, ...args], { cwd, encoding: 'utf-8' })
+  const r = spawnSync('/usr/bin/git', ['-c', 'safe.directory=' + cwd, ...args], { cwd, encoding: 'utf-8' })
   if (r.status !== 0) {
     const err = new Error((r.stderr || r.stdout || `git ${args.join(' ')} failed`).trim())
     err.gitArgs = args
@@ -40,7 +40,7 @@ export function ensureRepo(repoRoot) {
     e.code = 'ENOENT'
     throw e
   }
-  const inside = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: repoRoot, encoding: 'utf-8' })
+  const inside = spawnSync('/usr/bin/git', ['rev-parse', '--is-inside-work-tree'], { cwd: repoRoot, encoding: 'utf-8' })
   const isIndependentRepo = existsSync(join(repoRoot, '.git'))
   if (inside.status === 0 && isIndependentRepo) return { initialized: false }
 
@@ -53,7 +53,7 @@ export function ensureRepo(repoRoot) {
 // 暂存全部变更并提交（无变更时跳过）。返回 { committed, hash, changed }。
 export function commitWiki(repoRoot, message) {
   runGit(['add', '-A'], repoRoot)
-  const hasStaged = spawnSync('git', ['-c', 'safe.directory=' + repoRoot, 'diff', '--cached', '--quiet'], { cwd: repoRoot })
+  const hasStaged = spawnSync('/usr/bin/git', ['-c', 'safe.directory=' + repoRoot, 'diff', '--cached', '--quiet'], { cwd: repoRoot })
   if (hasStaged.status === 0) {
     return { committed: false, reason: 'no-change' }
   }

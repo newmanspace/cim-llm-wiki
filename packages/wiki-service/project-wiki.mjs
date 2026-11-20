@@ -37,7 +37,7 @@ export function createProjectWiki({ projectRoot }) {
   }
   function kind(project) { return config(project).contentKind || 'strict_nodes' }
   function source(project) { return projectSource(project, resolve(projectRoot, config(project).sourceDirectory)) }
-  function git(path, args) { return execFileSync('git', ['-c', 'safe.directory=' + path, '-C', path, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000 }).trim() }
+  function git(path, args) { return execFileSync('/usr/bin/git', ['-c', 'safe.directory=' + path, '-C', path, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000 }).trim() }
   function initialized(path) {
     if (!existsSync(join(path, '.git'))) return false
     if (lstatSync(join(path, '.git')).isSymbolicLink() || !lstatSync(join(path, '.git')).isDirectory()) fail('Wiki requires an independent local Git repository')

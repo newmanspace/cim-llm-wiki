@@ -78,7 +78,7 @@ async function main() {
         console.log('(manifest 为空，尚无登记文档)')
         return
       }
-      const bundles = referencedBundles(m)
+      const bundles = referencedBundles()
       const rows = m.docs.map((r) =>
         [
           r.doc_id,
@@ -123,7 +123,7 @@ async function main() {
     activate: async () => {
       const rec = need(args[1])
       if (!flag('--force')) {
-        const bs = referencedBundles(m)[rec.path] || []
+        const bs = referencedBundles()[rec.path] || []
         if (!bs.length)
           fail(
             `${rec.doc_id}: 无任何 bundle 引用该文档，不能激活。 (--force 跳过)`,

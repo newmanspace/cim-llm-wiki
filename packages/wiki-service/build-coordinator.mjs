@@ -95,7 +95,7 @@ export function createBuildCoordinator({ root, clock = Date.now, leaseMs = 60000
   function recordFailure(job, message, recoverable) {
     job.error = String(message).slice(0, 2000); job.attempts.at(-1).error = job.error; job.attempts.at(-1).finishedAt = clock()
     const delay = retryDelays[job.attempts.length - 1]
-    job.state = recoverable && delay !== undefined ? 'retry_wait' : 'failed'
+    job.state = recoverable && typeof delay === 'number' ? 'retry_wait' : 'failed'
     job.runAt = clock() + (delay || 0); delete job.claimToken
     save(job); arm(); notify(); return get(job.id)
   }

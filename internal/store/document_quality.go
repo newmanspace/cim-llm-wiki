@@ -12,7 +12,28 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-var qualityTables = map[string]bool{"naming_settings": true, "document_counters": true, "document_identities": true, "directory_events": true, "directories": true, "ingest_sources": true, "ingest_artifacts": true, "data_sources": true, "source_revisions": true, "ingest_runs": true, "source_versions": true, "artifact_versions": true, "document_states": true, "quality_policies": true, "evaluations": true, "quality_issues": true, "review_tasks": true, "review_events": true, "publications": true, "command_receipts": true}
+var qualityTables = map[string]bool{
+	"naming_settings":     true,
+	"document_counters":   true,
+	"document_identities": true,
+	"directory_events":    true,
+	"directories":         true,
+	"ingest_sources":      true,
+	"ingest_artifacts":    true,
+	"data_sources":        true,
+	"source_revisions":    true,
+	"ingest_runs":         true,
+	"source_versions":     true,
+	"artifact_versions":   true,
+	"document_states":     true,
+	"quality_policies":    true,
+	"evaluations":         true,
+	"quality_issues":      true,
+	"review_tasks":        true,
+	"review_events":       true,
+	"publications":        true,
+	"command_receipts":    true,
+}
 
 type qualityTx struct {
 	ctx            context.Context
@@ -21,7 +42,8 @@ type qualityTx struct {
 }
 
 func (q *qualityTx) ProjectModules() ([]string, error) {
-	rows, err := q.tx.Query(q.ctx, "SELECT module_id FROM project_modules WHERE project_id=$1 ORDER BY module_id", q.project)
+	query := "SELECT module_id FROM project_modules WHERE project_id=$1 ORDER BY module_id"
+	rows, err := q.tx.Query(q.ctx, query, q.project)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +64,8 @@ func (q *qualityTx) SetProjectModules(modules []string) error {
 		return err
 	}
 	for _, module := range modules {
-		if _, err := q.tx.Exec(q.ctx, "INSERT INTO project_modules(project_id,module_id) VALUES($1,$2)", q.project, module); err != nil {
+		query := "INSERT INTO project_modules(project_id,module_id) VALUES($1,$2)"
+		if _, err := q.tx.Exec(q.ctx, query, q.project, module); err != nil {
 			return err
 		}
 	}
@@ -56,13 +79,19 @@ func qualityError(err error) error {
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) {
 		if pg.Code == "23505" && strings.Contains(pg.ConstraintName, "dq_document_identities") {
-			return &documentquality.Error{Status: 409, Code: "DOCUMENT_NAME_CONFLICT", Message: "Document business key, module sequence or filename is already reserved"}
+			return &documentquality.Error{
+				Status:  409,
+				Code:    "DOCUMENT_NAME_CONFLICT",
+				Message: "Document business key, module sequence or filename is already reserved",
+			}
 		}
 		switch pg.Code {
 		case "23505", "40001", "40P01":
 			return &documentquality.Error{Status: 409, Message: "Concurrent change or duplicate document record"}
 		case "23503", "23514", "22P02":
 			return &documentquality.Error{Status: 422, Message: "Document record violates a data constraint"}
+		default:
+			return err
 		}
 	}
 	return err
@@ -89,7 +118,9 @@ func (q *qualityTx) table(kind string) (string, error) {
 	return "dq_" + kind, nil
 }
 
-const qualityJSON = "payload || jsonb_build_object('id',sys_id::text,'project',project_id,'revision',revision,'created_by',created_by,'created_at',created_at,'updated_at',updated_at)"
+const qualityJSON = "payload || jsonb_build_object(" +
+	"'id',sys_id::text,'project',project_id,'revision',revision," +
+	"'created_by',created_by,'created_at',created_at,'updated_at',updated_at)"
 
 func (q *qualityTx) Get(kind, id string) (documentquality.Record, error) {
 	table, e := q.table(kind)
@@ -97,7 +128,8 @@ func (q *qualityTx) Get(kind, id string) (documentquality.Record, error) {
 		return nil, e
 	}
 	var b []byte
-	e = q.tx.QueryRow(q.ctx, "SELECT "+qualityJSON+" FROM "+table+" WHERE project_id=$1 AND sys_id::text=$2", q.project, id).Scan(&b)
+	query := "SELECT " + qualityJSON + " FROM " + table + " WHERE project_id=$1 AND sys_id::text=$2"
+	e = q.tx.QueryRow(q.ctx, query, q.project, id).Scan(&b)
 	if e != nil {
 		return nil, qualityError(e)
 	}
@@ -110,7 +142,8 @@ func (q *qualityTx) List(kind string) ([]documentquality.Record, error) {
 	if e != nil {
 		return nil, e
 	}
-	rows, e := q.tx.Query(q.ctx, "SELECT "+qualityJSON+" FROM "+table+" WHERE project_id=$1 ORDER BY created_at,sys_id LIMIT 10001", q.project)
+	query := "SELECT " + qualityJSON + " FROM " + table + " WHERE project_id=$1 ORDER BY created_at,sys_id LIMIT 10001"
+	rows, e := q.tx.Query(q.ctx, query, q.project)
 	if e != nil {
 		return nil, e
 	}
@@ -128,20 +161,24 @@ func (q *qualityTx) List(kind string) ([]documentquality.Record, error) {
 		out = append(out, r)
 	}
 	if len(out) > 10000 {
-		return nil, &documentquality.Error{Status: 409, Message: "Project ledger exceeds the bounded query limit; archive or partition before continuing"}
+		return nil, &documentquality.Error{
+			Status:  409,
+			Message: "Project ledger exceeds the bounded query limit; archive or partition before continuing",
+		}
 	}
 	return out, rows.Err()
 }
 func payload(r documentquality.Record) ([]byte, error) {
-	copy := map[string]any{}
+	out := map[string]any{}
 	for k, v := range r {
 		switch k {
 		case "id", "project", "revision", "created_by", "created_at":
 			continue
+		default:
+			out[k] = v
 		}
-		copy[k] = v
 	}
-	return json.Marshal(copy)
+	return json.Marshal(out)
 }
 func (q *qualityTx) Insert(kind string, r documentquality.Record) (documentquality.Record, error) {
 	table, e := q.table(kind)
@@ -153,14 +190,26 @@ func (q *qualityTx) Insert(kind string, r documentquality.Record) (documentquali
 		return nil, e
 	}
 	var id string
-	e = q.tx.QueryRow(q.ctx, "INSERT INTO "+table+" (project_id,payload,created_by) VALUES($1,$2,$3) RETURNING sys_id::text", q.project, b, q.actor).Scan(&id)
+	query := "INSERT INTO " + table + " (project_id,payload,created_by) VALUES($1,$2,$3) RETURNING sys_id::text"
+	e = q.tx.QueryRow(q.ctx, query, q.project, b, q.actor).Scan(&id)
 	if e != nil {
 		return nil, qualityError(e)
 	}
 	return q.Get(kind, id)
 }
+
+var updatableTables = map[string]bool{
+	"document_counters": true,
+	"naming_settings":   true,
+	"directories":       true,
+	"data_sources":      true,
+	"ingest_runs":       true,
+	"review_tasks":      true,
+	"publications":      true,
+}
+
 func (q *qualityTx) Update(kind, id string, revision int, r documentquality.Record) (documentquality.Record, error) {
-	if kind != "document_counters" && kind != "naming_settings" && kind != "directories" && kind != "data_sources" && kind != "ingest_runs" && kind != "review_tasks" && kind != "publications" {
+	if !updatableTables[kind] {
 		return nil, fmt.Errorf("history cannot be updated")
 	}
 	table, _ := q.table(kind)
@@ -168,7 +217,9 @@ func (q *qualityTx) Update(kind, id string, revision int, r documentquality.Reco
 	if e != nil {
 		return nil, e
 	}
-	tag, e := q.tx.Exec(q.ctx, "UPDATE "+table+" SET payload=$1,revision=revision+1,updated_at=now() WHERE project_id=$2 AND sys_id::text=$3 AND revision=$4", b, q.project, id, revision)
+	query := "UPDATE " + table + " SET payload=$1,revision=revision+1,updated_at=now() " +
+		"WHERE project_id=$2 AND sys_id::text=$3 AND revision=$4"
+	tag, e := q.tx.Exec(q.ctx, query, b, q.project, id, revision)
 	if e != nil {
 		return nil, qualityError(e)
 	}

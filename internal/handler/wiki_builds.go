@@ -28,7 +28,10 @@ func (h *WikiBuildHandler) ready(c *gin.Context) bool {
 }
 
 func (h *WikiBuildHandler) Handle(c *gin.Context) {
-	h.handle(c, "/internal/wiki-builds", map[string]bool{"": true, "build": true, "preview": true, "retry": true, "revoke": true})
+	actions := map[string]bool{
+		"": true, "build": true, "preview": true, "retry": true, "revoke": true,
+	}
+	h.handle(c, "/internal/wiki-builds", actions)
 }
 
 func (h *WikiBuildHandler) ProjectWiki(c *gin.Context) {

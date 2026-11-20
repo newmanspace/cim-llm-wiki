@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -8,7 +8,7 @@ import { readRegularFile } from '../wiki-core/safe-files.mjs'
 import { packagePath, sha256 } from '../wiki-core/document-package.mjs'
 
 const conflict = message => { throw Object.assign(new Error(message), { status: 409 }) }
-const git = (root, args, options = {}) => execFileSync('git', ['-c', 'safe.directory=' + root, '-C', root, ...args], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...options })
+const git = (root, args, options = {}) => execFileSync('/usr/bin/git', ['-c', 'safe.directory=' + root, '-C', root, ...args], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...options })
 function file(root, path) {
   packagePath(path)
   if (path.split('/').some(p => ['.git', '.gitignore', '.gitattributes', '.vitepress', 'node_modules'].includes(p))) conflict('Reserved Wiki source path')
@@ -139,7 +139,7 @@ export function createWikiSource({ projectRoot, sourceFor, prefixFor = () => '' 
       const message = 'docs(wiki): publish reviewed sources for ' + project
       const content = `tree ${tree}\nparent ${baseCommit}\nauthor ${author}\ncommitter ${committer}\n\n${message}\n`
       // Calculate the eventual commit ID without creating a commit or moving HEAD.
-      const gitCommit = createHash('sha1').update('commit ' + Buffer.byteLength(content) + '\0' + content).digest('hex')
+      const gitCommit = git(root, ['hash-object', '-t', 'commit', '--stdin'], { input: content }).trim()
       mkdirSync(candidate)
       git(root, ['checkout-index', '--all', '--prefix=' + candidate + '/'], { env })
       return { candidate, cleanup: () => rmSync(temporary, { recursive: true, force: true }), plan: paths.length ? { baseCommit, branch, gitCommit, tree, message, identity: { ...identity(author, 'GIT_AUTHOR'), ...identity(committer, 'GIT_COMMITTER') }, files: paths.map(path => ({ path, sha256: allowed.get(path) })) } : null }

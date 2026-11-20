@@ -11,7 +11,10 @@ import (
 	"strings"
 )
 
-var Dimensions = []string{"fidelity", "completeness", "traceability", "consistency", "structure", "usability", "validity"}
+var Dimensions = []string{
+	"fidelity", "completeness", "traceability",
+	"consistency", "structure", "usability", "validity",
+}
 var segment = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 type Policy struct {
@@ -57,13 +60,25 @@ func ValidPath(path string, file bool) bool {
 			return false
 		}
 	}
-	return !file || (len(parts) >= 3 && strings.HasSuffix(path, ".md") && !strings.EqualFold(parts[len(parts)-1], "README.md"))
+	if !file {
+		return true
+	}
+	isMD := strings.HasSuffix(path, ".md") && !strings.EqualFold(parts[len(parts)-1], "README.md")
+	return len(parts) >= 3 && isMD
 }
 func Digest(v any) string {
 	b, _ := json.Marshal(v)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
+
+const (
+	defaultOrigin    = "default@1"
+	dimensionsPrefix = "dimensions."
+)
+
+var defaultRubric = "0 unavailable; 25 severe gaps; 50 partially usable; 75 minor gaps; 100 source-verified"
+
 func Resolve(policies []Policy, path string) (Effective, error) {
 	e := Effective{Threshold: 80, Dimensions: map[string]map[string]any{}, Origins: map[string]string{}}
 	if path != "" && !ValidPath(path, false) {
@@ -71,12 +86,12 @@ func Resolve(policies []Policy, path string) (Effective, error) {
 	}
 	weights := []float64{.2, .2, .15, .15, .1, .1, .1}
 	for i, id := range Dimensions {
-		e.Dimensions[id] = map[string]any{"weight": weights[i], "rubric": "0 unavailable; 25 severe gaps; 50 partially usable; 75 minor gaps; 100 source-verified"}
-		e.Origins["dimensions."+id+".weight"] = "default@1"
-		e.Origins["dimensions."+id+".rubric"] = "default@1"
+		e.Dimensions[id] = map[string]any{"weight": weights[i], "rubric": defaultRubric}
+		e.Origins[dimensionsPrefix+id+".weight"] = defaultOrigin
+		e.Origins[dimensionsPrefix+id+".rubric"] = defaultOrigin
 	}
-	e.Origins["review_threshold"] = "default@1"
-	e.Origins["require_human"] = "default@1"
+	e.Origins["review_threshold"] = defaultOrigin
+	e.Origins["require_human"] = defaultOrigin
 	paths := []string{""}
 	if path != "" {
 		parts := strings.Split(path, "/")
@@ -102,27 +117,53 @@ func Resolve(policies []Policy, path string) (Effective, error) {
 		return e, problem(422, fmt.Sprintf("effective weights must sum to one for %s", path))
 	}
 	// Only effective values affect eligibility; provenance is still captured in the snapshot.
-	e.Digest = Digest(map[string]any{"review_threshold": e.Threshold, "dimensions": e.Dimensions, "require_human": e.RequireHuman})
+	e.Digest = Digest(map[string]any{
+		"review_threshold": e.Threshold,
+		"dimensions":       e.Dimensions,
+		"require_human":    e.RequireHuman,
+	})
 	return e, nil
 }
+func isValidPercentage(n float64) bool {
+	return !math.IsNaN(n) && !math.IsInf(n, 0) && n >= 0 && n <= 100
+}
+
+func isValidWeight(n float64) bool {
+	return !math.IsNaN(n) && !math.IsInf(n, 0) && n >= 0 && n <= 1
+}
+
+func applyThreshold(e *Effective, v any, origin string) error {
+	n, ok := v.(float64)
+	if !ok || !isValidPercentage(n) {
+		return problem(422, "invalid review threshold")
+	}
+	e.Threshold = n
+	e.Origins["review_threshold"] = origin
+	return nil
+}
+
+func applyHumanReview(e *Effective, v any, origin string) error {
+	b, ok := v.(bool)
+	if !ok {
+		return problem(422, "invalid human review rule")
+	}
+	e.RequireHuman = b
+	e.Origins["require_human"] = origin
+	return nil
+}
+
 func apply(e *Effective, p Policy) error {
 	origin := fmt.Sprintf("%s@%d", p.Path, p.Revision)
 	for k, v := range p.Patch {
 		switch k {
 		case "review_threshold":
-			n, ok := v.(float64)
-			if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > 100 {
-				return problem(422, "invalid review threshold")
+			if err := applyThreshold(e, v, origin); err != nil {
+				return err
 			}
-			e.Threshold = n
-			e.Origins[k] = origin
 		case "require_human":
-			b, ok := v.(bool)
-			if !ok {
-				return problem(422, "invalid human review rule")
+			if err := applyHumanReview(e, v, origin); err != nil {
+				return err
 			}
-			e.RequireHuman = b
-			e.Origins[k] = origin
 		case "dimensions":
 			if err := applyDimensions(e, v, origin); err != nil {
 				return err
@@ -162,6 +203,8 @@ func Assess(e Effective, dims map[string]Dimension, issues []Issue) (Assessment,
 		switch issue.Code {
 		case "missing_source", "source_hash_mismatch", "critical_fact_error", "major_omission":
 			r.Blocking = true
+		default:
+			// Non-blocking issue code
 		}
 		r.Blocking = r.Blocking || issue.Severity == "blocking"
 	}
@@ -218,7 +261,7 @@ func applyDimensionFields(e *Effective, id string, target, fields map[string]any
 		switch key {
 		case "weight":
 			n, ok := value.(float64)
-			if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > 1 {
+			if !ok || !isValidWeight(n) {
 				return problem(422, "invalid dimension weight")
 			}
 			target[key] = n
@@ -245,13 +288,27 @@ func validateDimensionScore(d Dimension) error {
 	}
 	return nil
 }
+func validIssueOrigin(origin string) bool {
+	return origin == "source" || origin == "conversion"
+}
+
+func validIssueSeverity(sev string) bool {
+	return sev == "blocking" || sev == "warning"
+}
+
 func validateQualityIssue(issue Issue) error {
-	if (issue.Origin != "source" && issue.Origin != "conversion") || (issue.Severity != "blocking" && issue.Severity != "warning") || issue.Description == "" || issue.Code == "" {
+	if !validIssueOrigin(issue.Origin) || !validIssueSeverity(issue.Severity) {
+		return problem(422, "invalid quality issue")
+	}
+	if issue.Description == "" || issue.Code == "" {
 		return problem(422, "invalid quality issue")
 	}
 	return nil
 }
 
 func completeDimensionScore(d Dimension, present bool) bool {
-	return present && d.Score != nil && hasEvidence(d.Evidence) && strings.TrimSpace(d.Reason) != ""
+	if !present || d.Score == nil {
+		return false
+	}
+	return hasEvidence(d.Evidence) && strings.TrimSpace(d.Reason) != ""
 }

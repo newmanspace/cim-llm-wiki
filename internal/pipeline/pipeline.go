@@ -97,17 +97,7 @@ func (p *Pipeline) Run(ctx context.Context, filePath, module, engine string) (*R
 	nodes = p.eval.Evaluate(ctx, nodes)
 
 	// Partition nodes by ReviewLevel
-	var autoNodes, reviewNodes, archiveNodes []types.KnowledgeNode
-	for _, n := range nodes {
-		switch n.ReviewLevel {
-		case types.ReviewL0Auto:
-			autoNodes = append(autoNodes, n)
-		case types.ReviewL1Expert, types.ReviewL2Arch:
-			reviewNodes = append(reviewNodes, n)
-		default:
-			archiveNodes = append(archiveNodes, n)
-		}
-	}
+	autoNodes, reviewNodes, archiveNodes := partitionNodes(nodes)
 	result.AutoPublished = len(autoNodes)
 	result.PendingReview = len(reviewNodes)
 	result.Archived = len(archiveNodes)
@@ -146,4 +136,18 @@ func (p *Pipeline) Run(ctx context.Context, filePath, module, engine string) (*R
 	result.Duration = time.Since(start)
 	slog.Info("pipeline.Run finished", "duration", result.Duration, "files", len(result.WikiFiles))
 	return result, nil
+}
+
+func partitionNodes(nodes []types.KnowledgeNode) (autoNodes, reviewNodes, archiveNodes []types.KnowledgeNode) {
+	for _, n := range nodes {
+		switch n.ReviewLevel {
+		case types.ReviewL0Auto:
+			autoNodes = append(autoNodes, n)
+		case types.ReviewL1Expert, types.ReviewL2Arch:
+			reviewNodes = append(reviewNodes, n)
+		default:
+			archiveNodes = append(archiveNodes, n)
+		}
+	}
+	return autoNodes, reviewNodes, archiveNodes
 }

@@ -57,7 +57,7 @@ export function headings(tokens) {
 }
 
 function sectionMatch(heading, selector) {
-  const m = selector.match(/^(#{1,6})\s+(.+)$/)
+  const m = selector.match(/^(#{1,6})[ \t]+([^\s\r\n].*)$/)
   if (!m) return false
   const title = m[2].trim()
   if (heading.level >= m[1].length && unnumberedTitle(heading.title) === title)
@@ -192,7 +192,7 @@ export function pageLinks(tokens) {
     if (token.type !== 'inline') continue
     for (const child of token.children || []) {
       if (child.type === 'text') {
-        for (const [, target] of child.content.matchAll(/\[\[([^\]]+)\]\]/g))
+        for (const [, target] of child.content.matchAll(/\[\[([^[\]\r\n]+)\]\]/g))
           result.push({ target: target.split('|')[0], wiki: true })
       }
       if (child.type === 'link_open')
@@ -207,7 +207,7 @@ export function pageLinks(tokens) {
 // VitePress expands these before Markdown parsing, including inside code fences.
 // File expansion would introduce inputs outside the accepted snapshot/digest.
 export function assertNoFileIncludes(text) {
-  if (/<!--\s*@include:\s*(.*?)\s*-->/g.test(text))
+  if (/<!--\s*@include:/.test(text))
     throw new Error('[external_include] File include directives are not supported; embed the content before submission')
 }
 

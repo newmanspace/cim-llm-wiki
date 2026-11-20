@@ -47,7 +47,7 @@ function saveRegistry(projects) {
 
 function gitCmd(cwd, ...args) {
   try {
-    return execFileSync('git', args, {
+    return execFileSync('/usr/bin/git', args, {
       cwd,
       encoding: 'utf-8',
       timeout: 30000,

@@ -94,7 +94,7 @@ function typesInManifest(project) {
   const usedFiles = new Set(keys.map((t) => merged.templates[t].file))
   // 内置 assets 里未被 manifest 登记的模板文件也纳入展示（按文件名派生类型）
   const extra = Object.entries(NODE_TYPES).filter(([, e]) => e.template && !usedFiles.has(e.template)).map(([type]) => type)
-  return [...new Set([...keys, ...extra])].sort()
+  return [...new Set([...keys, ...extra])].sort((a, b) => a.localeCompare(b))
 }
 function safeReaddir(d) { try { return readdirSync(d) } catch { return [] } }
 
