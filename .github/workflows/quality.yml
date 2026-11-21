@@ -220,6 +220,10 @@ jobs:
     name: Configuration checks
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      # Explicit capacities for Compose validation, not production defaults.
+      CIM_WIKI_UPLOAD_MAX_BYTES: "52428800"
+      CIM_WIKI_PACKAGE_MAX_BYTES: "104857600"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
