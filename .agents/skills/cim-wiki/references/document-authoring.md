@@ -17,7 +17,7 @@ node "$SKILL/scripts/client.mjs" templates --project <project-id> --template-id 
 
 repository_docs 也可显式引用文档模板，context 的 not_applicable 只描述运行时模式；不得跳过独立模板查询。未引用返回 TEMPLATE_SOURCE_UNBOUND，未知模板返回 TEMPLATE_NOT_FOUND，不能自动回退全局配置。
 
-模板是输入，不能为适配文档而改写其章节、契约或项目绑定。用户已提供模板时，不要求先使其成为服务端生效配置才能编写；服务不可达或未绑定时可继续按该模板交付本地文档草案，并说明在线校验尚未完成。用户明确要求新编某类专项文档但缺少其模板时，报告缺项；仅转换现有源文且没有对应专门模板时，直接执行通用标准格式整理，不为缺少模板阻断内容转换，也不借用其他类型模板。
+模板是输入，不能为适配文档而改写其章节、契约或项目绑定。用户已提供模板时，不要求先使其成为服务端生效配置才能编写；服务不可达或未绑定时可继续按该模板交付本地文档草案，并说明尚未取得在线项目规则、对应契约校验未验证。用户明确要求新编某类专项文档但缺少其模板时，报告缺项；仅转换现有源文且没有对应专门模板时，直接执行通用标准格式整理，不为缺少模板阻断内容转换，也不借用其他类型模板。
 
 ## 2. 新编文档
 
@@ -63,7 +63,7 @@ node "$SKILL/scripts/client.mjs" render-document --json-file render-request.json
 node "$SKILL/scripts/ingest.mjs" --rules <项目模板响应.json> --json-file <候选元数据.json> --root <本地包根> --document <入口相对路径.md> --output <新的检查报告.json>
 ```
 
-候选请求包含 project、实际 template_id（无专门模板省略）、document、target_path、可选 document_id、identity（正式身份响应）；正文和完整附件包从本地目录读取。没有正式身份不阻断本地检查。Agent 对照原件完成保真核对后记录 fidelity=checked，否则保留 not_checked。
+候选元数据包含 project、实际 template_id（无专门模板省略）、target_path、可选 document_id、identity（正式身份响应）；使用 --root/--document 时不手填 document，正文和完整附件包从本地目录读取。没有正式身份不阻断本地检查。Agent 对照原件完成保真核对后记录 fidelity=checked，否则保留 not_checked。
 
 errors 非空时工具返回非零退出，处理错误并说明 warnings 与未执行项。报告绑定候选内容哈希和规则摘要；修改正文、目标路径或正式身份后重新检查。不调用服务端 check-document，服务端不重复执行正文模板检查。没有完整规则时明确未验证项，不改模板绕过失败。
 

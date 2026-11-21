@@ -1,91 +1,83 @@
 # 文档提交、预览、冻结与审核
 
-本地 ingest 完成解析、按类型整理及校验后，按授权选择仅保留本地、保存草稿或提交文档。不要求先评分或冻结；不调用 Wiki compile。
+本地 ingest 完成解析、按类型整理及校验后，按授权选择保留本地、保存草稿或提交。submit 不要求先评分或冻结，Skill 不调用 Wiki compile。
 
 ## 草稿与正式提交
 
-save-draft 对应 document-drafts，submit 对应 document-submit。两者成功后均出现在当前项目的“文档结果”列表，分别标为“草稿”与“已提交，待冻结”。管理会话可预览，无需人工审核凭据。正式提交不依赖草稿保存步骤。
+save-draft 对应 POST /document-drafts，submit 对应 POST /document-submit。成功后均出现在文档结果列表；正式提交不依赖先保存草稿。完整上传命令见[文档包](document-packages.md#3-上传候选并提交)。
+
+| 字段 | 取值与要求 |
+| --- | --- |
+| project | 当前项目 ID |
+| run_id | 当前项目 running 状态的 ingest run；active 是错误文案中的描述，不是可发送的状态枚举 |
+| logical_key | 正式提交必需；启用正式身份时等于 document_id。未启用身份时使用稳定业务键；草稿可省略 |
+| document_id | 启用项目命名时的身份 UUID；草稿可省略，不填 node_id |
+| template_id | 实际专门模板 ID，与本地报告一致；无专门模板省略或 null |
+| target_path | 项目相对 Markdown 路径，按本地类型／目录规则选择；启用命名时使用身份 filename |
+| content_uri | 候选文件或包 URI；--package-root 由客户端上传后补充 |
+| parsed_uri | convert/register 返回的解析包 URI |
+| parsed_source_id | 对应 document.doc_id；多份原稿解析为同一解析 URI 时必须指定以消除歧义，建议始终保留 |
+| recipe_version | 本次处理配方版本；例如 agent-ingest-v1，是业务记录值，不是硬编码允许值 |
+| source_links | 非空数组，每项引用真实 source_version_id=observation.id，可附真实 location |
+| local_report | ingest.mjs 实际报告，由 --report 载入；不可用示意对象替代 |
+
+启用正式身份的请求示意（URI、ID、路径均取真实回执；使用 --package-root 和 --report 时不必手填 content_uri、local_report）：
 
 ```json
 {
   "project": "example-project",
-  "run_id": "active 状态的 ingest run ID（必需）",
-  "logical_key": "正式文档身份 UUID，必须与 document_id 相同",
-  "document_id": "启用命名时的正式身份 UUID，草稿可省略",
-  "template_id": "专门模板填实际模板 ID；通用标准格式留空（null），与 local_report 一致",
-  "target_path": "doc/50-designs/实际文件名.md",
-  "content_uri": "document-package://候选包实际摘要",
-  "parsed_uri": "shared:// 或 document-package:// 的解析稿 URI",
+  "run_id": "实际 running 批次 ID",
+  "logical_key": "正式身份 UUID",
+  "document_id": "同一个正式身份 UUID",
+  "template_id": "product",
+  "target_path": "doc/00-overview/服务返回的filename.md",
+  "parsed_uri": "document-package://实际解析包摘要",
   "parsed_source_id": "convert/register 返回的 document.doc_id",
   "recipe_version": "agent-ingest-v1",
-  "source_links": [{"source_version_id":"已注册的原件观察记录 ID","location":{"section":"实际章节"}}],
-  "local_report": {"说明":"此处替换为 ingest.mjs 实际生成的完整报告对象，不能照抄本示意"}
+  "source_links": [{ "source_version_id": "实际 observation.id" }]
 }
 ```
 
-**run_id 要求**：
-- 必须是 active 状态的 ingest run
-- 通过 `list-ingest-runs --project <project>` 查询现有 run
-- 如无 active run，需创建新的 ingest run（见下文"创建 ingest run"）
+客户端要求正式提交报告 errors 为空。服务端核对报告的项目、正文摘要、规则摘要、模板 ID、目标路径、文档身份与实际候选一致；正式报告 errors 必须是空数组。正文和附件检查后发生变化需重跑本地 ingest，不能用旧报告提交。
 
-**logical_key 要求**：
-- 必须与 document_id 相同（都是 UUID）
-- 不能是 node_id 或其他标识
+服务端只核验模板 ID 已登记、项目／身份／来源关联、路径安全、摘要、版本及安全 Markdown，不重跑正文章节、表格或类型目录适配检查。草稿允许报告含未完成诊断，但仍核对元数据一致性。qscore 可省略，未评分不生成默认分数，也不阻断人工审核申请。
 
-**template_id 要求**：
-- 必须与 local_report.template_id 一致（服务端按 `local_report.template_id === (submit.template_id ?? null)` 校验）
-- 专门模板文档：submit 必须提供实际模板 ID，且与本地报告一致
-- 通用标准格式文档（无专门模板，如功能清单）：template_id 留空（null），本地报告 template_id 也为 null；不要伪造模板 ID
+## 来源登记与批次
 
-**source_links 要求**：
-- source_version_id 必须来自已注册的原件（通过 `list-source-observations` 查询）
-- uploaded:// 的文件无法创建 source observation，不能用于 source_links
-- 项目配置了 SVN/Git 源时，必须使用对应的 source_version_id
-- source_links 必须覆盖所有登记原件
+upload 返回上传对象；convert/register 返回原稿与解析稿关系；source-observations 才返回 source_version_id。uploaded:// 可作为 observation.original_uri，但 source_links.source_version_id 必须是 observation.id，不能填 uploaded URI 或 document.doc_id。
 
-**创建 ingest run**：
-```json
-{
-  "project": "example-project",
-  "source_id": "数据源 ID",
-  "source_config_id": "数据源配置 ID",
-  "source_type": "svn 或 git",
-  "recipe_version": "svn-skill-v1",
-  "revision": 2,
-  "operative_revision": "SVN revision 或 Git commit",
-  "repository_uuid": "仓库 UUID"
-}
-```
-通过 `ingest-runs --json-file <request.json>` 创建，返回的 run 状态为 running，可用于 submit。
+已有仓库来源时优先使用[采集器](project-sources.md#文档源执行)，自动上传原稿和证据并登记批次及观测。手工登记只用于已有真实证据的恢复场景，不构造假的 revision、commit、UUID 或仓库信息文件。
 
-submit 客户端要求本地报告 errors 为空，且项目、正式身份、目标路径与报告一致；服务核对正文、附件包哈希和规则摘要，保存实际不可变快照，不复查章节和模板。qscore 可省略；提供时七维必须完整，total 必须正确，不用默认分数表示未知。
+通过 `list-ingest-runs --project ID` 查询运行；通过 `list-source-observations --project ID` 查询观测，分页时继续读取 next_cursor。来源需与所用批次的源配置及固定版本对应。不要拿无关 running 批次拼接历史观测。
 
-草稿保存不要求正式身份。由草稿进入正式提交时取得身份并重跑本地 ingest，再提交完整候选请求生成独立提交版本，不使用 artifact_id 覆盖旧草稿。
+确需创建批次时，使用 `client.mjs ingest-runs --json-file 请求.json --output 新回执.json`。字段按真实源类型区分：
+
+| 来源 | 创建运行的 JSON 字段（除 project 外） | 观测所需额外证据 |
+| --- | --- | --- |
+| SVN | source_id、source_config_id、recipe_version、operative_revision、repository_uuid | svn_info_uri，内容需匹配固定修订与仓库 UUID |
+| Git | source_id、source_config_id、recipe_version、完整 commit_sha、repository_url | git_info_uri、git_blob_oid，内容需匹配固定提交与文件 |
+| local_file | source_type=local_file、recipe_version；仅无任何仓库文档源配置时允许 | 明确本地文件来源，不声称仓库版本证明 |
+
+source_id/config_id 取项目 context，repository_url 取该配置；Git 不使用 SVN 的 operative_revision/repository_uuid。创建请求不填写旧记录的 revision 或 status=active，创建成功返回 status=running。
+
+随后用 `client.mjs source-observations --json-file 请求.json --output 新回执.json` 登记 project、run_id、repository_path、original_uri、original_sha256 及上表相应证据。原稿包的原始哈希使用 register 的 document.original_sha256；source_links 覆盖包的实际成员观测，或引用对应整个原稿包的观测。缺少来源配置或证据时报告具体缺项，不改用 local_file 绕过。
+
+提交、观测需要 run 仍为 running，待本次所有处理和提交完成后才通过 ingest-runs 发送 id、当前 revision 及实际终态 completed/partial/failed/cancelled。终态不能直接改回 running；后续处理需创建符合来源证据的新批次。
 
 ## 显式冻结与申请审核
 
-freeze 请求：
+submit 响应中 data.id 是 artifact_id，data.revision 是成果修订号；不要把 document_id、source_version_id 或业务文档版本当成它们。仅在用户授权冻结时发送：
 
 ```json
-{"project":"example-project","artifact_id":"submit 返回的 ID","expected_revision":1}
+{ "project": "example-project", "artifact_id": "submit 的 data.id", "expected_revision": 1 }
 ```
 
-服务核对提交时的原件、候选与解析稿哈希，追加冻结事件，返回 workflow_state=frozen 和新的 revision。漂移、过期 revision 或已被更新版本替代时返回冲突，不覆盖旧快照。
+示例修订号 1 须替换为真实 data.revision。用 `client.mjs freeze --json-file 请求.json` 调用；服务仍核对留存原稿、候选、解析稿和附件哈希，返回新的 revision 和 workflow_state=frozen。submit 取消原稿重复读取不改变 freeze 的检查范围。
 
-review 是申请审核：
-
-```json
-{"project":"example-project","artifact_id":"已冻结文档 ID"}
-```
-
-服务创建 scope=document、approval_mode=manual 的审核任务，无需预先创建评分 evaluation。独立审核人在管理界面填写意见并用独立凭据作出决定；Agent 不持有审核凭据。决策绑定冻结文档包摘要（无包历史版本绑定正文摘要），当前文档版本或策略变化时旧批准不可被静默复用。
+审核申请请求为 `{project,artifact_id}`，通过 `client.mjs review --json-file 请求.json` 发送，使用 Agent 的 CIM_WIKI_TOKEN。它只创建 scope=document、approval_mode=manual 的审核任务，不填写 decision 或 reviewer，不使用人工审核凭据。独立审核人在管理界面作出决定；提交、冻结、申请审核均不等于批准或 Wiki 发布。
 
 ## 查询、预览与重试
 
-list-document-results、list-document-review-tasks、list-document-review-events 使用 --project 查询；写操作使用 --json-file，客户端按命令和内容生成幂等键。同键异体返回409。未收到成功响应时用相同请求重试并查询台账，不手动改状态。
+list-document-results、list-document-review-tasks、list-document-review-events 使用 --project 查询。管理会话可预览和下载当前项目成果，不向浏览器暴露服务 Bearer；无管理会话时报告浏览器验证未执行。
 
-管理会话通过 document-quality/preview?id=成果ID 和 original?id=成果ID 查看候选与原件；只读取项目内已登记快照，不将服务凭据传入浏览器。预览无需 freeze、review 或 compile，审核凭据只用于决定。
-
-Wiki 节点 Bundle、compile、构建、归类导出与发布由服务端独立管理，Skill 不编排这些步骤。文档提交或审核完成不等于 Wiki 已发布。
-
-完整本地命令、上传下载与来源包处理见[文档包](document-packages.md)。
+客户端按命令与内容生成幂等键，不自动重试。超时后先查询回执和台账；结果未知且需要重试时保留相同请求与幂等键，--output 换新路径。确定性 4xx 按具体诊断修正，不循环提交同一错误输入。正文变化或草稿转正式提交时重新检查并提交完整新版本，不原地改写历史记录。

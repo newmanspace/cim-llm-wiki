@@ -102,12 +102,15 @@ test('submitted documents are immediately listed and previewable without freeze,
   assert.equal(runtime.coordinator.list().length, 1)
 
 
-  // Submit rechecks actual content instead of trusting an absent or stale local report.
+  // Formatting stays local; submission checks the supplied report without rerunning template rules.
   save('invalid.md', '# Missing template sections')
-  assert.ok(checkCandidate(rules, { project: 'demo', template_id: 'sdd', document: '# Missing template sections' }).errors.length)
-  const structural = await api('document-submit', { ...input, logical_key: 'local-errors', content_uri: 'shared://team/invalid.md', local_report: undefined })
+  const invalidReport = checkCandidate(rules, { project: 'demo', template_id: 'sdd',
+    target_path: input.target_path, document: '# Missing template sections' })
+  assert.ok(invalidReport.errors.length)
+  const structural = await api('document-submit', { ...input, logical_key: 'local-errors',
+    content_uri: 'shared://team/invalid.md', local_report: invalidReport })
   assert.equal(structural.status, 422)
-  assert.equal(structural.value.code, 'DOCUMENT_SUBMISSION_INVALID')
+  assert.equal(structural.value.code, 'LOCAL_INGEST_REPORT_INVALID')
   assert.equal((await api('document-submit', { ...input, target_path: 'doc/../escape.md' })).status, 422)
   assert.equal((await api('document-submit', { ...input, qscore: { total: 1 } })).status, 422)
   assert.equal((await api('document-submit', { ...input, local_report: { ...report, content_sha256: '0'.repeat(64) } })).status, 409)

@@ -1,119 +1,191 @@
 # 本地文件、图片和附件传输
 
-本地 Agent 不需要访问服务器文件系统。原稿、解析稿、候选保存在本机业务工作目录，通过 API 上传和下载。`shared://` 仅为已有服务及历史记录读取能力，不作为 Skill 前置。整个 Skill 目录需一起安装，含 scripts/dist；无需 npm install。
+原稿、解析稿和候选保存在 Agent 本机，通过 API 传输。服务连接使用环境中的 CIM_WIKI_URL、CIM_WIKI_TOKEN，URL 只填服务 origin；令牌不进入 URL、业务 JSON 或输出。
 
-## 1. 原稿上传与解析下载
+## 1. 原稿上传、解析与下载
 
-服务地址和 Bearer 使用 CIM_WIKI_URL、CIM_WIKI_TOKEN；不要将 Token 放入 URL、正文、文件或输出。准备 convert 元数据 JSON，包含 project、system、version、category，可选 engine，不需要 source 或 parsed 共享路径：
+### 1.1 推荐：使用 Skill 客户端
 
-```bash
-node "$SKILL/scripts/client.mjs" convert --json-file /local/work/convert.json --file /local/original/design.docx --download-dir /local/work/parsed-v1 --output /local/work/convert-response.json
+先设置 SKILL 为安装目录的绝对路径。以下 example-project、产品、版本、分类和文件路径须替换为本次任务真实值；输出文件和下载目录必须不存在。
+
+convert-metadata.json 示例：
+
+```json
+{
+  "project": "example-project",
+  "system": "实际产品标识",
+  "version": "实际产品版本",
+  "category": "实际资料分类"
+}
 ```
 
-客户端先上传原件，再调用 convert，逐文件核对解析包下载哈希。响应包含 document（来源登记）、markdown、parsed_uri、parsed_sha256、package_sha256、entry、files。本地 parsed-v1 必须为新目录；不覆盖原件或已有输出。下载失败时不宣称解析包已完整落地；服务端解析结果可通过 download-package 重新下载，无需再次解析：
-
 ```bash
-node "$SKILL/scripts/client.mjs" download-package --project <project> --source <document-package://真实摘要> --download-dir /local/work/parsed-retry --output /local/work/download-response.json
+node "$SKILL/scripts/client.mjs" convert \
+  --json-file /local/work/convert-metadata.json \
+  --file /local/original/design.docx \
+  --download-dir /local/work/parsed-v1 \
+  --output /local/work/convert-response.json
 ```
 
-已有 Markdown 连同引用附件直接上传并 register，无须调用解析器：
+此命令先以二进制上传原稿，再用上传 URI 调用 convert，最后逐文件下载解析包并验证摘要。不要为这条命令再手工包一层表单。服务返回 document、markdown、parsed_uri、parsed_sha256、package_sha256、entry、files；document.doc_id 是解析来源登记标识，**不是** source_version_id。
+
+### 1.2 接口与回执
+
+所有路径前缀为 `/api/v2/knowledge`，使用 `Authorization: Bearer $CIM_WIKI_TOKEN`。
+
+| 请求 | Content-Type 与请求体 | 返回及后续用途 |
+| --- | --- | --- |
+| POST /upload?project=ID&filename=NAME | application/octet-stream；请求体为文件原始字节 | 顶层 uri、filename、sha256、size、media_type；uri 为 uploaded://… |
+| POST /convert | application/json；project、system、version、category、source=上传回执 uri，可选 engine | 顶层 document、parsed_uri 和解析包清单；用于下载及提交关联 |
+| POST /document-packages | application/json；project、entry、files；每个 file 含 path、上传 uri、sha256 | 顶层 uri=document-package://…、package_sha256、entry、files |
+| POST /register | application/json；project、system、version、category、source=原稿包 URI，可选 parsed=已有解析包 URI | 来源登记与解析包清单；不调用解析引擎 |
+| GET /document-packages?project=ID&uri=包URI | 无请求体 | 完整包清单；不是附件文件内容 |
+| GET /uploads/content?project=ID&uri=上传URI | 无请求体 | 原始文件字节，须核对大小及 sha256 |
+
+JSON 写请求发送稳定的 Idempotency-Key。上传按文件名及实际字节摘要去重，不需要预先生成上传幂等键。project、filename、uri 查询参数须 URL 编码。不要将整份 upload 回执或本机路径作为 convert.source。
+
+### 1.3 直接调用 HTTP：完整上传与解析示例
+
+只在需要手动调用接口时采用此路径，与 1.1 的自动上传二选一。需要 curl（支持 --fail-with-body）和 Node.js。先准备 1.1 所示的真实 convert 元数据文件，并将变量替换为实际值：
 
 ```bash
-node "$SKILL/scripts/client.mjs" register --json-file /local/work/register.json --package-root /local/original --entry document.md --output /local/work/register-response.json
+export CIM_SOURCE_FILE='/local/original/design.docx'
+export CIM_CONVERT_METADATA='/local/work/convert-metadata.json'
+umask 077
+export CIM_WORK_DIR="$(mktemp -d)"
 ```
 
-register 元数据包含 project、system、version、category。此快捷入口将原稿包同时作为未重新解析的解析基线；候选必须另存，不能覆盖原稿。Git/SVN 原稿采用采集返回的 source_package_uri，并保留 package_source_links；不得把候选重新登记成原件。
+以下代码依次上传、生成 convert 请求、解析并下载；任何 HTTP 失败均停止，不把错误 JSON 当成成功回执。临时目录中无凭据文件；令牌始终从环境读取。
+
+```bash
+set -eu
+UPLOAD_QUERY="$(node --input-type=module <<'JS'
+import { readFileSync } from 'node:fs'
+import { basename } from 'node:path'
+const meta = JSON.parse(readFileSync(process.env.CIM_CONVERT_METADATA, 'utf8'))
+console.log(new URLSearchParams({ project: meta.project, filename: basename(process.env.CIM_SOURCE_FILE) }).toString())
+JS
+)"
+curl --silent --show-error --fail-with-body --max-time 900 \
+  -H "Authorization: Bearer $CIM_WIKI_TOKEN" \
+  -H 'Content-Type: application/octet-stream' \
+  --data-binary "@$CIM_SOURCE_FILE" \
+  --output "$CIM_WORK_DIR/upload.json" \
+  "${CIM_WIKI_URL%/}/api/v2/knowledge/upload?$UPLOAD_QUERY"
+
+node --input-type=module <<'JS'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+const meta = JSON.parse(readFileSync(process.env.CIM_CONVERT_METADATA, 'utf8'))
+const uploaded = JSON.parse(readFileSync(join(process.env.CIM_WORK_DIR, 'upload.json'), 'utf8'))
+if (!/^uploaded:\/\/[a-f0-9]{64}$/.test(uploaded.uri)) throw new Error('Invalid upload receipt')
+writeFileSync(join(process.env.CIM_WORK_DIR, 'convert-request.json'),
+  JSON.stringify({ ...meta, source: uploaded.uri }), { mode: 0o600, flag: 'wx' })
+JS
+CONVERT_KEY="$(node --input-type=module <<'JS'
+import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+console.log('convert-' + createHash('sha256').update(readFileSync(process.env.CIM_WORK_DIR + '/convert-request.json')).digest('hex'))
+JS
+)"
+curl --silent --show-error --fail-with-body --max-time 900 \
+  -H "Authorization: Bearer $CIM_WIKI_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $CONVERT_KEY" \
+  --data-binary "@$CIM_WORK_DIR/convert-request.json" \
+  --output "$CIM_WORK_DIR/convert-response.json" \
+  "${CIM_WIKI_URL%/}/api/v2/knowledge/convert"
+
+PARSED_URI="$(node --input-type=module <<'JS'
+import { readFileSync } from 'node:fs'
+const result = JSON.parse(readFileSync(process.env.CIM_WORK_DIR + '/convert-response.json', 'utf8'))
+if (!result.parsed_uri?.startsWith('document-package://')) throw new Error('Missing parsed package')
+console.log(result.parsed_uri)
+JS
+)"
+PROJECT_ID="$(node --input-type=module <<'JS'
+import { readFileSync } from 'node:fs'
+console.log(JSON.parse(readFileSync(process.env.CIM_CONVERT_METADATA, 'utf8')).project)
+JS
+)"
+node "$SKILL/scripts/client.mjs" download-package \
+  --project "$PROJECT_ID" --source "$PARSED_URI" \
+  --download-dir "$CIM_WORK_DIR/parsed" --output "$CIM_WORK_DIR/download.json"
+```
+
+`--data-binary @文件` 把文件字节作为请求体；不要使用 curl `-F`、FormData、multipart/form-data 或自己添加 Content-Disposition／boundary。JSON 请求中的 source 引用 upload.json.uri；解析输出从 convert-response.json.parsed_uri 下载。解析成功但下载失败时，保留回执并用 download-package 重试，无需重新解析。
+
+### 1.4 已有 Markdown 与附件
+
+原稿已是 Markdown 时，保留相对附件并直接上传原稿包，不调用解析器：
+
+```bash
+node "$SKILL/scripts/client.mjs" register \
+  --json-file /local/work/register-metadata.json \
+  --package-root /local/original --entry document.md \
+  --output /local/work/register-response.json
+```
+
+register-metadata.json 的字段与 1.1 相同。快捷入口将原稿包同时作为解析基线；候选另存，不覆盖原稿。若已有合法解析包，可直接向 register 发送 1.2 所列 JSON，以 source 和 parsed 分别关联真实原稿与解析稿。不能把候选重新登记成原件。
 
 ## 2. 本地候选包与检查
 
-建议结构（入口也可以在 doc/code 子目录）：
-
-```text
-candidate/
-  document.md
-  assets/flow.png
-  attachments/function-list.xlsx
-report.json
-```
-
-正文使用 `![流程图](assets/flow.png)`、`[功能清单](attachments/function-list.xlsx)`。保留中文和空格名称，Markdown 路径按需要编码。工具按 Markdown 语法识别内联、引用式链接，递归纳入包内 Markdown 及依赖，忽略代码示例。相对路径可包含合法父目录引用，但规范化后不得越出包根；拒绝符号链接和重复／大小写冲突路径。缺失文件是 error，不猜成站内链接。
+候选入口可为 document.md，图片、附件用相对路径引用，例如 `![流程图](assets/flow.png)`、`[功能清单](attachments/list.xlsx)`。包根下保留所有依赖；入口也可位于 doc/code 子目录。工具递归解析 Markdown 依赖，忽略代码示例，拒绝缺失文件、符号链接、越界及大小写冲突。
 
 ```bash
-node "$SKILL/scripts/ingest.mjs" --rules /local/work/project-rules.json --json-file /local/work/candidate-metadata.json --root /local/work/candidate --document document.md --output /local/work/report.json
+node "$SKILL/scripts/ingest.mjs" \
+  --rules /local/work/project-rules.json \
+  --json-file /local/work/candidate-metadata.json \
+  --root /local/work/candidate --document document.md \
+  --output /local/work/report.json
 ```
 
-元数据包含 project、实际 template_id（通用格式省略）、target_path、可选 document_id、identity 及 fidelity；正文直接从 --document 读取，不手工塞入 JSON。报告包括正文哈希、完整 package_manifest、package_sha256、errors/warnings。修改正文或任一附件、正式身份、目标路径后都要重跑；无身份只产生 warning。Agent 对照原稿后才能声明 fidelity=checked。
+规则来自当前项目 templates 完整响应。元数据含 project、实际 template_id（无专门模板省略）、target_path、可选 document_id、identity 和 fidelity；正文从本地文件读取。报告包含正文哈希、package_manifest、package_sha256 和 errors/warnings。修改正文、附件、身份或路径后重跑。没有身份仅为 warning；Agent 对照原稿后才能声明 fidelity=checked。
 
-PNG/JPEG/GIF/WebP 可预览；SVG 及其他附件只下载，不内联执行。远程网页链接保留；远程图片默认不抓取，报告未归档 warning，管理页展示替代文字。若需要归档，由 Agent 按任务授权下载到本地、核对来源并重新检查。不将下载失败或解析缺失悄悄记为通过。
+PNG/JPEG/GIF/WebP 可预览；SVG 及其他附件只下载。远程图片未归档为 warning，不自动抓取，也不把未验证项记为通过。
 
 ## 3. 上传候选并提交
 
 ```bash
-node "$SKILL/scripts/client.mjs" submit --json-file /local/work/submit.json --package-root /local/work/candidate --entry document.md --report /local/work/report.json --output /local/work/submit-response.json
+node "$SKILL/scripts/client.mjs" submit \
+  --json-file /local/work/submit.json \
+  --package-root /local/work/candidate --entry document.md \
+  --report /local/work/report.json --output /local/work/submit-response.json
 ```
 
-submit.json 必填字段：
-- `project`：项目 ID
-- `run_id`：active 状态的 ingest run ID（通过 `list-ingest-runs` 查询，如无则需创建）
-- `logical_key`：必须与 document_id 相同（都是 UUID）
-- `document_id`：正式文档身份 UUID
-- `template_id`：专门模板必填且与 local_report.template_id 一致；通用标准格式留空（null）
-- `target_path`：目标路径
-- `parsed_uri`：解析稿 URI（shared:// 或 document-package://）
-- `parsed_source_id`：convert/register 返回的 document.doc_id
-- `recipe_version`：固定为 "agent-ingest-v1"
-- `source_links`：来源链接，source_version_id 必须来自已注册的原件
+submit.json 字段及草稿／冻结流程唯一说明见[文档结果处理](document-quality.md)。来源使用 convert/register 的 document.doc_id 作为 parsed_source_id；source_links 使用真实 observation.id，二者不能混用。客户端自动补充候选 content_uri 和 local_report，并核验检查后的包未变化。
 
-候选 content_uri 和 local_report 由客户端补充。不要求 qscore，不提交 Wiki Bundle。客户端先核对报告，再重算本地包摘要，上传所有引用文件、封装不可变包后 submit。登记阶段元数据与报告不一致或文件变化时停止，不使用旧报告。
+submit 成功即在文档结果列表可见，不依赖 freeze、review 或 compile。草稿用 save-draft，不自动转为正式提交。上传、封装、解析登记、来源观测和文档提交是不同完成状态。使用 --output 时，阶段上传／封装回执在 `<输出文件>.receipts/`，最终响应在输出文件。HTTP 错误均报告真实状态；自动传输阶段的错误在 stderr 中，不能假定最终文件必然存在。
 
-**创建 ingest run**（如无 active run）：
-```bash
-node "$SKILL/scripts/client.mjs" ingest-runs --json-file /local/work/ingest-run.json --output /local/work/ingest-run-response.json
-```
-ingest-run.json 示例：
-```json
-{
-  "project": "example-project",
-  "source_id": "4",
-  "source_config_id": "6",
-  "source_type": "svn",
-  "recipe_version": "svn-skill-v1",
-  "revision": 2,
-  "operative_revision": "5521",
-  "repository_uuid": "6e427c94-d572-4580-95d9-8a44604e6099"
-}
-```
+## 4. 来源证据与运行状态
 
-submit 成功后立即在文档结果列表可见，可看正文、图片和下载附件，不依赖 freeze、review、compile。管理预览使用管理会话；Agent 不能将服务 Bearer 交给浏览器。
+已配置仓库的项目使用 git-source/svn-source 采集器自动登记 run 和 observation，读取输出的 run_id、source_version_id、source_uri。已有 Markdown 复用 source_package_uri 和 package_source_links。不要为了换一个 running run 而丢弃既有来源关联；对应观测必须与该批次来源和固定版本相符。
 
-仅需草稿时用同样参数调用 save-draft；转换测试默认停在本地，未经授权不上传候选、提交或冻结。上传、包封装、来源登记和文档提交是不同完成状态。使用 --output 时，自动上传和包封装的阶段回执保存在 `<输出文件>.receipts/`，最终服务响应保存到输出文件。解析成功但下载失败仍保存解析包响应和 download_error，可据 URI 重试下载。超时后按相同内容重试；确定性文件 URI、包 URI 与提交幂等键避免重复版本，不把失败当成成功。
-
-单独传输也可使用：
+`upload` 只创建 uploaded:// 对象，convert/register 只建立原稿与解析稿关系；它们都不自动产生 source_version_id。uploaded:// **可以作为 observation.original_uri**，但不能直接填入 source_links.source_version_id。使用以下命令核对实际观测回执：
 
 ```bash
-node "$SKILL/scripts/client.mjs" upload --project <project> --file /local/original/file.pdf --output /local/work/upload.json
-node "$SKILL/scripts/client.mjs" upload-package --project <project> --package-root /local/work/candidate --entry document.md --output /local/work/package.json
+node "$SKILL/scripts/client.mjs" list-source-observations --project <project-id>
+node "$SKILL/scripts/client.mjs" list-ingest-runs --project <project-id>
 ```
 
-上传单文件及包总量上限由服务端部署参数 `CIM_WIKI_UPLOAD_MAX_BYTES`、`CIM_WIKI_PACKAGE_MAX_BYTES` 配置，单位为字节，服务启动时必须提供正安全整数。客户端直接上传，不查询或预校验上传大小限制；服务端超限返回 HTTP 413，客户端报告实际响应，不自动重试或截断。Markdown 4 MiB、200 文件及路径／清单安全检查仍保留。下载按清单大小和摘要核验，不读取上传限制配置。上传 URI 不携带权限，跨项目不能读取或引用；文件哈希不是访问凭证。
+source_links 中引用 observation 的 id。新增 observation 还需要 running 状态的 run、真实 repository_path、original_uri、original_sha256，以及 Git/SVN 的固定版本证据；不要手工伪造仓库证据。字段见[来源登记](document-quality.md#来源登记与批次)。
 
-## 4. 来源证据
+仅完全没有仓库文档源配置的项目可使用 local_file：先创建 `{project,source_type:"local_file",recipe_version}` 运行，再登记 `{project,run_id,repository_path,original_uri,original_sha256}`。原稿为包时 original_sha256 使用 register 返回的 document.original_sha256，完整包由 URI 固定。存在仓库配置的项目不能改用 local_file 绕过证据要求。
 
-已配置仓库的项目仍需真实固定 Git/SVN 版本和观察记录。使用 git-source/svn-source 的 --output-root 本地目录，采集脚本自动上传原件和证据；Markdown 输出 source_package_uri 及 package_source_links。候选 source_links 覆盖原稿包所有附件，不改用 local_file 绕过仓库来源要求。
+## 5. 限制、错误与重试
 
-**source_version_id 获取**：
-- 通过 `list-source-observations --project <project>` 查询已注册的原件
-- 返回的 `id` 字段即为 source_version_id
-- source_links 中的 source_version_id 必须来自此列表
+| 状态 | 处理 |
+| --- | --- |
+| 401/403 | 核对 Agent 凭据和操作权限，不切换为人工审核令牌 |
+| 404 | 核对项目、资源 URI 和登记 ID，不更换文档身份取号绕过 |
+| 409 | 按具体错误核对本地报告、版本、项目规则或来源关联；修正后重新检查 |
+| 413 | 服务端拒绝大小超限；不截断文件、不自动调整配置 |
+| 415 / UPLOAD_CONTENT_TYPE_UNSUPPORTED | 改为原始字节上传，不换扩展名、不重复发送同一表单 |
+| 422 | 读取具体错误码；LOCAL_INGEST_REPORT_INVALID 表示报告含 errors 或结构非法，不是要求重跑服务端模板检查 |
+| 超时或断连 | 先查已有回执和结果；确需重试时保留相同内容与幂等键，输出改用新路径；不自动无限重试 |
 
-**uploaded:// 文件限制**：
-- 通过 `upload` 命令上传的文件返回 `uploaded://` URI
-- 此类文件**不会**自动创建 source observation
-- 因此**不能**用于 submit 的 source_links
-- 如需使用 uploaded 文件作为来源，必须通过 SVN/Git 采集流程或手动创建 source observation
+客户端不读取上传上限，单文件及包总量由服务端配置；Markdown 4 MiB、200 文件和路径安全约束仍存在。下载只按回执声明的大小和摘要核验。上传 URI 不是权限凭证，不可跨项目读写。
 
-**没有配置任何仓库来源的项目**才允许本地文件运行：通过 ingest-runs 提交 project、source_type=local_file、recipe_version，随后通过 source-observations 登记 run_id、repository_path（本地逻辑相对路径）、original_uri、original_sha256。原稿为包时哈希使用 register 返回的 original_sha256；整个包通过不可变 URI 保留。此类型明确表示本地文件，不能宣称 Git/SVN 来源证明。
+已经混入表单头的错误对象不能原地改写：从本机干净原稿／候选重新上传正确对象及包；若解析登记也引用了错误对象，则重新登记正确的原稿与解析稿关系。保留真实原始 PPTX/PDF 等原稿，不把候选替代原稿。最后重跑本地 ingest，并让提交请求及报告指向同一组新回执。
 
-freeze 校验服务端已经保存的正文、图片、附件、解析稿及原稿包；本地后续修改不会影响已提交版本。再次提交产生新版本，旧版本及审核目标不变。Wiki 构建发布不属于 Skill。
-
-提交复用服务器留存的原稿登记记录，检查项目归属及来源引用关系，不重新读取原稿或计算原稿哈希；候选正文、解析稿、附件和本地报告仍照常校验。冻结、审核和原稿下载沿各自接口执行。
+submit 复用服务器原稿登记元数据，不重新读取原稿计算哈希；freeze 仍检查服务器留存的原稿、解析稿、候选及附件。两者是不同阶段，不能把取消 submit 的原稿复核理解为取消冻结校验。

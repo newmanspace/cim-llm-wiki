@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, readdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
@@ -84,4 +84,29 @@ test('client streams a 37 MiB file beyond old default and server retains origina
   assert.equal(receipt.size, bytes.length)
   const stored = join(root, 'data/document-uploads/demo', receipt.uri.slice(11) + '.txt')
   assert.deepEqual(readFileSync(stored), bytes)
+})
+
+
+test('upload rejects multipart and missing or unsupported media types before storing bytes', async t => {
+  const root = directory(t), defaults = createDefaultsStore(root)
+  defaults.publish(0, 'Administrator'); defaults.bind('demo', [])
+  const server = createKnowledgeServer({ projectRoot: root, roots: {}, projectWikis: null, token: 'agent', logWriter: () => {} })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  t.after(() => { server.closeAllConnections(); server.close() })
+  const url = `http://127.0.0.1:${server.address().port}/api/v2/knowledge/upload?project=demo&filename=document.md`
+  const form = new FormData(); form.set('file', new Blob(['# Good']), 'document.md')
+  const invalid = [{ body: form }, ...[undefined, 'text/markdown', 'application/json'].map(type => ({
+    body: Buffer.from('# Good'), headers: type ? { 'Content-Type': type } : {},
+  }))]
+  for (const { body, headers } of invalid) {
+    const response = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer agent', ...headers }, body })
+    assert.equal(response.status, 415)
+    assert.equal((await response.json()).code, 'UPLOAD_CONTENT_TYPE_UNSUPPORTED')
+    assert.equal(existsSync(join(root, 'data/document-uploads')), false, 'Rejected requests must not create upload storage')
+  }
+  const response = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer agent', 'Content-Type': 'application/octet-stream' }, body: '# Good' })
+  assert.equal(response.status, 200)
+  const receipt = await response.json()
+  assert.equal(receipt.size, Buffer.byteLength('# Good'))
+  assert.equal(readFileSync(join(root, 'data/document-uploads/demo', receipt.uri.slice(11) + '.md'), 'utf8'), '# Good')
 })

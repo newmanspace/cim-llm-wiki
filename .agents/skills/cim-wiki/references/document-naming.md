@@ -21,6 +21,6 @@ node "$SKILL/scripts/client.mjs" reserve-document-identity --json-file reserve-r
 客户端按请求正文生成稳定幂等键，网络结果未知时保留相同正文重试。返回 data.document_id、filename、node_id、sequence、policy_digest；不得提交自行指定的序号或文件名。409 返回已有身份时，先明确进入修订，不能覆盖或改号另建。
 
 5. 按现有目录规则选择目标目录，使用服务返回的 filename；文档信息中的文档 ID 使用 node_id。在本地 ingest 校验中提供 document_id、identity、template_id、document 和 target_path，处理身份展示及正文错误；服务端只验证正式身份归属及命名元数据。
-6. artifacts 提交 document_id，logical_key 使用该 document_id；服务记录命名摘要并与来源和质量检查联合校验。Bundle 中每个最终页面的 document_id 使用身份 UUID（列表记录的 id／预留返回的 document_id），id 使用 node_id，template_id 使用项目真实模板 ID，type 使用该模板的 node_type，并填写模块。字段示例见[Bundle 提交](bundle-submission.md)。拆成多份文档时分别登记，不按源文件共用身份。
+6. 文档 submit 提交 document_id，logical_key 使用同一个 UUID；正文文档 ID 使用 node_id，target_path 的文件名使用 filename。成果回执 data.id 是 artifact_id，不能与正式身份混用。拆成多份文档时分别登记，不按源文件共用身份。字段见[文档结果处理](document-quality.md)。
 
 项目级业务文档使用显式注册的 common 模块，仍保留全部字段，例如 mycim-spc-glossary-common-terminology-001.md。编译、预览及重试不占号；失败预留保留，继续任务使用原身份。存量文件改名按审定迁移清单执行，禁止批量猜测、更换来源 URI 或改写不可变历史。

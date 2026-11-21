@@ -9,7 +9,7 @@ description: 本地优先处理 CIM Wiki 文档：读取 Project 模板，判定
 
 ## 职责与安装
 
-远程 Agent 通过 HTTP 传输原稿、解析稿和完整 Markdown 附件包，不要求共享挂载或 scp。实际命令与完整示例见[本地文件与附件包](references/document-packages.md)。
+远程 Agent 通过 HTTP 传输原稿、解析稿和完整 Markdown 附件包，不要求共享挂载或 scp。优先使用 client.mjs 的上传／解析命令；手工 HTTP 调用前读取[原始字节上传与完整 curl 示例](references/document-packages.md#13-直接调用-http完整上传与解析示例)，不要使用 FormData 或 curl -F。
 
 - **服务端**：项目模板与规则读取、解析基础能力、来源和文档版本保存、冻结、审核状态，以及独立的 Wiki 构建发布；不承担正文格式和模板内容校验。
 - **本地 Agent/LLM**：判定资料类型，按匹配模板或通用标准格式整理实际文档，填充正文并执行适用检查；在本地 ingest 中理解原稿、按模板提取整理并校验、核对保真、可选评分，以及提交和审核交接。不需要额外的 LLM API。
@@ -94,17 +94,17 @@ node "$SKILL/scripts/client.mjs" context --project <project-id>
 
 服务地址、目录挂载、客户端和认证状态优先从现有环境检查，向用户展示时隐藏凭据；无法确定且会影响执行的项才询问，不猜测产品版本、远程主机或存放位置。项目规则与解析引擎由服务端读取，不要求用户重填模板或提供额外 LLM API。
 
-仅新编／修订文档时确认 Project、模板与参考资料位置即可；审核／校验已有成果时确认目标 Project、文档成果 ID 或来源 URI，不要求重新配置采集环境。转换测试按下述交付条件执行，不自动冻结解析稿、提交节点 Bundle、登记归类产物、送审、导出或编译发布；这些边界不免除候选文档的内容整理、目录归类和适用检查。
+仅新编／修订文档时确认 Project、模板与参考资料位置即可；审核／校验已有成果时确认目标 Project、文档成果 ID 或来源 URI，不要求重新配置采集环境。转换测试按下述交付条件执行，不自动冻结解析稿、登记归类产物、送审、导出或编译发布；这些边界不免除候选文档的内容整理、目录归类和适用检查。
 
 ## 转换测试的交付与完成条件
 
 “转换”“转换测试”默认指：**原件 → 引擎解析稿 → 类型判定 → 匹配模板或通用标准格式的 Wiki 候选文档 → 适用的内容、格式与目录检查**。只有用户明确要求“仅解析”或“测试解析引擎”时，才停在引擎解析稿。
 
-1. 读取 context 中当前项目模板、通用格式、术语和目录规则，保留来源证据；模板清单和交付数量不能用来反推源文类型，也不为满足交付数量将其他资料改造成 URD、SDD 等。
+1. 通过 project/templates 读取当前项目模板、通用格式、术语和目录规则，context 用于来源和运行能力，保留来源证据；模板清单和交付数量不能用来反推源文类型，也不为满足交付数量将其他资料改造成 URD、SDD 等。
 2. 经服务 convert/register 取得解析稿并对照原件，核对正文、表格、公式和附件。图形按[图表转换与 Mermaid 渲染](references/diagrams.md)保留语义并验证实际渲染；PPT形状和连线也属于图。存在关键丢失时依据原件修正，无法恢复时明确标记，不补造业务事实。
 3. 按[文档类型判定与格式选择](references/document-classification.md)先判定实际类型，再决定格式：有语义匹配的专门模板时按模板整理；没有专门模板时只采用项目通用标准格式，保留原有内容结构。不得用“最接近”的模板改造源文，不给功能清单自动生成需求编号、优先级、用户场景或验收标准。
 4. 按[Project 文档编写](references/document-authoring.md)完成正文，来源及转换说明集中在参考文档；按[目录路由规则](references/document-routing.md)保存到已确认输出位置。保留原件、解析稿及附件，不将候选当成已发布页面。
-5. 候选文档调用本地 ingest 校验工具，读取完整项目规则，处理 error 并列明 warning；不调用服务端 check-document。无专门模板时执行通用格式及保真检查；服务没有通用格式检查入口时，记录本地检查结果和服务检查范围，不借其他模板取得通过结果。
+5. 候选文档调用本地 ingest 校验工具，读取完整项目规则，处理 error 并列明 warning；不调用服务端 check-document。无专门模板时执行通用格式及保真检查，不借其他模板取得通过结果。
 
 交付清单记录原件、解析稿、实际文档类型、模板匹配依据、格式模式（专门模板／通用标准格式）、候选路径、来源定位和适用检查结果。无专门模板时 template_id 留空；不能捏造模板或受控 node_type。分别报告解析成功、候选生成、通用格式检查和模板契约检查的实际数量，不能把标准格式文档计入 URD 等专项交付。格式、契约检查均不能代替内容正确性或人工审核。
 
@@ -125,7 +125,7 @@ node "$SKILL/scripts/client.mjs" context --project <project-id>
 
 ## 本地文件、附件与原始文档溯源
 
-原件、解析稿、候选及附件保存在本机业务工作目录。按[本地文件与附件包](references/document-packages.md)通过 API 上传和下载，不能把仅 Agent 可见的绝对路径或虚构 shared URI 传给服务端。已有服务 shared URI 可继续读取，但无需为新任务配置共享根。
+原件、解析稿、候选及附件保存在本机业务工作目录。按[本地文件与附件包](references/document-packages.md)通过 API 上传和下载，来源 URI 使用上传、转换或登记接口的实际回执，不将本机绝对路径作为服务端可读 URI。
 
 来源记录保留 original_uri、original_sha256、真实版本及必要 ingest_path；Git/SVN 来源必须保留真实固定 commit/revision 和证据。每份候选引用已登记的解析包和原件观察记录，包内图片附件均需有对应来源。source_location 只填写有依据的工作表、单元格、章节或页码，不编造。没有仓库配置的项目可明确登记 local_file，不伪装成仓库来源；已有仓库配置的项目不得借此绕过溯源。
 
@@ -159,13 +159,13 @@ node "$SKILL/scripts/ingest.mjs" --rules <模板接口完整响应.json> --json-
 
 来源采集按[项目数据源执行约定](references/project-sources.md)完成 run 和 observation 登记。convert/register 保留真实原件及解析包关系；源文、候选和附件通过 API 传输。原件与已提交版本不覆盖。
 
-正式提交时取得或复用文档身份，按[命名约定](references/document-naming.md)填写正式文件名和文档 ID，重跑本地 ingest 校验。然后使用文档提交请求，不构造 Wiki 节点 Bundle：
+正式提交时取得或复用文档身份，按[命名约定](references/document-naming.md)填写正式文件名和文档 ID，重跑本地 ingest 校验。然后使用文档提交请求：
 
 ```bash
 node "$SKILL/scripts/client.mjs" submit --json-file <文档提交元数据.json> --package-root <本地候选包根> --entry <入口相对路径.md> --report <本地报告.json> --output <新的提交回执.json>
 ```
 
-请求字段见[文档结果处理](references/document-quality.md)。qscore 可省略，来源无须预先冻结。服务端保存候选及解析包快照、图片附件、来源关系、正文及包哈希、本地报告和规则摘要，返回文档 ID、version、revision、workflow_state=submitted。
+请求字段见[文档结果处理](references/document-quality.md)。qscore 可省略，来源无须预先冻结。服务端保存候选及解析包快照、图片附件、来源关系、正文及包哈希、本地报告和规则摘要，返回 data.id（成果 artifact_id）、version、revision、workflow_state=submitted；正式身份 document_id 与成果 ID 不同。
 
 **submit 成功后立即在管理页面“文档结果”的文档列表中可见，并可预览候选正文、图片及下载附件；不依赖 freeze、review 或 Wiki compile。** 列表未刷新时刷新当前项目，不以等待编译解释提交结果缺失。
 
@@ -176,7 +176,7 @@ node "$SKILL/scripts/client.mjs" freeze --json-file <冻结请求.json>
 node "$SKILL/scripts/client.mjs" review --json-file <审核申请.json>
 ```
 
-freeze 请求包含 project、artifact_id、expected_revision，使用 submit 返回的当前版本号。服务核对原件、解析稿、候选及全部附件的实际哈希，再追加冻结事件，正文快照不变。提交后内容变化时重新整理、校验并提交新版本，不通过冻结覆盖旧版本。冻结成功不等于审核通过。
+freeze 请求包含 project、artifact_id、expected_revision，使用 submit 返回的当前修订号 revision，不使用业务版本或 version 字段。服务核对原件、解析稿、候选及全部附件的实际哈希，再追加冻结事件，正文快照不变。提交后内容变化时重新整理、校验并提交新版本，不通过冻结覆盖旧版本。冻结成功不等于审核通过。
 
 review 是申请文档审核，请求包含 project、artifact_id；服务端要求候选已冻结并创建人工审核任务，未评分不会阻断。Agent 可查询任务和向用户交接；独立审核人通过管理界面作出决定，Skill 不持有人工审核令牌、不指定审核身份。修改稿件产生新版本，历史和审核证据保留。
 
@@ -184,7 +184,7 @@ review 是申请文档审核，请求包含 project、artifact_id；服务端要
 
 报告实际生成、草稿保存、提交、冻结及审核申请结果，给出候选路径、来源、检查报告、文档 ID 和明确状态。评分可选，未评分不伪造默认分数。管理页本地报告不等同于服务端认可正文质量。
 
-Wiki compile、站点构建和发布属于服务器独立行为。Skill 不调用 compile、validate、publish-document，不构造或提交用于 Wiki 发布的节点 Bundle，不将文档审核完成宣称为 Wiki 已发布。服务端只做身份、权限、路径安全、哈希、版本及状态等入库边界检查，正文格式与模板检查在本地 ingest 中完成。
+Wiki compile、站点构建和发布属于服务器独立行为。Skill 不调用 compile、validate、publish-document，不将文档审核完成宣称为 Wiki 已发布。服务端只做身份、权限、路径安全、哈希、版本、报告一致性及状态等入库边界检查，正文格式与模板检查在本地 ingest 中完成。
 
 ## 项目文档目录
 

@@ -195,7 +195,7 @@ test('conversion CLI delegates Office parsing to HTTP and preserves returned ima
   assert.equal(readFileSync(join(root, 'data/raw/wip/manual.xlsx'), 'utf8'), 'source-office-bytes')
 })
 
-test('portable skill client uses independent reviewer credentials and rejects invalid origins', async (t) => {
+test('portable skill client requests review with agent credentials and rejects invalid origins', async (t) => {
   const root = workspace(t),
     script = '.agents/skills/cim-wiki/scripts/client.mjs',
     requests = []
@@ -216,8 +216,10 @@ test('portable skill client uses independent reviewer credentials and rejects in
   }
   await ok(script, ['context', '--project', 'mes'], env)
   assert.equal(requests.at(-1).path, '/api/v2/knowledge/context?project=mes')
-  await ok(script, ['review', '--json-file', '-'], env, '{"decision":"approve"}')
-  assert.equal(requests.at(-1).auth, 'Bearer reviewer-unit-token')
+  await ok(script, ['review', '--json-file', '-'], env, '{"project":"mes","artifact_id":"artifact-1"}')
+  assert.equal(requests.at(-1).path, '/api/v2/knowledge/document-review-requests')
+  assert.equal(requests.at(-1).auth, 'Bearer agent-unit-token')
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { project: 'mes', artifact_id: 'artifact-1' })
   await ok(script, ['context', '--project', 'mes'], env)
   status = 403
   response = { error: 'forbidden' }
@@ -240,11 +242,14 @@ test('portable skill client uses independent reviewer credentials and rejects in
     base + '?query=1',
   ])
     assert.equal((await cli(script, ['context'], { ...env, CIM_WIKI_URL: origin })).code, 1)
+  status = 200
+  const beforeMissingToken = requests.length
   assert.equal(
-    (await cli(script, ['review', '--json-file', '-'], { ...env, CIM_WIKI_REVIEW_TOKEN: '' }, '{}'))
+    (await cli(script, ['review', '--json-file', '-'], { ...env, CIM_WIKI_TOKEN: '' }, '{}'))
       .code,
     1,
   )
+  assert.equal(requests.length, beforeMissingToken, 'A reviewer token alone must not authorize an Agent review request')
 })
 
 test('Admin client refreshes a configured project without leaking another project token', async (t) => {

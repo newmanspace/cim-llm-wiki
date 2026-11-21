@@ -10,8 +10,8 @@
 | render-document | POST /render-document | --json-file，project/template_id/values |
 | directories | GET /directories?project=ID | --project |
 | context | GET /context?project=ID | --project |
-| document | GET /document?source=URI | --source |
-| upload | POST /upload?project=ID&filename=NAME | --project、--file；二进制上传 |
+| document | GET /document?project=ID&source=URI | --project、--source；有歧义时 --id=来源登记 doc_id |
+| upload | POST /upload?project=ID&filename=NAME | --project、--file；原始字节，Content-Type 必须为 application/octet-stream |
 | upload-package | POST /document-packages | --project、--package-root、--entry；完整文件清单 |
 | download-package | GET /document-packages，GET /uploads/content | --project、--source、--download-dir；逐文件核验哈希 |
 | convert | POST /convert | --json-file、--file、--download-dir；自动上传原件并下载解析包 |
@@ -19,12 +19,14 @@
 | state | POST /state | --json-file |
 | save-draft | POST /document-drafts | --json-file；草稿保存 |
 | submit | POST /document-submit | --json-file；完整候选、来源及本地报告 |
+| ingest-runs | POST /ingest-runs | --json-file；真实来源配置和固定版本，或当前运行的终态更新 |
+| source-observations | POST /source-observations | --json-file；run_id、原稿 URI／哈希及实际版本证据 |
 | freeze | POST /document-freeze | --json-file；project/artifact_id/expected_revision |
 | review | POST /document-review-requests | --json-file；project/artifact_id，申请人工审核 |
 
-客户端通用选项：`--output FILE` 以 0600 权限保存完整 JSON 响应（成功和 HTTP 错误均保存），stdout 改为文件回执；已有文件在请求前拒绝，避免覆盖。`context --summary` 仅输出配置、能力、诊断和模板标识摘要，可与 --output 同用；其他命令不接受 --summary。
+客户端通用选项：`--output FILE` 以 0600 权限保存最终 JSON 响应（已读取到 JSON 的成功和 HTTP 错误均保存；自动上传／封装阶段的失败在 stderr，不能保证最终响应文件存在），stdout 改为文件回执；已有文件在请求前拒绝，避免覆盖。`context --summary` 仅输出配置、能力、诊断和模板标识摘要，可与 --output 同用；其他命令不接受 --summary。
 
-文档提交字段见[文档结果处理](document-quality.md)。本地 ingest 校验错误时非零退出；HTTP 错误保留完整响应与 request_id。不构造 Wiki 节点 Bundle。
+文档提交字段见[文档结果处理](document-quality.md)。本地 ingest 校验错误时非零退出；HTTP 错误保留完整响应与 request_id。
 
 除 upload 为二进制请求体外，写操作请求为 JSON；`--json-file -` 从 stdin 读取。客户端显示服务响应，HTTP 失败或完整校验发现 errors 时以非零状态退出，不自动重复写入请求。
 
@@ -102,7 +104,7 @@ context 保留现有运行时聚合视图。repository_docs 的运行时模板�
 
 当前接口从服务端 `contracts/wiki/v1/vocabulary.json` 返回全局词表，没有按项目覆盖的配置能力。Skill 安装端通过接口读取，不复制该文件。项目业务术语资料的使用见[抽取说明](extraction.md#项目术语与命名)。
 
-审核等级不从词表自行推导。当前 `context` 不返回完整审核策略，服务端仍包含按业务关键词升级审核的规则；提交时遵循实际校验结果，要求人工审核时等待独立裁决，不通过删改原文或更换词语绕过门禁。评分与审核交接见[evaluation.md](evaluation.md#审核等级门限)。
+文档 submit 的 qscore 可选，不要求 review_level，不从业务关键词或分数推导人工批准。文档 review 创建人工审核任务，独立审核人在管理界面决定。评分与审核边界见[evaluation.md](evaluation.md)。
 
 ## 可选：初始化产品展示目录
 
@@ -114,7 +116,7 @@ initialize 复用现有 project 命名空间，只接受 project、name、produc
 
 convert 接受 project、system、version、category、source（uploaded URI 或受支持的原稿包）、可选 engine；自动分配解析输出。register 接受相同元数据及 Markdown 原稿包，无须解析。二者返回来源记录、markdown、parsed_uri、parsed_sha256、package_sha256、entry 和 files；通过鉴权下载 API 落地全部解析附件。
 
-客户端快捷命令、包清单和来源关联见[本地文件与附件包](document-packages.md)。已有 shared 请求仍用于历史服务能力，新 Skill 不要求 source/parsed 共享路径；不得把本机绝对路径发给服务端读取。
+客户端快捷命令、原始字节上传、完整 curl 请求／回执衔接、包清单和来源关联见[本地文件与附件包](document-packages.md)。source/parsed URI 使用接口回执；本机文件通过上传接口传输。
 
 ## 定稿与重新开放
 
@@ -133,6 +135,6 @@ action 仅支持 freeze/unfreeze。定稿是稿件状态记录，不等同于人
 
 ## 文档提交、冻结与审核
 
-submit 对应 POST /api/v2/knowledge/document-submit，不再提交节点 Bundle。文档请求字段和草稿保存见 [文档结果处理](document-quality.md)。提交成功即进入文档结果列表，可在未冻结、未评分时预览。freeze 对应 document-freeze，review 对应 document-review-requests（申请，不是批准）。
+submit 对应 POST /api/v2/knowledge/document-submit。文档请求字段和草稿保存见 [文档结果处理](document-quality.md)。提交成功即进入文档结果列表，可在未冻结、未评分时预览。freeze 对应 document-freeze，review 对应 document-review-requests（申请，不是批准）。
 
 正文、模板、目录适配和保真检查由本地 ingest 完成，不再提供 Skill 使用的 check-document。服务保留路径安全、身份、项目、版本、哈希与状态检查。Wiki compile、构建、发布由服务器独立负责，不属于 Skill 命令。

@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs'
 import { schemaErrors, schemaDiagnostics } from '../contracts.mjs'
 import { builtinDefaults, templateFor } from '../document-defaults.mjs'
 
-const example = () => JSON.parse(readFileSync(new URL('../../../.agents/skills/cim-wiki/references/examples/sdd-bundle.json', import.meta.url), 'utf8'))
+const example = () => JSON.parse(readFileSync(new URL('./fixtures/sdd-bundle.json', import.meta.url), 'utf8'))
 
-test('the portable SDD Bundle example satisfies the full machine schema and selects the actual SDD type', () => {
+test('the SDD Bundle fixture satisfies the full machine schema and selects the actual SDD type', () => {
   const bundle = example(), node = bundle.nodes[0]
   assert.deepEqual(schemaErrors('bundle', bundle), [])
   assert.deepEqual(schemaDiagnostics('submissionBundle', bundle), [])

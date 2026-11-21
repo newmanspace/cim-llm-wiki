@@ -88,6 +88,14 @@ function actor(value) {
     fail('An identified human reviewer is required')
   return value.trim()
 }
+function requireBinaryUpload(req) {
+  const mediaType = (req.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase()
+  if (mediaType !== 'application/octet-stream')
+    throw Object.assign(new Error('Send raw file bytes as application/octet-stream; multipart/form-data is not supported'), {
+      status: 415, code: 'UPLOAD_CONTENT_TYPE_UNSUPPORTED',
+    })
+}
+
 async function body(req) {
   const chunks = []
   let size = 0
@@ -1061,6 +1069,7 @@ export function createKnowledgeServer({
       return false
     }
       if (url.pathname === PREFIX + '/upload' && req.method === 'POST') {
+        requireBinaryUpload(req)
         const project = identifier(url.searchParams.get('project'))
         await discovery.projectInfo(project)
         const result = await uploads.upload(project, url.searchParams.get('filename'), req)

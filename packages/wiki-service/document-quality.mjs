@@ -3,8 +3,6 @@ import { documentResources } from '../wiki-core/document-package.mjs'
 import { validateOptionalScore } from '../wiki-core/quality-score.mjs'
 import { requestID } from './request-logs.mjs'
 import { createDefaultsStore } from '../wiki-core/document-defaults.mjs'
-import { checkCandidate } from '../wiki-core/local-ingest.mjs'
-import { NODE_TYPES } from '../wiki-core/contracts.mjs'
 import { documentDirectoryRule, validateDocumentTargetPath } from '../wiki-core/document-routing.mjs'
 import { verifyGitEvidence } from './source-evidence.mjs'
 import {
@@ -233,8 +231,12 @@ export function createDocumentQuality({
     if (artifact.parsed_snapshot_path && hashFile(artifact.parsed_snapshot_path) !== artifact.parsed_sha256)
       fail('Parsed snapshot changed or is missing', 409)
   }
-  function checkLocalReport(project, data, content, binding) {
+  function checkLocalReport(project, data, content, binding, draft) {
     if (!data.local_report) return
+    if (!draft && (!Array.isArray(data.local_report.errors) || data.local_report.errors.length))
+      throw Object.assign(new Error('Local ingest report contains errors or is invalid'), {
+        status: 422, code: 'LOCAL_INGEST_REPORT_INVALID',
+      })
     if (data.local_report.project !== project || data.local_report.content_sha256 !== content.sha256 ||
         data.local_report.document_contract_digest !== binding.digest ||
         data.local_report.target_path !== data.target_path ||
@@ -293,14 +295,20 @@ export function createDocumentQuality({
       data.naming_digest = naming.digest
     }
   }
-  async function prepareArtifact(project, data, draft = false) {
-    if (!draft || data.document_id) await prepareNamingIdentity(project, data)
-    validateTarget(data.target_path)
-    validateOptionalScore(data.qscore)
+  function submissionBinding(project, data) {
     const binding = createDefaultsStore(projectRoot).effective(project)
     if (data.document_contract_digest && data.document_contract_digest !== binding.digest)
       fail('Project rules changed; refresh local rules and checks', 409)
     data.document_contract_digest = binding.digest
+    if (data.template_id && !binding.definition.templates.some(template => template.id === data.template_id))
+      throw Object.assign(new Error('Template is not registered in the project'), { status: 422, code: 'DOCUMENT_TEMPLATE_UNKNOWN' })
+    return binding
+  }
+  async function prepareArtifact(project, data, draft = false) {
+    if (!draft || data.document_id) await prepareNamingIdentity(project, data)
+    validateTarget(data.target_path)
+    validateOptionalScore(data.qscore)
+    const binding = submissionBinding(project, data)
     const doc = registeredDocument(data.parsed_uri, project, data.parsed_source_id)
     if (doc.project !== project)
       fail('Parsed source belongs to another project', 403)
@@ -309,7 +317,6 @@ export function createDocumentQuality({
       fail('Artifact hash mismatch', 409)
     const document = readFileSync(content.path, 'utf8')
     validateMarkdown(document, content.package)
-    if (!draft) validateSubmission(project, data, document, binding)
     const parsed = snapshot(project, data.parsed_uri)
     data.parsed_sha256 = parsed.sha256
     data.parsed_snapshot_path = parsed.path
@@ -318,21 +325,10 @@ export function createDocumentQuality({
       data.parsed_package_sha256 = parsed.package?.package_sha256 ?? null
       if (!data.local_report || data.local_report.package_sha256 !== data.package_sha256) fail('Local report does not match document attachments', 409)
     }
-    checkLocalReport(project, data, content, binding)
+    checkLocalReport(project, data, content, binding, draft)
     await checkOriginalLinks(project, data, doc)
     data.content_sha256 = content.sha256
     data.snapshot_path = content.path
-  }
-  function validateSubmission(project, data, document, binding) {
-    let report
-    try {
-      report = checkCandidate({ project, ...binding.definition, binding, node_contracts: NODE_TYPES }, { ...data, project, document })
-    } catch (error) {
-      throw Object.assign(new Error(error.message), { status: 422, code: 'DOCUMENT_SUBMISSION_INVALID' })
-    }
-    if (report.errors.length) throw Object.assign(new Error('Document submission validation failed'), {
-      status: 422, code: 'DOCUMENT_SUBMISSION_INVALID', diagnostics: report.errors,
-    })
   }
   async function checkOriginalLinks(project, data, doc) {
     const links = data.source_links
