@@ -46,3 +46,38 @@ test('submit validates actual template content and directory semantics before pe
  const draft=await quality.mutate('document-drafts',input,'draft-boundary')
  assert.equal(draft.target_path,path,'Drafts remain available for authoring incomplete content')
 })
+
+test('submission uses retained original metadata without reopening original bytes', async t => {
+ const { createDocumentUploads } = await import('../../wiki-service/document-uploads.mjs')
+ const { unlinkSync } = await import('node:fs')
+ const root=mkdtempSync(join(tmpdir(),'retained-original-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
+ const store=createDefaultsStore(root);store.publish(0,'Administrator');store.bind('demo',[]);store.bind('other',[])
+ const uploads=createDocumentUploads({projectRoot:root,roots:{team:root}})
+ const original=uploads.put('demo','original.md',Buffer.from('# Original'))
+ const originalPack=uploads.seal('demo',{entry:'original.md',files:[{path:'original.md',uri:original.uri,sha256:original.sha256}]})
+ const template=store.effective('demo').definition.templates.find(item=>item.id==='sdd')
+ writeFileSync(join(root,'candidate.md'),template.example)
+ writeFileSync(join(root,'parsed.md'),'# Parsed')
+ const observations=[{id:'wrong',original_uri:original.uri,original_sha256:'0'.repeat(64)},{id:'single',original_uri:original.uri,original_sha256:original.sha256},
+  {id:'package',original_uri:originalPack.uri,original_sha256:original.sha256}]
+ const persisted=[]
+ const ledger=createServer(async(req,res)=>{
+  let body='';for await(const chunk of req)body+=chunk
+  res.setHeader('Content-Type','application/json')
+  const matchesProject=req.url.startsWith('/internal/v1/projects/demo/')
+  if(req.method==='POST')persisted.push(JSON.parse(body))
+  res.end(JSON.stringify({data:req.method==='POST'?JSON.parse(body):{items:matchesProject?observations:[],next_cursor:null}}))
+ });ledger.listen(0,'127.0.0.1');await once(ledger,'listening');t.after(()=>{ledger.closeAllConnections();ledger.close()})
+ const record={project:'demo',original_uri:original.uri,original_sha256:original.sha256}
+ const quality=createDocumentQuality({projectRoot:root,roots:{team:root},uploads,ledgerURL:`http://127.0.0.1:${ledger.address().port}`,ledgerToken:'test',registeredDocument:()=>record})
+ const input={project:'demo',template_id:'sdd',target_path:'doc/50-designs/example.md',content_uri:'shared://team/candidate.md',parsed_uri:'shared://team/parsed.md',source_links:[{source_version_id:'single'}]}
+ // Any content read of this retained original now fails. Metadata must suffice.
+ unlinkSync(uploads.file('demo',original.uri).path)
+ assert.equal((await quality.mutate('document-submit',input,'single')).source_links[0].source_version_id,'single')
+ record.original_uri=originalPack.uri
+ assert.equal((await quality.mutate('document-submit',{...input,source_links:[{source_version_id:'package'}]},'package')).source_links[0].source_version_id,'package')
+ await assert.rejects(quality.mutate('document-submit',{...input,source_links:[{source_version_id:'missing'}]},'missing'),/not found/)
+ await assert.rejects(quality.mutate('document-submit',{...input,source_links:[{source_version_id:'wrong'}]},'mismatched'),/registered original/)
+ await assert.rejects(quality.mutate('document-submit',{...input,project:'other'},'cross'),/another project/)
+ assert.equal(persisted.length,2)
+})

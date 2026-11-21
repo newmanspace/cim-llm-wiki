@@ -35,6 +35,11 @@ function readStored(path, encoding, message = 'Uploaded file is missing or chang
     throw error
   }
 }
+const sizeLimit = (limit, size, kind = 'file') => {
+  throw Object.assign(new Error(kind + ' exceeds configured upload limit (' + size + ' > ' + limit + ' bytes)'), {
+    status: 413, code: 'UPLOAD_SIZE_LIMIT_EXCEEDED', diagnostics: [{ kind, limit_bytes: limit, received_bytes: size }],
+  })
+}
 const projectID = (value) => {
   if (
     typeof value !== 'string' ||
@@ -100,7 +105,7 @@ export function createDocumentUploads({ projectRoot, roots }) {
     try {
       for await (const chunk of stream) {
         size += chunk.length
-        if (size > maxFile) fail('File exceeds upload limit', 413)
+        if (size > maxFile) sizeLimit(maxFile, size)
         if (prefix.length < 512)
           prefix = Buffer.concat([prefix, chunk.subarray(0, 512 - prefix.length)])
         hash.update(chunk)
@@ -121,7 +126,7 @@ export function createDocumentUploads({ projectRoot, roots }) {
     }
   }
   function put(project, filename, bytes) {
-    if (bytes.length > maxFile) fail('File exceeds upload limit', 413)
+    if (bytes.length > maxFile) sizeLimit(maxFile, bytes.length)
     const temp = join(directory(project), randomUUID() + '.tmp')
     writeFileSync(temp, bytes, { flag: 'wx', mode: 0o600 })
     try {
@@ -139,14 +144,14 @@ export function createDocumentUploads({ projectRoot, roots }) {
     saveJSON(join(directory(project), uri.slice(11) + '.pin.json'), { referenced: true })
     return { ...value, path }
   }
-  function getPackage(project, uri) {
+  function packageMetadata(project, uri) {
     const value = metadata(project, uri, 'document-package')
-    if (
-      value.uri !== uri ||
-      uri !== 'document-package://' + packageDigest(value) ||
-      packageDigest(value) !== value.package_sha256
-    )
-      fail('Package manifest changed', 409)
+    if (value.uri !== uri || uri !== 'document-package://' + packageDigest(value) ||
+        packageDigest(value) !== value.package_sha256) fail('Package manifest changed', 409)
+    return value
+  }
+  function getPackage(project, uri) {
+    const value = packageMetadata(project, uri)
     for (const item of value.files) {
       const stored = file(project, item.uri)
       if (
@@ -173,8 +178,8 @@ export function createDocumentUploads({ projectRoot, roots }) {
       }
     })
     const manifest = packageManifest(input.entry, files)
-    if (files.reduce((size, item) => size + item.size, 0) > maxPackage)
-      fail('Package exceeds size limit', 413)
+    const size = files.reduce((size, item) => size + item.size, 0)
+    if (size > maxPackage) sizeLimit(maxPackage, size, 'package')
     if (
       !readStored(
         file(project, files.find((item) => item.path === input.entry).uri).path,
@@ -242,5 +247,5 @@ export function createDocumentUploads({ projectRoot, roots }) {
     }
     return { removed }
   }
-  return { upload, put, file, seal, getPackage, resolve, cleanup }
+  return { upload, put, file, seal, getPackage, packageMetadata, resolve, cleanup }
 }
