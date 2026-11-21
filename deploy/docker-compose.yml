@@ -74,6 +74,8 @@ services:
       - CIM_WIKI_WORKSPACE=/app
       - CIM_WIKI_LEDGER_URL=${CIM_WIKI_LEDGER_URL:-}
       - CIM_WIKI_LEDGER_TOKEN=${CIM_WIKI_LEDGER_TOKEN:-}
+      - CIM_WIKI_UPLOAD_MAX_BYTES=${CIM_WIKI_UPLOAD_MAX_BYTES:?Set single-file upload limit in bytes}
+      - CIM_WIKI_PACKAGE_MAX_BYTES=${CIM_WIKI_PACKAGE_MAX_BYTES:?Set package upload limit in bytes}
       - CIM_WIKI_ORGANIZED_ROOT=/organized
       - WIKI_ROOT=/app/data/wiki
       - CIM_WIKI_BUILD_ENABLED=${CIM_WIKI_BUILD_ENABLED:-true}

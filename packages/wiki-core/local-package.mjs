@@ -1,4 +1,3 @@
-import { documentLimits } from './package-limits.mjs'
 import { lstatSync, realpathSync } from 'node:fs'
 import { readRegularFile } from './safe-files.mjs'
 import { resolve, relative, sep, join } from 'node:path'
@@ -13,7 +12,6 @@ import { mediaType } from './file-media.mjs'
 
 export function collectLocalPackage(root, entry) {
   packagePath(entry)
-  const limits = documentLimits()
   const base = realpathSync(root),
     pending = [entry],
     seen = new Set(),
@@ -36,7 +34,6 @@ export function collectLocalPackage(root, entry) {
     if (rel === '..' || rel.startsWith('..' + sep) || !lstatSync(local).isFile())
       throw new Error('Resource escaped package root or is not a file')
     const bytes = readRegularFile(local)
-    if (bytes.length > limits.file) throw new Error('Package file exceeds configured upload limit')
     files.push({
       path,
       sha256: sha256(bytes),
@@ -58,8 +55,6 @@ export function collectLocalPackage(root, entry) {
       pending.push(...dependencies.resources.map((resource) => resource.path))
     }
   }
-  if (files.reduce((size, file) => size + file.size, 0) > limits.package)
-    throw new Error('Package exceeds configured byte limit')
   if (
     images.some(
       (path) =>

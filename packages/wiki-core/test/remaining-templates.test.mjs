@@ -51,3 +51,16 @@ test('optional supporting artifacts do not replace canonical requirements, desig
   assert.match(testCase.example, /未执行/)
   assert.match(templates.find((t) => t.id === 'deployment').example, /回退与数据恢复/)
 })
+
+
+test('product introduction follows version entry points and is required by its contract', () => {
+  const template = builtinDefaults().templates.find(t => t.id === 'product')
+  assert.deepEqual(template.contract.sections, [
+    '文档信息', '1. 产品定位与目标', '2. 能力与模块', '3. 边界与系统关系',
+    '4. 版本与使用入口', '5. 功能介绍', '参考文档', '修订记录',
+  ])
+  assert.match(template.body, /## 5\. 功能介绍/)
+  assert.deepEqual(checkDocument(template, template.example), [])
+  const missing = template.example.replace(/## 5\. 功能介绍[\s\S]*?(?=## 参考文档)/, '')
+  assert.ok(checkDocument(template, missing).some(d => d.rule_id === 'section_required'))
+})

@@ -338,9 +338,9 @@ export function createDocumentQuality({
     const links = data.source_links
     if (!Array.isArray(links) || !links.length)
       fail('Source links are required')
-    if (hashFile(resolveInput(project, doc.original_uri)) !== doc.original_sha256)
-      fail('Original document changed after parsing', 409)
-    const pack = inputPackage(project, doc.original_uri)
+    // Originals are retained by the service; submission checks registered associations only.
+    const pack = doc.original_uri?.startsWith('document-package://')
+      ? uploads.packageMetadata(project, doc.original_uri) : null
     const required = pack ? pack.files : [{ uri: doc.original_uri, sha256: doc.original_sha256 }]
     const observed = []
     for (const link of links) observed.push(await find(project, 'source-observations', link.source_version_id))

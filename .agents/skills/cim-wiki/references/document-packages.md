@@ -95,7 +95,7 @@ node "$SKILL/scripts/client.mjs" upload --project <project> --file /local/origin
 node "$SKILL/scripts/client.mjs" upload-package --project <project> --package-root /local/work/candidate --entry document.md --output /local/work/package.json
 ```
 
-默认限制：单文件 25 MiB、Markdown 4 MiB、单包 100 MiB、200 文件。超限明确报错；不自动截断。上传 URI 不携带权限，跨项目不能读取或引用；文件哈希不是访问凭证。
+上传单文件及包总量上限由服务端部署参数 `CIM_WIKI_UPLOAD_MAX_BYTES`、`CIM_WIKI_PACKAGE_MAX_BYTES` 配置，单位为字节，服务启动时必须提供正安全整数。客户端直接上传，不查询或预校验上传大小限制；服务端超限返回 HTTP 413，客户端报告实际响应，不自动重试或截断。Markdown 4 MiB、200 文件及路径／清单安全检查仍保留。下载按清单大小和摘要核验，不读取上传限制配置。上传 URI 不携带权限，跨项目不能读取或引用；文件哈希不是访问凭证。
 
 ## 4. 来源证据
 
@@ -115,3 +115,5 @@ node "$SKILL/scripts/client.mjs" upload-package --project <project> --package-ro
 **没有配置任何仓库来源的项目**才允许本地文件运行：通过 ingest-runs 提交 project、source_type=local_file、recipe_version，随后通过 source-observations 登记 run_id、repository_path（本地逻辑相对路径）、original_uri、original_sha256。原稿为包时哈希使用 register 返回的 original_sha256；整个包通过不可变 URI 保留。此类型明确表示本地文件，不能宣称 Git/SVN 来源证明。
 
 freeze 校验服务端已经保存的正文、图片、附件、解析稿及原稿包；本地后续修改不会影响已提交版本。再次提交产生新版本，旧版本及审核目标不变。Wiki 构建发布不属于 Skill。
+
+提交复用服务器留存的原稿登记记录，检查项目归属及来源引用关系，不重新读取原稿或计算原稿哈希；候选正文、解析稿、附件和本地报告仍照常校验。冻结、审核和原稿下载沿各自接口执行。

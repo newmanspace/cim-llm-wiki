@@ -42,5 +42,3 @@ function checkIdentity(input, naming) {
 
 export { collectLocalPackage } from './local-package.mjs'
 export { packagePath, resourcePath, packageDigest } from './document-package.mjs'
-
-export { documentLimits } from './package-limits.mjs'

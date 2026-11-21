@@ -41,6 +41,9 @@ jobs:
           --health-interval 2s --health-timeout 3s --health-retries 20
     env:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/cim_quality_node?sslmode=disable
+      # Explicit capacities for isolated test services, not production defaults.
+      CIM_WIKI_UPLOAD_MAX_BYTES: "52428800"
+      CIM_WIKI_PACKAGE_MAX_BYTES: "104857600"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -217,6 +220,10 @@ jobs:
     name: Configuration checks
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      # Explicit capacities for Compose validation, not production defaults.
+      CIM_WIKI_UPLOAD_MAX_BYTES: "52428800"
+      CIM_WIKI_PACKAGE_MAX_BYTES: "104857600"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
